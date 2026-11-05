@@ -88,7 +88,9 @@
   <button data-tab="data" class="on">データ</button>
   <button data-tab="eval">モデル評価</button>
   <button data-tab="unit">ユニットテスト</button>
+  <button data-tab="train">学習の進捗</button>
 </nav>
+<main class="tab" id="tab-train" hidden></main>
 <main class="tab" id="tab-eval" hidden></main>
 <main class="tab" id="tab-unit" hidden></main>
 <main class="tab" id="tab-data">
@@ -206,10 +208,66 @@ function showTab(t) {
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   document.querySelectorAll('.tab').forEach(m => m.hidden = m.id !== 'tab-' + t);
   history.replaceState(null, '', '#' + t);
-  if (t !== 'data') loadResults();
+  clearInterval(pollTimer);
+  if (t === 'train') { loadProgress(); pollTimer = setInterval(loadProgress, 3000); }
+  else if (t !== 'data') loadResults();
 }
+let pollTimer;
 document.querySelector('nav').onclick = e => { if (e.target.dataset.tab) showTab(e.target.dataset.tab); };
-if (['eval', 'unit'].includes(location.hash.slice(1))) showTab(location.hash.slice(1));
+if (['eval', 'unit', 'train'].includes(location.hash.slice(1))) showTab(location.hash.slice(1));
+
+// ---------- training progress ----------
+const dur = s => s < 60 ? `${Math.round(s)}秒` : s < 3600 ? `${Math.floor(s / 60)}分${Math.round(s % 60)}秒` : `${Math.floor(s / 3600)}時間${Math.round(s % 3600 / 60)}分`;
+const clock = t => new Date(t * 1000).toLocaleTimeString('ja-JP');
+
+function loadProgress() {
+  fetch('/api/progress').then(r => r.json()).then(({ now, progress: P }) => renderProgress(P, now));
+}
+
+function chart(rows, key, label) {
+  const pts = rows.filter(r => r[key] != null);
+  if (pts.length < 1) return '';
+  const W = 260, H = 80, vals = pts.map(r => r[key]);
+  const isAcc = key.includes('accuracy'), lo = isAcc ? 0 : Math.min(...vals), hi = isAcc ? 1 : Math.max(...vals);
+  const n = Math.max(rows.length, 2) - 1;
+  const xy = pts.map((r, i) => [6 + (r.epoch - rows[0].epoch) / (n || 1) * (W - 12), H - 6 - (r[key] - lo) / ((hi - lo) || 1) * (H - 12)]);
+  const last = vals[vals.length - 1];
+  return `<div><div class="hint">${label}　最新 <b style="color:var(--text)">${isAcc ? pct(last) : last.toFixed(3)}</b></div>
+    <svg width="100%" viewBox="0 0 ${W} ${H}" style="background:var(--bg);border-radius:6px" role="img" aria-label="${label}の推移">
+      <polyline fill="none" stroke="var(--accent)" stroke-width="2" points="${xy.map(p => p.join(',')).join(' ')}"/>
+      ${xy.length ? `<circle cx="${xy.at(-1)[0]}" cy="${xy.at(-1)[1]}" r="3" fill="var(--accent)"/>` : ''}
+    </svg></div>`;
+}
+
+function renderProgress(P, now) {
+  const el = $('tab-train');
+  if (!P) { el.innerHTML = `<div class="panel">まだ学習の記録がありません。<code>tools/.venv/Scripts/python tools/train.py</code> を実行するとここに進捗が出ます。</div>`; return; }
+  const stale = P.status === 'running' && now - P.updated > 180;
+  const status = stale ? ['応答なし（止まった可能性）', 'ng'] : { running: ['学習中', ''], done: ['完了', 'ok'], failed: ['失敗・中断', 'ng'] }[P.status];
+  const pi = P.phases.indexOf(P.phase);
+  const inPhase = P.epochs ? (P.epoch + (P.steps ? P.step / P.steps : 0)) / P.epochs : 0;
+  const overall = P.status === 'done' ? 1 : pi < 0 ? 0 : (pi + inPhase) / P.phases.length;
+  const phaseEl = P.phaseStarted ? now - P.phaseStarted : 0;
+  const eta = P.status === 'running' && !stale && inPhase > 0.02 ? phaseEl / inPhase * (1 - inPhase) : null;
+  const bar = f => `<div style="height:10px;background:var(--bg);border-radius:5px;overflow:hidden"><div style="height:100%;width:${f * 100}%;background:var(--accent)"></div></div>`;
+  el.innerHTML = `<section class="tiles">
+      <div class="tile"><b class="${status[1]}" style="font-size:18px">${status[0]}</b><span>状態（${P.args || '引数なし'}）</span></div>
+      <div class="tile"><b>${pct(overall)}</b><span>全体の進捗</span></div>
+      <div class="tile"><b style="font-size:18px">${esc(P.phase || '-')}</b><span>段階 ${pi + 1}/${P.phases.length}</span></div>
+      <div class="tile"><b>${P.epoch}/${P.epochs}</b><span>エポック（${P.step}/${P.steps} ステップ）</span></div>
+      <div class="tile"><b style="font-size:18px">${eta != null ? '約' + dur(eta) : '-'}</b><span>この段階の残り時間</span></div>
+      <div class="tile"><b style="font-size:18px">${dur((P.status === 'running' ? now : P.updated) - P.started)}</b><span>経過（開始 ${clock(P.started)}・更新 ${clock(P.updated)}）</span></div>
+    </section>
+    <div class="panel"><h2>段階</h2>
+      ${P.phases.map((ph, i) => `<div style="display:grid;grid-template-columns:150px 1fr 60px;gap:10px;align-items:center;margin-bottom:6px">
+        <span>${esc(ph)}</span>${bar(i < pi || P.status === 'done' ? 1 : i === pi ? inPhase : 0)}<span class="hint">${i < pi || P.status === 'done' ? '完了' : i === pi ? pct(inPhase) : '待ち'}</span></div>`).join('')}
+      ${P.error ? `<pre class="hint" style="white-space:pre-wrap">${esc(P.error)}</pre>` : ''}
+      <p class="note">3秒ごとに自動更新。棚種類は前半が最終層のみ、後半が微調整の2段階。</p></div>
+    <section class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
+      ${Object.entries(P.history).filter(([, rows]) => rows.length).map(([ph, rows]) => `<div class="panel"><h2>${esc(ph)}</h2>
+        ${chart(rows, 'loss', '損失（学習）')}${chart(rows, 'accuracy', '正解率（学習）')}${chart(rows, 'val_accuracy', '正解率（検証用）')}</div>`).join('')}
+    </section>`;
+}
 const pct = x => (x * 100).toFixed(0) + '%';
 const thumb = f => `/thumb/${encodeURIComponent(f)}`;
 

@@ -3,7 +3,7 @@
   python dashboard/serve.py [--data ../df-2026-t089/training_images] [--port 8765]
   -> http://127.0.0.1:8765
 """
-import argparse, csv, datetime, io, json
+import argparse, csv, datetime, io, json, time
 import xml.etree.ElementTree as ET
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -76,6 +76,10 @@ class Handler(BaseHTTPRequestHandler):
             d = build_data(self.data)
             Handler.files = {i["file"] for i in d["images"]}
             return self.send(json.dumps(d, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+        if path == "/api/progress":
+            pf = ROOT / "tools/.cache/progress.json"
+            body = pf.read_text(encoding="utf-8") if pf.exists() else "null"
+            return self.send(f'{{"now": {time.time()}, "progress": {body}}}'.encode(), "application/json; charset=utf-8")
         if path == "/api/results":
             return self.send(json.dumps(build_results(), ensure_ascii=False).encode(), "application/json; charset=utf-8")
         for prefix in ("/img/", "/thumb/"):

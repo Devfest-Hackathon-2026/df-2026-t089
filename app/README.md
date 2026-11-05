@@ -43,5 +43,6 @@ python dashboard/serve.py --data <training_images のパス>   # → http://127.
 - モデル評価（`#eval`）：検証用データでの正解率・誤分類画像・境界の正解/予測の重ね表示・しきい値ごとの精度。
   `tools/train.py --eval-only` が書く `tools/results/eval.json` を表示する
 - ユニットテスト（`#unit`）：`./gradlew testDebugUnitTest` の結果
+- 学習の進捗（`#train`）：`tools/train.py` 実行中の段階・エポック・残り時間・損失や正解率の推移（3秒ごとに更新）
 
 Pillow があればサムネイルを `dashboard/.cache/` に作る。
