@@ -74,6 +74,9 @@ class PerceptionPipeline internal constructor(
 
     @Volatile var uprightRotationDegrees = 90
 
+    /** 手のスレッドから、検出した手を知らせる。商品を手に取ったかの判定に使う。 */
+    @Volatile internal var onHandsDetected: ((Double, List<HandInfo>) -> Unit)? = null
+
     /** GL スレッドが読む。追跡中の人と、最後に見えた時刻（SystemClock.elapsedRealtime 基準）。 */
     @Volatile private var liveMarkers: List<Pair<PersonMarker, Long>> = emptyList()
 
@@ -201,6 +204,7 @@ class PerceptionPipeline internal constructor(
         }
         val geometry = frame.geometry
         val hands = detected.map { HandAnalysis.analyze(it, geometry) }
+        onHandsDetected?.invoke(timeSeconds, hands)
         val handBoxes = hands.map { it.box }
         handMemory.update(timeSeconds, handBoxes)
         val millis = SystemClock.elapsedRealtime() - startMillis

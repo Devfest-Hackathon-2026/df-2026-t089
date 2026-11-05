@@ -1,5 +1,6 @@
 package jp.devfest.shelfsight.mapping
 
+import java.util.concurrent.atomic.AtomicLongArray
 import jp.devfest.shelfsight.ar.CaptureGeometry
 
 /** 1 回分の生深度と、色を取るためのカメラ画像。ARCore のオブジェクトへの参照は持たない。 */
@@ -15,7 +16,45 @@ internal class DepthSample(
     val geometry: CaptureGeometry,
     /** カメラ座標から区画のローカル座標への変換（列優先の 4x4 行列）。 */
     val chunkFromCamera: FloatArray,
+    /** 遠くまで値が入る密な深度。取得できなければ null。 */
+    val dense: DenseDepth? = null,
 )
+
+/** ARCore の密な深度。生深度と違って信頼度はなく、遠いほど誤差が大きい。 */
+internal class DenseDepth(
+    val width: Int,
+    val height: Int,
+    val depthMm: ShortArray,
+    val chunkFromCamera: FloatArray,
+)
+
+/** 距離ごとの深度の量。遠くの壁に材料があるかをログで確かめるために数える。 */
+internal class DepthBands {
+    private val rawUsed = AtomicLongArray(BANDS)
+    private val rawLowConfidence = AtomicLongArray(BANDS)
+    private val dense = AtomicLongArray(BANDS)
+
+    fun addRaw(depthM: Float, confident: Boolean) {
+        (if (confident) rawUsed else rawLowConfidence).incrementAndGet(bandOf(depthM))
+    }
+
+    fun addDense(depthM: Float) {
+        dense.incrementAndGet(bandOf(depthM))
+    }
+
+    fun summary() = "depthBands(<2,2-4,4-6,6+) raw=$rawUsed rawLow=$rawLowConfidence dense=$dense"
+
+    private fun bandOf(depthM: Float) = when {
+        depthM < 2f -> 0
+        depthM < 4f -> 1
+        depthM < 6f -> 2
+        else -> 3
+    }
+
+    private companion object {
+        const val BANDS = 4
+    }
+}
 
 /** 深度画像の各ピクセルを 3D の点に戻し、[VoxelGrid] に書き込む。 */
 internal object DepthFusion {
@@ -24,15 +63,21 @@ internal object DepthFusion {
     private const val MIN_CONFIDENCE = 128
     private const val NO_COLOR = 0xFF808080.toInt()
 
-    fun integrate(sample: DepthSample, grid: VoxelGrid) {
+    private const val EVIDENCE_MIN_DEPTH_M = 1.0f
+    private const val EVIDENCE_MAX_DEPTH_M = 10.0f
+    private const val EVIDENCE_PIXEL_STEP = 2 // 遠くの壁を拾うには十分な細かさで、処理を 4 分の 1 にする
+
+    fun integrate(sample: DepthSample, grid: VoxelGrid, bands: DepthBands? = null) {
         val g = sample.geometry
         val m = sample.chunkFromCamera
         for (dy in 0 until sample.depthHeight) {
             val row = dy * sample.depthWidth
             for (dx in 0 until sample.depthWidth) {
                 val index = row + dx
-                if ((sample.confidence[index].toInt() and 0xFF) < MIN_CONFIDENCE) continue
                 val depth = (sample.depthMm[index].toInt() and 0xFFFF) / 1000f
+                val confident = (sample.confidence[index].toInt() and 0xFF) >= MIN_CONFIDENCE
+                if (depth > 0f) bands?.addRaw(depth, confident)
+                if (!confident) continue
                 if (depth < MIN_DEPTH_M || depth > MAX_DEPTH_M) continue
 
                 // 深度ピクセル → テクスチャ座標 → カメラ画像のピクセル
@@ -51,6 +96,35 @@ internal object DepthFusion {
                     m[1] * cx + m[5] * cy + m[9] * cz + m[13],
                     m[2] * cx + m[6] * cy + m[10] * cz + m[14],
                     colorAt(sample.nv21, g.imageWidth, g.imageHeight, px.toInt(), py.toInt()),
+                )
+            }
+        }
+    }
+
+    /** 密な深度を、面を見つける手がかりとして [grid] に書き込む。地図の点には使わない。 */
+    fun integrateEvidence(sample: DepthSample, grid: VoxelGrid, bands: DepthBands? = null) {
+        val dense = sample.dense ?: return
+        val g = sample.geometry
+        val m = dense.chunkFromCamera
+        for (dy in 0 until dense.height step EVIDENCE_PIXEL_STEP) {
+            val row = dy * dense.width
+            for (dx in 0 until dense.width step EVIDENCE_PIXEL_STEP) {
+                val depth = (dense.depthMm[row + dx].toInt() and 0xFFFF) / 1000f
+                if (depth <= 0f) continue
+                bands?.addDense(depth)
+                if (depth < EVIDENCE_MIN_DEPTH_M || depth > EVIDENCE_MAX_DEPTH_M) continue
+                val u = (dx + 0.5f) / dense.width
+                val v = (dy + 0.5f) / dense.height
+                val px = (u - g.depthU0) / g.depthUPerPixel
+                val py = (v - g.depthV0) / g.depthVPerPixel
+                val cx = (px - g.principalX) / g.focalX * depth
+                val cy = -(py - g.principalY) / g.focalY * depth
+                val cz = -depth
+                grid.add(
+                    m[0] * cx + m[4] * cy + m[8] * cz + m[12],
+                    m[1] * cx + m[5] * cy + m[9] * cz + m[13],
+                    m[2] * cx + m[6] * cy + m[10] * cz + m[14],
+                    NO_COLOR,
                 )
             }
         }

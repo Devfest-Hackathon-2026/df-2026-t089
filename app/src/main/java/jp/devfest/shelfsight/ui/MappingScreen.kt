@@ -37,8 +37,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import java.util.Locale
+import jp.devfest.shelfsight.labeling.LabelState
 import jp.devfest.shelfsight.mapping.MapUiState
 import jp.devfest.shelfsight.mapping.OrbitCamera
+import jp.devfest.shelfsight.ocr.ProductResult
 import jp.devfest.shelfsight.perception.HandView
 import jp.devfest.shelfsight.perception.PerceptionState
 
@@ -46,10 +48,13 @@ import jp.devfest.shelfsight.perception.PerceptionState
 fun MappingScreen(
     state: MapUiState,
     perception: PerceptionState,
+    labels: LabelState,
     surfaceView: GLSurfaceView,
     orbit: OrbitCamera,
     onToggleMap: () -> Unit,
     onToggleCamera: () -> Unit,
+    onTogglePoints: () -> Unit,
+    onToggleCloud: () -> Unit,
     onToggleRecording: () -> Unit,
 ) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -99,6 +104,7 @@ fun MappingScreen(
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                 )
             }
+            LabelPanel(labels)
             Text(
                 text = state.status,
                 color = Color.White,
@@ -108,7 +114,9 @@ fun MappingScreen(
             Text(
                 text = String.format(
                     Locale.JAPAN,
-                    "%.1f 万点 ・ %.0f m 歩行",
+                    "面 %d 枚（点から %d 枚）・ %.1f 万点 ・ %.0f m 歩行",
+                    state.surfaceCount,
+                    state.surfacesFromPoints,
                     state.pointCount / 10_000f,
                     state.walkedMeters,
                 ),
@@ -136,7 +144,23 @@ fun MappingScreen(
                     onClick = onToggleCamera,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
                 ) {
-                    Text(if (state.showCamera) "点の表示に切り替え" else "カメラ表示に切り替え", fontSize = 18.sp)
+                    Text(if (state.showCamera) "地図の表示に切り替え" else "カメラ表示に切り替え", fontSize = 18.sp)
+                }
+            }
+            if (labels.cloudAvailable && !state.showMap) {
+                Button(
+                    onClick = onToggleCloud,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                ) {
+                    Text(if (labels.cloudEnabled) "棚のクラウド判別をオフ" else "棚のクラウド判別をオン", fontSize = 18.sp)
+                }
+            }
+            if (state.showMap || !state.showCamera) {
+                Button(
+                    onClick = onTogglePoints,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                ) {
+                    Text(if (state.showPoints) "面だけを表示" else "点も重ねて表示", fontSize = 18.sp)
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -155,6 +179,34 @@ fun MappingScreen(
             }
         }
     }
+}
+
+@Composable
+private fun LabelPanel(labels: LabelState) {
+    if (labels.status.isNotEmpty()) {
+        Text(text = labels.status, color = Color(0xFFBDBDBD), fontSize = 16.sp)
+    }
+    labels.product?.let { product ->
+        Text(
+            text = productText(product),
+            color = Color(0xFFA5D6A7),
+            fontSize = 22.sp,
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        )
+    }
+    if (labels.columns.isNotEmpty()) {
+        Text(
+            text = "棚：" + labels.columns.joinToString(" ／ ") { it.column.category },
+            color = Color(0xFFA5D6A7),
+            fontSize = 20.sp,
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        )
+    }
+}
+
+private fun productText(product: ProductResult): String {
+    if (!product.readable) return "商品：ラベルを読めません。文字をカメラに向けてください"
+    return "商品：${product.name}"
 }
 
 /** MediaPipe の 21 点のうち、骨としてつなぐ組み合わせ。 */

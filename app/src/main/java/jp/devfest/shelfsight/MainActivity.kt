@@ -22,21 +22,30 @@ import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.ar.core.ArCoreApk
+import com.google.ar.core.CameraConfigFilter
 import com.google.ar.core.Config
 import com.google.ar.core.Session
 import com.google.ar.core.exceptions.CameraNotAvailableException
 import com.google.ar.core.exceptions.FatalException
 import com.google.ar.core.exceptions.UnavailableException
+import jp.devfest.shelfsight.cloud.CloudTasks
+import jp.devfest.shelfsight.cloud.GeminiClient
+import jp.devfest.shelfsight.labeling.HandCandidate
+import jp.devfest.shelfsight.labeling.StopLabeler
 import jp.devfest.shelfsight.mapping.MappingRenderer
 import jp.devfest.shelfsight.mapping.StoreMapper
 import jp.devfest.shelfsight.perception.MediaPipeHandDetector
 import jp.devfest.shelfsight.perception.MediaPipePersonDetector
+import jp.devfest.shelfsight.ocr.MlKitOcr
+import jp.devfest.shelfsight.perception.HandGesture
 import jp.devfest.shelfsight.perception.PerceptionPipeline
 import jp.devfest.shelfsight.ui.MappingScreen
 
 class MainActivity : ComponentActivity() {
     private val mapper = StoreMapper()
     private lateinit var perception: PerceptionPipeline
+    private lateinit var labeler: StopLabeler
+    private val ocr by lazy { MlKitOcr() }
 
     private lateinit var surfaceView: GLSurfaceView
     private lateinit var renderer: MappingRenderer
@@ -60,7 +69,11 @@ class MainActivity : ComponentActivity() {
             MediaPipeHandDetector(this),
             getExternalFilesDir(null)?.resolve("perception_log.csv"),
         )
-        renderer = MappingRenderer(mapper, perception, ::currentDisplayRotation)
+        labeler = createLabeler()
+        perception.onHandsDetected = { time, hands ->
+            labeler.onHands(time, hands.map { HandCandidate(it.box, it.gesture == HandGesture.POINTING, it.distanceM) })
+        }
+        renderer = MappingRenderer(mapper, perception, labeler, ::currentDisplayRotation)
         surfaceView = GLSurfaceView(this).apply {
             preserveEGLContextOnPause = true
             setEGLContextClientVersion(2)
@@ -75,13 +88,17 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 val state by mapper.state.collectAsStateWithLifecycle()
                 val perceptionState by perception.state.collectAsStateWithLifecycle()
+                val labels by labeler.state.collectAsStateWithLifecycle()
                 MappingScreen(
                     state = state,
                     perception = perceptionState,
+                    labels = labels,
                     surfaceView = surfaceView,
                     orbit = mapper.orbit,
                     onToggleMap = { mapper.setShowMap(!state.showMap) },
                     onToggleCamera = { mapper.setShowCamera(!state.showCamera) },
+                    onTogglePoints = { mapper.setShowPoints(!state.showPoints) },
+                    onToggleCloud = { labeler.setCloudEnabled(!labels.cloudEnabled) },
                     onToggleRecording = { mapper.setRecording(!state.isRecording) },
                 )
             }
@@ -124,6 +141,8 @@ class MainActivity : ComponentActivity() {
         session = null
         mapper.close()
         perception.close()
+        labeler.close()
+        ocr.close()
         super.onDestroy()
     }
 
@@ -135,10 +154,11 @@ class MainActivity : ComponentActivity() {
                 return null
             }
             val created = Session(this)
+            useHighResolutionCameraImage(created)
             created.configure(
                 Config(created).apply {
                     updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
-                    planeFindingMode = Config.PlaneFindingMode.DISABLED
+                    planeFindingMode = Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
                     lightEstimationMode = Config.LightEstimationMode.DISABLED
                     // 前方の判定に密な深度を、地図に生深度を使う。AUTOMATIC なら両方取得できる。
                     if (created.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) {
@@ -158,6 +178,28 @@ class MainActivity : ComponentActivity() {
             mapper.setBlockingMessage("AR を開始できませんでした")
             return null
         }
+    }
+
+    /** API キーがなければ棚の判別だけを止める。商品の OCR は端末内で動く。 */
+    private fun createLabeler(): StopLabeler {
+        // 読み取りに使った画像を確かめられるのはデバッグ版だけにする。
+        val debugDir = if (BuildConfig.DEBUG) getExternalFilesDir(null) else null
+        val key = BuildConfig.GEMINI_API_KEY
+        if (key.isBlank()) return StopLabeler(null, null, ocr, debugDir) { perception.uprightRotationDegrees }
+        val categories = assets.open("labels.txt").bufferedReader().readLines().filter { it.isNotBlank() }
+        val tasks = CloudTasks({ name -> assets.open(name).bufferedReader().readText() }, categories)
+        val models = BuildConfig.GEMINI_MODELS.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        return StopLabeler(GeminiClient(key, models), tasks, ocr, debugDir) { perception.uprightRotationDegrees }
+    }
+
+    /** 標準の 640x480 では商品の文字を読めないので、なるべく大きなカメラ画像を選ぶ。 */
+    private fun useHighResolutionCameraImage(session: Session) {
+        val configs = session.getSupportedCameraConfigs(CameraConfigFilter(session))
+        val best = configs
+            .filter { it.imageSize.width <= MAX_CAMERA_IMAGE_WIDTH && it.fpsRange.upper >= MIN_CAMERA_FPS }
+            .maxByOrNull { it.imageSize.width * it.imageSize.height }
+        Log.i(TAG, "camera images ${configs.map { it.imageSize }.distinct()} using ${best?.imageSize}")
+        if (best != null) session.cameraConfig = best
     }
 
     private fun uprightRotationDegrees(session: Session): Int {
@@ -183,5 +225,7 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         const val TAG = "MainActivity"
+        const val MAX_CAMERA_IMAGE_WIDTH = 1920
+        const val MIN_CAMERA_FPS = 30
     }
 }

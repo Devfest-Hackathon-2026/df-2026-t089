@@ -27,8 +27,21 @@ class CapturedFrame(
 internal object FrameCapture {
     private const val MAX_DEPTH_AGE_NANOS = 500_000_000L
 
-    /** GL スレッドで呼ぶ。カメラ画像がまだ用意できていなければ null を返す。 */
-    fun capture(frame: Frame, camera: Camera, uprightRotationDegrees: Int, depthEnabled: Boolean): CapturedFrame? {
+    /** 地図や人の検出には十分で、GL スレッドを止めない大きさ。これより大きいカメラ画像は間引く。 */
+    private const val USUAL_LONG_SIDE = 640
+
+    /**
+     * GL スレッドで呼ぶ。カメラ画像がまだ用意できていなければ null を返す。
+     *
+     * @param fullResolution 商品の文字を読むときなど、カメラ画像をそのままの解像度で使うなら true
+     */
+    fun capture(
+        frame: Frame,
+        camera: Camera,
+        uprightRotationDegrees: Int,
+        depthEnabled: Boolean,
+        fullResolution: Boolean = false,
+    ): CapturedFrame? {
         val image = try {
             frame.acquireCameraImage()
         } catch (_: NotYetAvailableException) {
@@ -37,16 +50,18 @@ internal object FrameCapture {
             return null
         }
         return image.use {
-            val width = it.width
-            val height = it.height
-            val nv21 = toNv21(it)
+            val step = if (fullResolution) 1 else max(1, max(it.width, it.height) / USUAL_LONG_SIDE)
+            // NV21 は色を 2x2 画素で共有するので、縦横とも偶数にする。
+            val width = it.width / step and 1.inv()
+            val height = it.height / step and 1.inv()
+            val nv21 = toNv21(it, width, height, step)
 
             val intrinsics = camera.imageIntrinsics
             val focal = intrinsics.focalLength
             val principal = intrinsics.principalPoint
             val cameraToWorld = FloatArray(16).also { m -> camera.pose.toMatrix(m, 0) }
 
-            val corners = floatArrayOf(0f, 0f, width.toFloat(), height.toFloat())
+            val corners = floatArrayOf(0f, 0f, (width * step).toFloat(), (height * step).toFloat())
             val texture = FloatArray(4)
             frame.transformCoordinates2d(
                 Coordinates2d.IMAGE_PIXELS, corners,
@@ -58,10 +73,10 @@ internal object FrameCapture {
                 CaptureGeometry(
                     imageWidth = width,
                     imageHeight = height,
-                    focalX = focal[0],
-                    focalY = focal[1],
-                    principalX = principal[0],
-                    principalY = principal[1],
+                    focalX = focal[0] / step,
+                    focalY = focal[1] / step,
+                    principalX = principal[0] / step,
+                    principalY = principal[1] / step,
                     cameraToWorld = cameraToWorld,
                     uprightRotationDegrees = uprightRotationDegrees,
                     depth = if (depthEnabled) captureDepth(frame) else null,
@@ -96,16 +111,19 @@ internal object FrameCapture {
         }
     }
 
-    private fun toNv21(image: Image): ByteArray {
-        val width = image.width
-        val height = image.height
+    private fun toNv21(image: Image, width: Int, height: Int, step: Int): ByteArray {
         val nv21 = ByteArray(width * height * 3 / 2)
 
         val yPlane = image.planes[0]
         val yBuffer = yPlane.buffer
         for (row in 0 until height) {
-            yBuffer.position(row * yPlane.rowStride)
-            yBuffer.get(nv21, row * width, width)
+            val rowStart = row * step * yPlane.rowStride
+            if (step == 1) {
+                yBuffer.position(rowStart)
+                yBuffer.get(nv21, row * width, width)
+            } else {
+                for (col in 0 until width) nv21[row * width + col] = yBuffer.get(rowStart + col * step)
+            }
         }
 
         val uPlane = image.planes[1]
@@ -115,8 +133,8 @@ internal object FrameCapture {
         var out = width * height
         for (row in 0 until height / 2) {
             for (col in 0 until width / 2) {
-                nv21[out++] = vBuffer.get(row * vPlane.rowStride + col * vPlane.pixelStride)
-                nv21[out++] = uBuffer.get(row * uPlane.rowStride + col * uPlane.pixelStride)
+                nv21[out++] = vBuffer.get(row * step * vPlane.rowStride + col * step * vPlane.pixelStride)
+                nv21[out++] = uBuffer.get(row * step * uPlane.rowStride + col * step * uPlane.pixelStride)
             }
         }
         return nv21
@@ -128,8 +146,8 @@ internal object JpegEncoder {
     private const val QUALITY = 85
 
     /** 重い処理なので GL スレッドでは呼ばない。 */
-    fun toUprightJpeg(frame: CapturedFrame): ByteArray {
-        val upright = toUprightBitmap(frame)
+    fun toUprightJpeg(frame: CapturedFrame, maxLongSide: Int = MAX_LONG_SIDE): ByteArray {
+        val upright = toUprightBitmap(frame, maxLongSide)
         return ByteArrayOutputStream().use { out ->
             upright.compress(Bitmap.CompressFormat.JPEG, QUALITY, out)
             upright.recycle()
@@ -138,14 +156,14 @@ internal object JpegEncoder {
     }
 
     /** 正立させた ARGB_8888 の画像を返す。呼び出し側が recycle する。 */
-    fun toUprightBitmap(frame: CapturedFrame): Bitmap {
+    fun toUprightBitmap(frame: CapturedFrame, maxLongSide: Int = MAX_LONG_SIDE): Bitmap {
         val raw = ByteArrayOutputStream().use { out ->
             YuvImage(frame.nv21, ImageFormat.NV21, frame.width, frame.height, null)
                 .compressToJpeg(Rect(0, 0, frame.width, frame.height), QUALITY, out)
             out.toByteArray()
         }
         val decoded = BitmapFactory.decodeByteArray(raw, 0, raw.size)
-        val scale = minOf(1f, MAX_LONG_SIDE.toFloat() / max(frame.width, frame.height))
+        val scale = minOf(1f, maxLongSide.toFloat() / max(frame.width, frame.height))
         val matrix = Matrix().apply {
             postScale(scale, scale)
             postRotate(frame.geometry.uprightRotationDegrees.toFloat())

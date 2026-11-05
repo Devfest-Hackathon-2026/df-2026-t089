@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "is_shelf_front": { "type": "boolean" },
+    "columns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "x_start": { "type": "integer" },
+          "x_end": { "type": "integer" },
+          "category": { "type": "string", "enum": "{{CATEGORIES_ENUM}}" },
+          "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+          "evidence": { "type": "string" }
+        },
+        "required": ["x_start", "x_end", "category", "confidence", "evidence"]
+      }
+    }
+  },
+  "required": ["is_shelf_front", "columns"]
+}

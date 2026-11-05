@@ -1,6 +1,13 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+}
+
+// API キーは local.properties（コミットされない）に書く。公開リポジトリに載せないこと。
+val localProperties = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
 }
 
 android {
@@ -13,6 +20,14 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "GEMINI_API_KEY", "\"${localProperties.getProperty("GEMINI_API_KEY", "")}\"")
+        buildConfigField(
+            "String",
+            "GEMINI_MODELS",
+            "\"${localProperties.getProperty("GEMINI_MODELS", "gemini-3.8-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite")}\"",
+        )
     }
 
     buildFeatures {
@@ -40,7 +55,11 @@ dependencies {
     implementation(libs.arcore)
     implementation(libs.litertlm)
     implementation(libs.mediapipe.tasks.vision)
+    implementation(libs.mlkit.text.japanese)
     implementation("org.tensorflow:tensorflow-lite:2.17.0") // Store3D
+
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.junit)
 
     testImplementation(libs.junit)
     testImplementation(libs.org.json)

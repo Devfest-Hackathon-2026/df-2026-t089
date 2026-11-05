@@ -12,9 +12,11 @@
 
 1. `StoreMapper`：ARCore から自己位置と生深度を取得し、約 2.5m 単位の区画に分ける
 2. `DepthFusion` / `VoxelGrid`：深度を 3D の点に戻し、5cm 単位で統合する（2 回以上観測された点だけを地図に残す）
-3. `MapRenderer`：点群、歩いた軌跡、現在地を描画する
+3. `SurfaceMap`：ARCore の平面検出の結果を、床・棚などの上面・壁の面として持つ（天井は除く）
+4. `SurfaceFitter` / `SurfaceFusion`：深度の点を手がかりに面を補正する。同じ平面をまとめ、つながっている点の範囲まで広げ、ARCore が見落とした平面を点から見つける。遠くの壁には、密な深度を 10m まで集めた手がかりを使う（誤差が大きいので床には使わず、面として認める条件も厳しくする）
+5. `MapRenderer` / `SurfaceRenderer`：面、歩いた軌跡、現在地を描画する。点群は「点も重ねて表示」で重ねられる
 
-各区画は ARCore の Anchor に結びつけているため、歩行中に ARCore が位置を補正しても区画ごと追従します。
+各区画は ARCore の Anchor に結びつけているため、歩行中に ARCore が位置を補正しても区画ごと追従します。面は ARCore の平面そのものなので、同じ補正が反映されます。
 
 ### 人と壁の判別
 
@@ -29,6 +31,19 @@
 ### 手と指の認識
 
 `MediaPipeHandDetector` で手の 21 点を読み取り、`HandAnalysis` で左右、形（指さしなど）、指の向き、手のひらの向き、距離、指先のワールド座標を求めます。人として検出された枠が手で大きく占められている場合は、`OwnHandFilter` で自分の手や腕の誤認として除外します。
+
+### 棚と商品の判別
+
+| 場面 | 処理 | 処理する場所 |
+|---|---|---|
+| 歩いている | 棚の種類（MobileNetV3 Small。未接続） | 端末 |
+| 棚の前で立ち止まる（`DwellDetector`：1.5 秒） | 列ごとのカテゴリ（`labels.txt` の 26 分類） | クラウド（Gemini） |
+| 商品を手に取る（`SceneChangeDetector` / `HeldProductDetector`：0.8 秒） | OCR で商品名を読み取る（ML Kit） | 端末 |
+
+- 商品の画像は外部に送りません。読み取りは、箱で手が隠れても、視界がふさがれて AR の追跡が切れても動きます。文字を読めないときは撮り直し、それでも読めなければ読めないと伝えます
+- `RequestBudget` で、クラウドの呼び出しを 1 分あたり 12 回までに制限しています
+- 棚の判別を使うには `local.properties` に `GEMINI_API_KEY=...` を書きます（任意で `GEMINI_MODELS=a,b,c`。混雑していると次のモデルに切り替えます）。キーがなければ棚の判別だけが止まります
+- 指示文とスキーマは `app/src/main/assets/cloud/` にあり、`tools/cloud_test.py` で同じものを写真で試して、入出力の一覧を `tools/out/cloud_test/report.html` に出せます
 
 ### 使用技術
 

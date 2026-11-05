@@ -7,7 +7,7 @@ import jp.devfest.shelfsight.ar.GlUtil
 import jp.devfest.shelfsight.perception.PersonMotion
 import jp.devfest.shelfsight.perception.VisibleMarker
 
-/** 地図の点群、歩いた軌跡、現在地を描く。AR 表示と地図表示で共通に使う。 */
+/** 地図の面、点群、歩いた軌跡、現在地を描く。AR 表示と地図表示で共通に使う。 */
 internal class MapRenderer {
     private val program = GlUtil.createProgram(VERTEX_SHADER, FRAGMENT_SHADER)
     private val positionHandle = GLES20.glGetAttribLocation(program, "a_Position")
@@ -18,6 +18,8 @@ internal class MapRenderer {
     private val fixedPointSizeHandle = GLES20.glGetUniformLocation(program, "u_FixedPointSize")
     private val clipYHandle = GLES20.glGetUniformLocation(program, "u_ClipY")
 
+    private val surfaceRenderer = SurfaceRenderer()
+
     private val identity = FloatArray(16).also { Matrix.setIdentityM(it, 0) }
     private var trailWorld = FloatArray(0)
     private var trailBuffer = GlUtil.floatBuffer(FloatArray(0))
@@ -25,7 +27,8 @@ internal class MapRenderer {
 
     /**
      * @param projectionScaleY 射影行列の [5] の要素。点の大きさを実寸に合わせるために使う
-     * @param clipY この高さより上の点は描かない
+     * @param clipY この高さより上の点と面は描かない
+     * @param showPoints false なら面だけを描き、深度の点は描かない
      */
     fun draw(
         mapper: StoreMapper,
@@ -35,7 +38,12 @@ internal class MapRenderer {
         clipY: Float,
         showTrail: Boolean,
         people: List<VisibleMarker>,
+        showPoints: Boolean,
     ) {
+        val fused = mapper.surfaceFusion.latest.surfaces
+        val patches = mapper.uncoveredSurfaces
+        surfaceRenderer.drawHorizontal(fused, patches, viewProjection, clipY)
+
         GLES20.glUseProgram(program)
         GLES20.glUniformMatrix4fv(viewProjectionHandle, 1, false, viewProjection, 0)
         GLES20.glUniform1f(
@@ -44,7 +52,11 @@ internal class MapRenderer {
         )
         GLES20.glUniform1f(fixedPointSizeHandle, 0f)
         GLES20.glUniform1f(clipYHandle, clipY)
-        drawChunks(mapper)
+        if (showPoints) drawChunks(mapper)
+
+        // 半透明なので、不透明なものをすべて描いたあとに重ねる。
+        surfaceRenderer.drawWalls(fused, patches, viewProjection, clipY)
+        GLES20.glUseProgram(program)
 
         if (showTrail) {
             GLES20.glUniform1f(clipYHandle, Float.MAX_VALUE)

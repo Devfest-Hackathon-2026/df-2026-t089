@@ -34,6 +34,11 @@ data class MapUiState(
     val showMap: Boolean = false,
     /** true ならカメラ映像、false なら読み取れた点を表示する。 */
     val showCamera: Boolean = true,
+    /** 地図に、面だけでなく深度の点も重ねる。 */
+    val showPoints: Boolean = false,
+    val surfaceCount: Int = 0,
+    /** [surfaceCount] のうち、ARCore が見落として点から見つけた面の数。 */
+    val surfacesFromPoints: Int = 0,
 )
 
 /**
@@ -44,6 +49,12 @@ data class MapUiState(
  */
 internal class MapChunk(val anchor: Anchor) {
     val grid = VoxelGrid()
+
+    /** 面を見つけるための粗い手がかり。遠くの深度は揺れるので、繰り返し同じ場所に出た点だけを使う。 */
+    val evidence = VoxelGrid(EVIDENCE_VOXEL_M, EVIDENCE_MIN_OBSERVATIONS)
+
+    /** ワーカースレッドが書き、GL スレッドが読む。 */
+    @Volatile var evidenceVertices: IntArray = IntArray(0)
 
     /** 区画座標からワールド座標への変換。追跡が止まっても地図が消えないよう、最後の値を保つ。 */
     val worldFromChunk = FloatArray(16).also { anchor.pose.toMatrix(it, 0) }
@@ -59,6 +70,11 @@ internal class MapChunk(val anchor: Anchor) {
 
     val position: Vec3
         get() = Vec3(worldFromChunk[12], worldFromChunk[13], worldFromChunk[14])
+
+    private companion object {
+        const val EVIDENCE_VOXEL_M = 0.1f
+        const val EVIDENCE_MIN_OBSERVATIONS = 4
+    }
 }
 
 /**
@@ -78,6 +94,13 @@ class StoreMapper {
 
     // 以下は GL スレッドのみが触る。
     internal val chunks = ArrayList<MapChunk>()
+    internal val surfaceMap = SurfaceMap()
+    internal val surfaceFusion = SurfaceFusion()
+
+    /** まだ点での補正が終わっていない、新しく検出された面。 */
+    internal var uncoveredSurfaces: List<SurfacePatch> = emptyList()
+        private set
+    private var lastSurfaceMillis = 0L
     private var trailLocal = FloatArray(3 * 1024)
     private var trailChunks = arrayOfNulls<MapChunk>(1024)
     internal var trailSize = 0
@@ -105,6 +128,8 @@ class StoreMapper {
     private val totalVoxels = AtomicInteger(0)
     private val totalConfirmed = AtomicInteger(0)
     private val pauseCount = AtomicInteger(0)
+    private val totalEvidence = AtomicInteger(0)
+    private val depthBands = DepthBands()
 
     // ワーカースレッドのみが触る。
     private val dirtyChunks = LinkedHashSet<MapChunk>()
@@ -125,6 +150,10 @@ class StoreMapper {
         _state.update { it.copy(showCamera = show) }
     }
 
+    fun setShowPoints(show: Boolean) {
+        _state.update { it.copy(showPoints = show) }
+    }
+
     /** 深度が使えないなど、歩いても解決しない問題を表示する。 */
     fun setBlockingMessage(message: String?) {
         blockingMessage = message
@@ -141,6 +170,7 @@ class StoreMapper {
 
         val tracking = camera.trackingState == TrackingState.TRACKING
         stats.onTracking(tracking)
+        updateSurfacesIfDue(session, tracking)
         if (tracking) {
             val pose = camera.pose
             poseHistory.record(frame.timestamp, pose)
@@ -161,6 +191,7 @@ class StoreMapper {
 
     fun close() {
         worker.shutdown()
+        surfaceFusion.close()
     }
 
     /** GL コンテキストが作り直されたら、VBO を作り直す。 */
@@ -209,6 +240,19 @@ class StoreMapper {
             Log.w(TAG, "Could not create chunk anchor", e)
             nearest
         }
+    }
+
+    /** 平面の一覧と多角形の取得は毎回メモリを確保するので、毎フレームは行わない。 */
+    private fun updateSurfacesIfDue(session: Session, tracking: Boolean) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastSurfaceMillis < SURFACE_UPDATE_INTERVAL_MS) return
+        lastSurfaceMillis = now
+        val grow = tracking && recording && blockingMessage == null
+        surfaceMap.update(session, grow)
+        val deviceY = currentPosition?.y
+        if (grow && deviceY != null) surfaceFusion.requestFit(surfaceMap.surfaces, chunks, deviceY)
+        val covered = surfaceFusion.latest.covered
+        uncoveredSurfaces = surfaceMap.surfaces.filter { it !in covered }
     }
 
     private fun extendTrail(chunk: MapChunk, position: Vec3) {
@@ -297,6 +341,7 @@ class StoreMapper {
                     return DepthSample(
                         width, height, depthMm, confidenceValues,
                         cameraFrame.nv21, cameraFrame.geometry, chunkFromCamera,
+                        captureDense(frame, chunk),
                     )
                 }
             }
@@ -305,11 +350,39 @@ class StoreMapper {
         }
     }
 
+    private fun captureDense(frame: Frame, chunk: MapChunk): DenseDepth? {
+        try {
+            frame.acquireDepthImage16Bits().use { depth ->
+                val pose = poseHistory.nearest(depth.timestamp, MAX_POSE_GAP_NANOS) ?: return null
+                val width = depth.width
+                val height = depth.height
+                val plane = depth.planes[0]
+                val shorts = plane.buffer.order(ByteOrder.nativeOrder()).asShortBuffer()
+                val stride = plane.rowStride / Short.SIZE_BYTES
+                val depthMm = ShortArray(width * height)
+                for (row in 0 until height) {
+                    shorts.position(row * stride)
+                    shorts.get(depthMm, row * width, width)
+                }
+                val matrix = FloatArray(16)
+                chunk.anchor.pose.inverse().compose(pose).toMatrix(matrix, 0)
+                return DenseDepth(width, height, depthMm, matrix)
+            }
+        } catch (_: NotYetAvailableException) {
+            return null
+        }
+    }
+
     /** ワーカースレッドで実行する。 */
     private fun integrate(chunk: MapChunk, sample: DepthSample) {
         val voxelsBefore = chunk.grid.size
         val confirmedBefore = chunk.grid.confirmedCount
-        DepthFusion.integrate(sample, chunk.grid)
+        DepthFusion.integrate(sample, chunk.grid, depthBands)
+        if (totalEvidence.get() < MAX_EVIDENCE_VOXELS) {
+            val evidenceBefore = chunk.evidence.size
+            DepthFusion.integrateEvidence(sample, chunk.evidence, depthBands)
+            totalEvidence.addAndGet(chunk.evidence.size - evidenceBefore)
+        }
         totalVoxels.addAndGet(chunk.grid.size - voxelsBefore)
         totalConfirmed.addAndGet(chunk.grid.confirmedCount - confirmedBefore)
         dirtyChunks += chunk
@@ -319,6 +392,7 @@ class StoreMapper {
         lastRebuildMillis = now
         for (dirty in dirtyChunks) {
             dirty.vertices = dirty.grid.toVertices()
+            dirty.evidenceVertices = dirty.evidence.toVertices()
             dirty.vertexVersion++
         }
         dirtyChunks.clear()
@@ -375,7 +449,9 @@ class StoreMapper {
         Log.i(
             TAG,
             "stats ${stats.summary()} pauses=${pauseCount.get()} chunks=${chunks.size} " +
-                "voxels=${totalVoxels.get()} points=${totalConfirmed.get()} walkedM=$walkedMeters",
+                "voxels=${totalVoxels.get()} points=${totalConfirmed.get()} walkedM=$walkedMeters " +
+                "detected=${surfaceMap.surfaces.groupingBy { it.kind }.eachCount()} " +
+                "evidence=${totalEvidence.get()} ${depthBands.summary()}",
         )
     }
 
@@ -386,7 +462,13 @@ class StoreMapper {
         lastStatus = status
         lastPublishMillis = now
         _state.update {
-            it.copy(status = status, pointCount = totalConfirmed.get(), walkedMeters = walkedMeters)
+            it.copy(
+                status = status,
+                pointCount = totalConfirmed.get(),
+                walkedMeters = walkedMeters,
+                surfaceCount = surfaceFusion.latest.surfaces.size + uncoveredSurfaces.size,
+                surfacesFromPoints = surfaceFusion.latest.surfaces.count { s -> s.fromPoints },
+            )
         }
     }
 
@@ -397,6 +479,7 @@ class StoreMapper {
         const val MAX_WALK_STEP_M = 2f
         const val MIN_CAPTURE_INTERVAL_MS = 150L
         const val MIN_REBUILD_INTERVAL_MS = 400L
+        const val SURFACE_UPDATE_INTERVAL_MS = 200L
         const val PUBLISH_INTERVAL_MS = 500L
         const val STATS_LOG_INTERVAL_MS = 10_000L
         const val NANOS_PER_MILLI = 1_000_000L
@@ -409,6 +492,7 @@ class StoreMapper {
 
         /** メモリと描画負荷の上限。5cm 単位なら一般的なコンビニの表面を十分に覆える想定。 */
         const val MAX_VOXELS = 3_000_000
+        const val MAX_EVIDENCE_VOXELS = 1_500_000
 
         /** 端末より上にある棚は残しつつ、天井は表示しない。 */
         const val CEILING_CLEARANCE_M = 0.6f

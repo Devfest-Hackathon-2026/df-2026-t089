@@ -11,12 +11,14 @@ import com.google.ar.core.exceptions.SessionPausedException
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import jp.devfest.shelfsight.ar.BackgroundRenderer
+import jp.devfest.shelfsight.labeling.StopLabeler
 import jp.devfest.shelfsight.perception.PerceptionPipeline
 
 /** ARCore の更新と描画を行う。地図を表示している間も、裏で記録と追跡を続ける。 */
 class MappingRenderer(
     private val mapper: StoreMapper,
     private val perception: PerceptionPipeline,
+    private val labeler: StopLabeler,
     private val displayRotation: () -> Int,
 ) : GLSurfaceView.Renderer {
 
@@ -77,6 +79,7 @@ class MappingRenderer(
         val camera = frame.camera
         mapper.onFrame(current, frame, camera)
         perception.onFrame(frame, camera)
+        labeler.onFrame(frame, camera)
 
         if (showMap) {
             drawMapView(map)
@@ -87,8 +90,11 @@ class MappingRenderer(
                 camera.getViewMatrix(view, 0)
                 camera.getProjectionMatrix(projection, 0, NEAR_M, FAR_M)
                 Matrix.multiplyMM(viewProjection, 0, projection, 0, view, 0)
-                // カメラ映像は描かず、読み取れた点だけを今の視点で表示する。
-                map.draw(mapper, viewProjection, projection[5], viewHeight, Float.MAX_VALUE, showTrail = false, perception.visibleMarkers())
+                // カメラ映像は描かず、読み取れた地図だけを今の視点で表示する。
+                map.draw(
+                    mapper, viewProjection, projection[5], viewHeight, Float.MAX_VALUE, showTrail = false,
+                    perception.visibleMarkers(), mapper.state.value.showPoints,
+                )
             }
         }
     }
@@ -100,7 +106,10 @@ class MappingRenderer(
         Matrix.setLookAtM(view, 0, eye.x, eye.y, eye.z, center.x, center.y, center.z, 0f, 1f, 0f)
         Matrix.perspectiveM(projection, 0, FIELD_OF_VIEW_DEGREES, viewWidth.toFloat() / viewHeight, NEAR_M, MAP_FAR_M)
         Matrix.multiplyMM(viewProjection, 0, projection, 0, view, 0)
-        map.draw(mapper, viewProjection, projection[5], viewHeight, mapper.ceilingClipY, showTrail = true, perception.visibleMarkers())
+        map.draw(
+            mapper, viewProjection, projection[5], viewHeight, mapper.ceilingClipY, showTrail = true,
+            perception.visibleMarkers(), mapper.state.value.showPoints,
+        )
     }
 
     private companion object {

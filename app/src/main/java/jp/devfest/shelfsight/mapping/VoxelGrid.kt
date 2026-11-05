@@ -8,7 +8,10 @@ import kotlin.math.floor
  * 店舗全体では数百万回の書き込みが起きるため、HashMap を使わず配列で実装している。
  * 誤った深度を地図に残さないよう、[MIN_OBSERVATIONS] 回観測された位置だけを確定点として扱う。
  */
-internal class VoxelGrid(private val voxelSize: Float = DEFAULT_VOXEL_SIZE_M) {
+internal class VoxelGrid(
+    private val voxelSize: Float = DEFAULT_VOXEL_SIZE_M,
+    private val minObservations: Int = MIN_OBSERVATIONS,
+) {
     private var capacity = INITIAL_CAPACITY
     private var keys = LongArray(capacity) { EMPTY }
     private var colors = IntArray(capacity)
@@ -38,7 +41,7 @@ internal class VoxelGrid(private val voxelSize: Float = DEFAULT_VOXEL_SIZE_M) {
         val count = counts[slot].toInt()
         if (count < Byte.MAX_VALUE) {
             counts[slot] = (count + 1).toByte()
-            if (count + 1 == MIN_OBSERVATIONS) confirmedCount++
+            if (count + 1 == minObservations) confirmedCount++
         }
     }
 
@@ -48,7 +51,7 @@ internal class VoxelGrid(private val voxelSize: Float = DEFAULT_VOXEL_SIZE_M) {
         var i = 0
         for (slot in 0 until capacity) {
             val key = keys[slot]
-            if (key == EMPTY || counts[slot] < MIN_OBSERVATIONS) continue
+            if (key == EMPTY || counts[slot] < minObservations) continue
             out[i++] = (centerOf(key ushr 42)).toRawBits()
             out[i++] = (centerOf((key ushr 21) and AXIS_MASK)).toRawBits()
             out[i++] = (centerOf(key and AXIS_MASK)).toRawBits()
