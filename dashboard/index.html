@@ -61,6 +61,22 @@
   .dlg-meta { padding: 10px 14px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
   .dlg-meta button { margin-left: auto; font: inherit; padding: 4px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--text); cursor: pointer; }
   .hint { color: var(--muted); font-size: 12px; }
+  nav { display: flex; gap: 4px; padding: 0 24px; border-bottom: 1px solid var(--line); }
+  nav button { font: inherit; background: none; border: none; color: var(--muted); padding: 10px 14px; cursor: pointer; border-bottom: 2px solid transparent; }
+  nav button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+  .tab[hidden] { display: none; }
+  .note { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.hl td { background: var(--accent-soft); }
+  .ok { color: #1f8a4c; font-weight: 600; } .ng { color: var(--cut); font-weight: 600; }
+  .pcut { position: absolute; top: 0; bottom: 0; width: 0; margin-left: -1px; border-left: 2px dashed #35a2ff; }
+  .strip { display: grid; grid-template-columns: repeat(24, 1fr); height: 10px; }
+  .strip i { background: #35a2ff; }
+  .top3 { font-size: 11px; color: var(--muted); }
+  .legend-line { display: inline-block; width: 18px; vertical-align: middle; margin: 0 4px 0 10px; }
 </style>
 </head>
 <body>
@@ -68,7 +84,14 @@
   <h1>棚の学習データ</h1>
   <div class="sub" id="dataDir">読み込み中…</div>
 </header>
-<main>
+<nav>
+  <button data-tab="data" class="on">データ</button>
+  <button data-tab="eval">モデル評価</button>
+  <button data-tab="unit">ユニットテスト</button>
+</nav>
+<main class="tab" id="tab-eval" hidden></main>
+<main class="tab" id="tab-unit" hidden></main>
+<main class="tab" id="tab-data">
   <section class="tiles" id="tiles"></section>
   <section class="two">
     <div class="panel">
@@ -177,6 +200,95 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft' && cur > 0) open(cur - 1);
 });
 $('dlg').onclick = e => { if (e.target === $('dlg')) $('dlg').close(); };
+
+// ---------- tabs ----------
+function showTab(t) {
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  document.querySelectorAll('.tab').forEach(m => m.hidden = m.id !== 'tab-' + t);
+  history.replaceState(null, '', '#' + t);
+  if (t !== 'data') loadResults();
+}
+document.querySelector('nav').onclick = e => { if (e.target.dataset.tab) showTab(e.target.dataset.tab); };
+if (['eval', 'unit'].includes(location.hash.slice(1))) showTab(location.hash.slice(1));
+const pct = x => (x * 100).toFixed(0) + '%';
+const thumb = f => `/thumb/${encodeURIComponent(f)}`;
+
+function loadResults() {
+  fetch('/api/results').then(r => r.json()).then(R => { renderEval(R.eval); renderUnit(R.unit); });
+}
+
+function decodePeaks(p, thr) { // same as Analyzer.kt / train.py
+  const out = [];
+  p.forEach((v, i) => {
+    const l = i > 0 ? p[i - 1] : 0, r = i < p.length - 1 ? p[i + 1] : 0;
+    if (v >= thr && v >= l && v > r) { const d = l - 2 * v + r; out.push((i + 0.5 + (d < 0 ? 0.5 * (l - r) / d : 0)) / p.length); }
+  });
+  return out;
+}
+
+function renderEval(E) {
+  const el = $('tab-eval');
+  if (!E) { el.innerHTML = `<div class="panel">評価結果がありません。<code>tools/.venv/Scripts/python tools/train.py --eval-only</code> を実行すると <code>tools/results/eval.json</code> ができます。</div>`; return; }
+  const C = E.classifier, B = E.boundary, h = [];
+  const app = B && B.sweep.find(s => s.thr === B.appThreshold);
+  h.push(`<p class="note">どちらも学習に使っていない検証用データ（ホールドアウト）での結果。アプリに入っている最終モデルは、この検証用データも含めた全データで学習し直したもの。</p>`);
+  h.push(`<section class="tiles">${[
+    C && [pct(C.accuracy), `棚種類 正解率（検証 ${C.val.length}枚）`],
+    C && [pct(C.val.filter(r => r.top.some(t => t[0] === r.label)).length / C.val.length), '棚種類 上位3位以内の正解率'],
+    app && [pct(app.precision), `境界 適合率（しきい値 ${B.appThreshold}）`],
+    app && [pct(app.recall), `境界 再現率（検証 ${B.val.length}枚）`],
+  ].filter(Boolean).map(([n, t]) => `<div class="tile"><b>${n}</b><span>${t}</span></div>`).join('')}</section>`);
+
+  if (C) {
+    const per = {};
+    C.val.forEach(r => { const p = per[r.label] ||= [0, 0]; p[1]++; if (r.top[0][0] === r.label) p[0]++; });
+    const rows = Object.entries(per).sort((a, b) => a[1][0] / a[1][1] - b[1][0] / b[1][1]);
+    const wrong = C.val.filter(r => r.top[0][0] !== r.label);
+    h.push(`<section class="two"><div class="panel"><h2>棚種類：誤分類 ${wrong.length}件 <span class="hint">（${C.at}・${C.epochs}エポック・学習 ${C.train}枚）</span></h2>
+      <label class="hint"><input type="checkbox" id="evAll"> 正解した画像も表示</label><div class="grid" id="evGrid"></div></div>
+      <div class="panel"><h2>クラス別の正解数</h2><table><tr><th>クラス</th><th class="num">正解/件</th></tr>
+      ${rows.map(([c, [ok, n]]) => `<tr><td>${esc(c)}</td><td class="num ${ok < n ? 'ng' : 'ok'}">${ok}/${n}</td></tr>`).join('')}</table>
+      <p class="note">各クラス3件程度しかないので、1件の差で大きく変わる。</p></div></section>`);
+    setTimeout(() => {
+      const draw = () => {
+        const list = $('evAll').checked ? C.val : wrong;
+        $('evGrid').innerHTML = list.map(r => `<div class="card"><div class="frame"><img loading="lazy" src="${thumb(r.file)}" alt="${esc(r.file)}"></div>
+          <div class="meta"><div>正解 <b>${esc(r.label)}</b></div>
+          <div>予測 <b class="${r.top[0][0] === r.label ? 'ok' : 'ng'}">${esc(r.top[0][0])}</b></div>
+          <div class="top3">${r.top.map(t => `${esc(t[0])} ${pct(t[1])}`).join(' / ')}</div>
+          <div class="fn">${esc(r.file)}</div></div></div>`).join('') || '<p class="note">なし</p>';
+      };
+      $('evAll').onchange = draw; draw();
+    });
+  }
+  if (B) {
+    h.push(`<section class="two"><div class="panel"><h2>棚の境界：検証画像 <span class="hint">（${B.at}・学習 実画像${B.train}枚＋合成）</span></h2>
+      <p class="note"><span class="legend-line" style="border-top:2px solid var(--cut)"></span>正解の境界
+      <span class="legend-line" style="border-top:2px dashed #35a2ff"></span>予測（しきい値 ${B.appThreshold}）　下の帯＝列ごとの境界確率（濃いほど高い）</p>
+      <div class="grid">${B.val.map(r => { const pred = decodePeaks(r.probs, B.appThreshold); return `<div class="card">
+        <div class="frame"><img loading="lazy" src="${thumb(r.file)}" alt="${esc(r.file)}">${cutsHtml(r.cuts)}${pred.map(c => `<div class="pcut" style="left:${c * 100}%"></div>`).join('')}</div>
+        <div class="strip">${r.probs.map(p => `<i style="opacity:${Math.max(p, 0.04)}" title="${p}"></i>`).join('')}</div>
+        <div class="meta"><div>正解 ${r.cuts.length}本 / 予測 ${pred.length}本</div><div class="fn">${esc(r.file)}</div></div></div>`; }).join('')}</div></div>
+      <div class="panel"><h2>しきい値ごとの精度</h2><table><tr><th>しきい値</th><th class="num">適合率</th><th class="num">再現率</th></tr>
+      ${B.sweep.map(s => `<tr class="${s.thr === B.appThreshold ? 'hl' : ''}"><td>${s.thr}${s.thr === B.appThreshold ? '（アプリ）' : ''}</td><td class="num">${pct(s.precision)}</td><td class="num">${pct(s.recall)}</td></tr>`).join('')}</table>
+      <p class="note">予測が正解から画像幅の ±${B.tolerance * 100}% 以内なら正解とみなす。検証は ${B.val.length}枚だけなので誤差が大きい。</p></div></section>`);
+  }
+  el.innerHTML = h.join('');
+}
+
+function renderUnit(U) {
+  const t = U.tests, pass = t.filter(x => x.status === 'passed').length, fail = t.filter(x => x.status === 'failed').length;
+  $('tab-unit').innerHTML = t.length ? `<section class="tiles">
+      <div class="tile"><b>${t.length}</b><span>テスト</span></div>
+      <div class="tile"><b class="ok">${pass}</b><span>成功</span></div>
+      <div class="tile"><b class="${fail ? 'ng' : ''}">${fail}</b><span>失敗</span></div>
+      <div class="tile"><b style="font-size:15px">${U.at}</b><span>最終実行</span></div></section>
+    <div class="panel"><table><tr><th>結果</th><th>クラス</th><th>テスト</th><th class="num">秒</th></tr>
+    ${t.map(x => `<tr><td class="${x.status === 'passed' ? 'ok' : x.status === 'failed' ? 'ng' : ''}">${{passed: '成功', failed: '失敗', skipped: 'スキップ'}[x.status]}</td>
+      <td>${esc(x.class)}</td><td>${esc(x.name)}${x.message ? `<div class="hint">${esc(x.message)}</div>` : ''}</td><td class="num">${x.time.toFixed(3)}</td></tr>`).join('')}</table>
+    <p class="note">更新するには <code>./gradlew testDebugUnitTest</code> を実行してから、このタブを開き直す。</p></div>`
+    : `<div class="panel">結果がありません。<code>./gradlew testDebugUnitTest</code> を実行してください。</div>`;
+}
 </script>
 </body>
 </html>

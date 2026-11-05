@@ -3,7 +3,8 @@
   python dashboard/serve.py [--data ../df-2026-t089/training_images] [--port 8765]
   -> http://127.0.0.1:8765
 """
-import argparse, csv, io, json
+import argparse, csv, datetime, io, json
+import xml.etree.ElementTree as ET
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import unquote
@@ -38,6 +39,23 @@ def build_data(data: Path):
     }
 
 
+def build_results():
+    ev = ROOT / "tools/results/eval.json"
+    tests, at = [], None
+    junit = ROOT / "app/build/test-results/testDebugUnitTest"
+    for x in sorted(junit.glob("*.xml")) if junit.is_dir() else []:
+        at = max(at or 0, x.stat().st_mtime)
+        for tc in ET.parse(x).getroot().iter("testcase"):
+            bad = tc.find("failure") if tc.find("failure") is not None else tc.find("error")
+            tests.append({"class": tc.get("classname", "").split(".")[-1], "name": tc.get("name"), "time": float(tc.get("time") or 0),
+                          "status": "skipped" if tc.find("skipped") is not None else "failed" if bad is not None else "passed",
+                          "message": bad.get("message") if bad is not None else None})
+    return {
+        "eval": json.loads(ev.read_text(encoding="utf-8")) if ev.exists() else None,
+        "unit": {"tests": tests, "at": datetime.datetime.fromtimestamp(at).isoformat(timespec="seconds") if at else None},
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     data: Path
     files: set
@@ -58,6 +76,8 @@ class Handler(BaseHTTPRequestHandler):
             d = build_data(self.data)
             Handler.files = {i["file"] for i in d["images"]}
             return self.send(json.dumps(d, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+        if path == "/api/results":
+            return self.send(json.dumps(build_results(), ensure_ascii=False).encode(), "application/json; charset=utf-8")
         for prefix in ("/img/", "/thumb/"):
             if path.startswith(prefix):
                 name = path[len(prefix):]

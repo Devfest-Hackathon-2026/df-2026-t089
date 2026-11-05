@@ -39,4 +39,9 @@ tools/.venv/Scripts/python tools/train.py --data <training_images のパス>
 ```
 python dashboard/serve.py --data <training_images のパス>   # → http://127.0.0.1:8765
 ```
-クラス別枚数・未ラベル/不足クラスなどの問題点・全画像（境界線を赤で重ね表示）を確認できる。Pillow があればサムネイルを `dashboard/.cache/` に作る。
+- データ：クラス別枚数・未ラベル/不足クラスなどの問題点・全画像（境界線を赤で重ね表示）
+- モデル評価（`#eval`）：検証用データでの正解率・誤分類画像・境界の正解/予測の重ね表示・しきい値ごとの精度。
+  `tools/train.py --eval-only` が書く `tools/results/eval.json` を表示する
+- ユニットテスト（`#unit`）：`./gradlew testDebugUnitTest` の結果
+
+Pillow があればサムネイルを `dashboard/.cache/` に作る。

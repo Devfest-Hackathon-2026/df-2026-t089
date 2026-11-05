@@ -5,7 +5,7 @@
 
 Usage:  python tools/train.py --data ../df-2026-t089/training_images
 """
-import argparse, csv, os, random
+import argparse, csv, datetime, json, random
 from pathlib import Path
 
 import numpy as np
@@ -233,7 +233,10 @@ def main():
     ap.add_argument("--data", type=Path, default=ROOT.parent / "df-2026-t089/training_images")
     ap.add_argument("--epochs", type=int, default=12)
     ap.add_argument("--only", choices=["cls", "bnd"])
+    ap.add_argument("--eval-only", action="store_true", help="train holdout models + write results, keep the app models")
     a = ap.parse_args()
+    results_path = ROOT / "tools/results/eval.json"
+    results = json.loads(results_path.read_text(encoding="utf-8")) if results_path.exists() else {}
     random.seed(SEED); np.random.seed(SEED); keras.utils.set_random_seed(SEED)
     imgs = load_cache(a.data, ROOT / "tools/.cache/images.npz")
     labels = [(r["file"], r["shelf"]) for r in read_csv(a.data / "labels.csv") if r["file"] in imgs]
@@ -242,6 +245,7 @@ def main():
 
     if a.only != "bnd":
         items = [(imgs[f], classes.index(s)) for f, s in labels]
+        files = [f for f, _ in labels]
         rng = np.random.default_rng(SEED)
         val_idx = set()
         for c in range(len(classes)):  # stratified ~15% holdout, at least 1 per class with >=4 samples
@@ -251,27 +255,48 @@ def main():
         tr = [it for i, it in enumerate(items) if i not in val_idx]
         va = [it for i, it in enumerate(items) if i in val_idx]
         print(f"classifier: {len(classes)} classes, train {len(tr)} val {len(va)}")
-        train_classifier(tr, va, classes, a.epochs)
-        final = train_classifier(items, [], classes, a.epochs)
-        export_tflite(final, ASSETS / "shelf_classifier.tflite")
-        (ASSETS / "labels.txt").write_text("\n".join(classes) + "\n", encoding="utf-8")
+        m = train_classifier(tr, va, classes, a.epochs)
+        vi = sorted(val_idx)
+        probs = m.predict(np.stack([resize(items[i][0], CLS_SIZE, CLS_SIZE) for i in vi]), verbose=0)
+        rows = [{"file": files[i], "label": classes[items[i][1]],
+                 "top": [[classes[k], round(float(p[k]), 3)] for k in np.argsort(-p)[:3]]} for i, p in zip(vi, probs)]
+        acc = sum(r["label"] == r["top"][0][0] for r in rows) / len(rows)
+        print(f"  holdout accuracy {acc:.3f}")
+        results["classifier"] = {"accuracy": acc, "train": len(tr), "val": rows, "classes": classes,
+                                 "epochs": a.epochs, "at": datetime.datetime.now().isoformat(timespec="seconds")}
+        if not a.eval_only:
+            final = train_classifier(items, [], classes, a.epochs)
+            export_tflite(final, ASSETS / "shelf_classifier.tflite")
+            (ASSETS / "labels.txt").write_text("\n".join(classes) + "\n", encoding="utf-8")
 
     if a.only != "cls":
-        real = [(imgs[r["file"]], [float(c) for c in r["cuts"].split()])
+        real = [(imgs[r["file"]], [float(c) for c in r["cuts"].split()], r["file"])
                 for r in read_csv(a.data / "boundaries.csv") if r["file"] in imgs]
         by_class = {}
         for f, s in labels:
             by_class.setdefault(s, []).append(imgs[f])
         rng = random.Random(SEED)
         rng.shuffle(real)
+        names = [f for _, _, f in real]
+        real = [(i, c) for i, c, _ in real]
         va, tr = real[:7], real[7:]
         print(f"boundary: real train {len(tr)} val {len(va)}")
         m = train_boundary(tr, by_class, 60, a.epochs)
+        sweep = []
         for thr in (0.05, 0.1, 0.2, 0.3, 0.5):
             p, r = pr(m, va, thr)
+            sweep.append({"thr": thr, "precision": p, "recall": r})
             print(f"  val thr={thr}: precision={p:.2f} recall={r:.2f}")
-        final = train_boundary(real, by_class, 60, a.epochs)
-        export_tflite(final, ASSETS / "shelf_boundary.tflite")
+        rows = [{"file": n, "cuts": c, "probs": [round(float(x), 3) for x in m.predict(resize(img, BND_SIZE, BND_SIZE)[None], verbose=0)[0]]}
+                for n, (img, c) in zip(names[:7], va)]
+        results["boundary"] = {"sweep": sweep, "appThreshold": 0.1, "tolerance": 0.06, "train": len(tr), "val": rows,
+                               "epochs": a.epochs, "at": datetime.datetime.now().isoformat(timespec="seconds")}
+        if not a.eval_only:
+            final = train_boundary(real, by_class, 60, a.epochs)
+            export_tflite(final, ASSETS / "shelf_boundary.tflite")
+    results_path.parent.mkdir(parents=True, exist_ok=True)
+    results_path.write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
+    print("wrote", results_path)
 
 
 if __name__ == "__main__":
