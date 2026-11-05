@@ -32,3 +32,9 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 *.log
+tools/.cache/
+.gradle/
+local.properties
+.idea/
+*.iml
+.kotlin/
