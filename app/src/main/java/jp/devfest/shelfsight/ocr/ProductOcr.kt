@@ -10,7 +10,7 @@ import java.util.concurrent.ExecutionException
 /** OCR が読み取った 1 行。大きさと位置は画像の高さを 1 とした割合。 */
 internal class OcrLine(val text: String, val height: Float, val top: Float)
 
-/** 手に取った商品を読み取った結果。端末内だけで処理する。 */
+/** 手に取った商品を読み取った結果。 */
 data class ProductResult(
     /** 商品名らしい文字を読めたときだけ true。 */
     val readable: Boolean,
@@ -18,13 +18,13 @@ data class ProductResult(
     val ocrText: List<String>,
 )
 
-/** 端末内の OCR。時間がかかるので GL スレッドでは呼ばない。 */
-internal fun interface LocalOcr {
+/** 文字の読み取り。時間がかかるので GL スレッドでは呼ばない。読めなかったときは IllegalStateException を投げる。 */
+internal fun interface TextOcr {
     fun read(bitmap: Bitmap): List<OcrLine>
 }
 
 /** ML Kit の日本語文字認識。モデルはアプリに同梱されるので、通信せずに動く。 */
-internal class MlKitOcr : LocalOcr, AutoCloseable {
+internal class MlKitOcr : TextOcr, AutoCloseable {
     private val recognizer = TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
 
     override fun read(bitmap: Bitmap): List<OcrLine> {

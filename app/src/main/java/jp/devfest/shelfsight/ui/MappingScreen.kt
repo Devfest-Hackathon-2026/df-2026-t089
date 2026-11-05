@@ -10,6 +10,11 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +26,10 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -43,12 +52,19 @@ import jp.devfest.shelfsight.mapping.OrbitCamera
 import jp.devfest.shelfsight.ocr.ProductResult
 import jp.devfest.shelfsight.perception.HandView
 import jp.devfest.shelfsight.perception.PerceptionState
+import jp.devfest.shelfsight.walking.WalkingState
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MappingScreen(
     state: MapUiState,
     perception: PerceptionState,
     labels: LabelState,
+    walking: WalkingState,
+    onToggleWalking: () -> Unit,
+    /** 学習データの記録枚数。-1 なら記録していない。null ならボタンを出さない。 */
+    recordedFrames: Int?,
+    onToggleRecordTraining: () -> Unit,
     surfaceView: GLSurfaceView,
     orbit: OrbitCamera,
     onToggleMap: () -> Unit,
@@ -78,39 +94,47 @@ fun MappingScreen(
             }
         }
 
+        WalkingStrip(
+            walking,
+            Modifier.align(Alignment.TopCenter).fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing),
+        )
+
         Column(
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .background(Color(0xCC000000))
+                .background(Color(0x99000000))
                 .windowInsetsPadding(WindowInsets.safeDrawing)
-                .padding(16.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             Text(
                 text = perception.ahead,
                 color = Color(0xFFFFEB3B),
-                fontSize = 26.sp,
+                fontSize = 20.sp,
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
             if (perception.people.isNotEmpty()) {
-                Text(text = perception.people, color = Color.White, fontSize = 20.sp)
+                Text(text = perception.people, color = Color.White, fontSize = 15.sp)
             }
             if (perception.hands.isNotEmpty()) {
                 Text(
                     text = perception.hands,
                     color = Color(0xFF80DEEA),
-                    fontSize = 20.sp,
+                    fontSize = 15.sp,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                 )
             }
+            WalkingText(walking)
             LabelPanel(labels)
-            Text(
-                text = state.status,
-                color = Color.White,
-                fontSize = 22.sp,
-                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-            )
+            if (state.status.isNotEmpty()) {
+                Text(
+                    text = state.status,
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                )
+            }
             Text(
                 text = String.format(
                     Locale.JAPAN,
@@ -120,65 +144,110 @@ fun MappingScreen(
                     state.pointCount / 10_000f,
                     state.walkedMeters,
                 ),
-                color = Color.White,
-                fontSize = 18.sp,
+                color = Color(0xFFBDBDBD),
+                fontSize = 13.sp,
             )
             if (state.showMap || !state.showCamera) {
                 val unplaced = if (perception.unplacedPeople > 0) "（位置不明 ${perception.unplacedPeople}人）" else ""
                 Text(
-                    text = "地図上の人 ${perception.placedPeople}人$unplaced\n" +
+                    text = "地図上の人 ${perception.placedPeople}人$unplaced　" +
                         "赤：向かってくる　橙：止まっている　緑：その他　白：確認中",
-                    color = Color.White,
-                    fontSize = 16.sp,
+                    color = Color(0xFFBDBDBD),
+                    fontSize = 13.sp,
                 )
             }
             if (state.showMap) {
-                Text(
-                    text = "1本指で回転、2本指で移動と拡大",
-                    color = Color(0xFFBDBDBD),
-                    fontSize = 16.sp,
-                )
+                Text(text = "1本指で回転、2本指で移動と拡大", color = Color(0xFFBDBDBD), fontSize = 13.sp)
             }
-            if (!state.showMap) {
-                Button(
-                    onClick = onToggleCamera,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-                ) {
-                    Text(if (state.showCamera) "地図の表示に切り替え" else "カメラ表示に切り替え", fontSize = 18.sp)
+
+            // よく使う 2 つと、設定を開くボタンだけを常に出し、画面をふさがないようにする。
+            var showSettings by rememberSaveable { mutableStateOf(false) }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                SmallButton(if (state.showMap) "今の視点に戻る" else "地図を見る", onToggleMap)
+                SmallButton(if (state.isRecording) "記録を一時停止" else "記録を再開", onToggleRecording)
+                if (recordedFrames != null && recordedFrames >= 0) {
+                    SmallButton("学習データの記録を終了（$recordedFrames 枚）", onToggleRecordTraining)
                 }
-            }
-            if (labels.cloudAvailable && !state.showMap) {
-                Button(
-                    onClick = onToggleCloud,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-                ) {
-                    Text(if (labels.cloudEnabled) "棚のクラウド判別をオフ" else "棚のクラウド判別をオン", fontSize = 18.sp)
-                }
-            }
-            if (state.showMap || !state.showCamera) {
-                Button(
-                    onClick = onTogglePoints,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-                ) {
-                    Text(if (state.showPoints) "面だけを表示" else "点も重ねて表示", fontSize = 18.sp)
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = onToggleMap,
-                    modifier = Modifier.weight(1f).heightIn(min = 72.dp),
-                ) {
-                    Text(if (state.showMap) "今の視点に戻る" else "地図を見る", fontSize = 18.sp)
-                }
-                Button(
-                    onClick = onToggleRecording,
-                    modifier = Modifier.weight(1f).heightIn(min = 72.dp),
-                ) {
-                    Text(if (state.isRecording) "記録を一時停止" else "記録を再開", fontSize = 18.sp)
+                SmallButton(if (showSettings) "設定を閉じる" else "設定", { showSettings = !showSettings })
+                if (showSettings) {
+                    if (!state.showMap) {
+                        SmallButton(if (state.showCamera) "地図の表示に切り替え" else "カメラ表示に切り替え", onToggleCamera)
+                    }
+                    if (recordedFrames != null && recordedFrames < 0 && !state.showMap) {
+                        SmallButton("学習データを記録", onToggleRecordTraining)
+                    }
+                    if (walking.available) {
+                        SmallButton(if (walking.enabled) "歩行中の判別をオフ" else "歩行中の判別をオン", onToggleWalking)
+                    }
+                    if (labels.cloudAvailable) {
+                        SmallButton(if (labels.cloudEnabled) "棚のクラウド判別をオフ" else "棚のクラウド判別をオン", onToggleCloud)
+                    }
+                    if (state.showMap || !state.showCamera) {
+                        SmallButton(if (state.showPoints) "面だけを表示" else "点も重ねて表示", onTogglePoints)
+                    }
                 }
             }
         }
     }
+}
+
+/** カテゴリごとの色。並びは tools/coarse_review.py と同じにしてある。 */
+private val WALKING_COLORS = listOf(
+    Color(0xFF1D78D2), Color(0xFFF09614), Color(0xFF00A0AA), Color(0xFF78553C),
+    Color(0xFFE63946), Color(0xFF28A050), Color(0xFF828282), Color(0xFF9646C8),
+)
+
+/** 押しやすさを保つため高さは 48dp 以上にしつつ、文字と余白を小さくしたボタン。 */
+@Composable
+private fun SmallButton(text: String, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+        modifier = Modifier.heightIn(min = 48.dp),
+    ) {
+        Text(text, fontSize = 14.sp)
+    }
+}
+
+/** 歩行中の判別結果を、カメラ画像の列と同じ位置に色の帯で重ねる。 */
+@Composable
+private fun WalkingStrip(walking: WalkingState, modifier: Modifier) {
+    if (!walking.enabled || walking.columns.isEmpty()) return
+    Row(modifier.height(28.dp)) {
+        // 同じカテゴリが続く列はまとめて、1 つの帯に名前を書く。
+        runsOf(walking.columns).forEach { (name, count) ->
+            val color = WALKING_COLORS[walking.classes.indexOf(name).coerceIn(0, WALKING_COLORS.lastIndex)]
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.weight(count.toFloat()).fillMaxHeight().background(color.copy(alpha = 0.8f)),
+            ) {
+                Text(name, color = Color.White, fontSize = 12.sp, maxLines = 1)
+            }
+        }
+    }
+}
+
+/** 読み上げ用。帯は画面の上にあるので、文字でも左から順に伝える。 */
+@Composable
+private fun WalkingText(walking: WalkingState) {
+    if (!walking.enabled || walking.columns.isEmpty()) return
+    Text(
+        text = "歩行中：" + runsOf(walking.columns).joinToString(" → ") { it.first } + "（${walking.millis} ms）",
+        color = Color.White,
+        fontSize = 15.sp,
+    )
+}
+
+private fun runsOf(columns: List<String>): List<Pair<String, Int>> {
+    val runs = mutableListOf<Pair<String, Int>>()
+    for (c in columns) {
+        val last = runs.lastOrNull()
+        if (last?.first == c) runs[runs.lastIndex] = c to last.second + 1 else runs.add(c to 1)
+    }
+    return runs
 }
 
 @Composable

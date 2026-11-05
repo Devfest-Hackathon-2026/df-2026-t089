@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -13,6 +14,12 @@
         android:supportsRtl="true">
 
         <meta-data android:name="com.google.ar.core" android:value="required" />
+
+        <!-- ONNX Runtime が起動時に利用状況を外部へ送る仕組みを外す。歩行中の判別は端末内だけで完結させる。 -->
+        <provider
+            android:name="ai.onnxruntime.TelemetryInitializer"
+            android:authorities="${applicationId}.onnxruntime_telemetry_initializer"
+            tools:node="remove" />
 
         <!-- LiteRT-LM の GPU バックエンドが必要とするネイティブライブラリ -->
         <uses-native-library android:name="libvndksupport.so" android:required="false" />

@@ -1,0 +1,1111 @@
+{
+ "_comment": "歩行中の大まかなカテゴリの正解。写真の横幅を 0〜1000 として、縦の帯ごとにカテゴリを付けた。Gemini（gemini-3.1-flash-lite など）が下書きし、Claude が写真と重ねて確認して直した。reviewed が fixed の行は直したもの。 2026-11-06: 6 分類に統合（飲み物とお酒、お菓子とおつまみ）。食品だったおつまみの吊り下げ棚 3 区画は Claude が写真を見てお菓子・おつまみに移した。",
+ "excluded": {
+  "PXL_20261105_132802954.jpg": "上段がパン、下半分がアイスの平台で、縦の帯では表せない"
+ },
+ "labels": {
+  "PXL_20261105_132611248.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 740,
+     "category": "お菓子・おつまみ"
+    },
+    {
+     "x_start": 740,
+     "x_end": 1000,
+     "category": "飲み物・お酒"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132613838.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 1000,
+     "category": "食品"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132616639.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 560,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 560,
+     "x_end": 1000,
+     "category": "食品"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132627351.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 280,
+     "category": "商品なし"
+    },
+    {
+     "x_start": 280,
+     "x_end": 480,
+     "category": "冷凍・アイス"
+    },
+    {
+     "x_start": 480,
+     "x_end": 1000,
+     "category": "お菓子・おつまみ"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132630390.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 1000,
+     "category": "食品"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132632106.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 550,
+     "category": "食品"
+    },
+    {
+     "x_start": 550,
+     "x_end": 1000,
+     "category": "弁当・パン"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132634719.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 850,
+     "category": "弁当・パン"
+    },
+    {
+     "x_start": 850,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132637029.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 750,
+     "category": "弁当・パン"
+    },
+    {
+     "x_start": 750,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132638288.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 750,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 750,
+     "x_end": 1000,
+     "category": "弁当・パン"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132638449.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 850,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 850,
+     "x_end": 1000,
+     "category": "弁当・パン"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132640475.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 420,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 420,
+     "x_end": 510,
+     "category": "商品なし"
+    },
+    {
+     "x_start": 510,
+     "x_end": 720,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 720,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132642273.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 190,
+     "category": "商品なし"
+    },
+    {
+     "x_start": 190,
+     "x_end": 850,
+     "category": "冷凍・アイス"
+    },
+    {
+     "x_start": 850,
+     "x_end": 1000,
+     "category": "飲み物・お酒"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132644871.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 1000,
+     "category": "冷凍・アイス"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132650027.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 550,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 550,
+     "x_end": 850,
+     "category": "お菓子・おつまみ"
+    },
+    {
+     "x_start": 850,
+     "x_end": 1000,
+     "category": "飲み物・お酒"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132651307.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 150,
+     "category": "お菓子・おつまみ"
+    },
+    {
+     "x_start": 150,
+     "x_end": 1000,
+     "category": "飲み物・お酒"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132653009.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 420,
+     "category": "お菓子・おつまみ"
+    },
+    {
+     "x_start": 420,
+     "x_end": 520,
+     "category": "食品"
+    },
+    {
+     "x_start": 520,
+     "x_end": 780,
+     "category": "商品なし"
+    },
+    {
+     "x_start": 780,
+     "x_end": 1000,
+     "category": "飲み物・お酒"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132654637.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 1000,
+     "category": "飲み物・お酒"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132657128.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 350,
+     "category": "お菓子・おつまみ"
+    },
+    {
+     "x_start": 350,
+     "x_end": 500,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 500,
+     "x_end": 650,
+     "category": "食品"
+    },
+    {
+     "x_start": 650,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132700810.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 1000,
+     "category": "飲み物・お酒"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132704139.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 260,
+     "category": "お菓子・おつまみ"
+    },
+    {
+     "x_start": 260,
+     "x_end": 560,
+     "category": "食品"
+    },
+    {
+     "x_start": 560,
+     "x_end": 900,
+     "category": "お菓子・おつまみ"
+    },
+    {
+     "x_start": 900,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132706062.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 120,
+     "category": "商品なし"
+    },
+    {
+     "x_start": 120,
+     "x_end": 400,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 400,
+     "x_end": 1000,
+     "category": "お菓子・おつまみ"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132716436.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 1000,
+     "category": "日用品・雑貨"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132718446.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 1000,
+     "category": "日用品・雑貨"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132720341.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 750,
+     "category": "日用品・雑貨"
+    },
+    {
+     "x_start": 750,
+     "x_end": 850,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 850,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132721683.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 950,
+     "category": "日用品・雑貨"
+    },
+    {
+     "x_start": 950,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132723820.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 900,
+     "category": "日用品・雑貨"
+    },
+    {
+     "x_start": 900,
+     "x_end": 1000,
+     "category": "飲み物・お酒"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132725129.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 480,
+     "category": "日用品・雑貨"
+    },
+    {
+     "x_start": 480,
+     "x_end": 680,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 680,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132727570.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 75,
+     "category": "商品なし"
+    },
+    {
+     "x_start": 75,
+     "x_end": 1000,
+     "category": "日用品・雑貨"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132737718.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 345,
+     "category": "食品"
+    },
+    {
+     "x_start": 345,
+     "x_end": 765,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 765,
+     "x_end": 1000,
+     "category": "日用品・雑貨"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132742642.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 280,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 280,
+     "x_end": 1000,
+     "category": "お菓子・おつまみ"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132748052.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 200,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 200,
+     "x_end": 1000,
+     "category": "弁当・パン"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132751277.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 150,
+     "category": "商品なし"
+    },
+    {
+     "x_start": 150,
+     "x_end": 440,
+     "category": "弁当・パン"
+    },
+    {
+     "x_start": 440,
+     "x_end": 780,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 780,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132755708.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 280,
+     "category": "弁当・パン"
+    },
+    {
+     "x_start": 280,
+     "x_end": 650,
+     "category": "お菓子・おつまみ"
+    },
+    {
+     "x_start": 650,
+     "x_end": 750,
+     "category": "冷凍・アイス"
+    },
+    {
+     "x_start": 750,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132807181.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 150,
+     "category": "商品なし"
+    },
+    {
+     "x_start": 150,
+     "x_end": 1000,
+     "category": "弁当・パン"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132823665.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 150,
+     "category": "商品なし"
+    },
+    {
+     "x_start": 150,
+     "x_end": 500,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 500,
+     "x_end": 1000,
+     "category": "弁当・パン"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132823832.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 150,
+     "category": "商品なし"
+    },
+    {
+     "x_start": 150,
+     "x_end": 500,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 500,
+     "x_end": 1000,
+     "category": "弁当・パン"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132827256.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 220,
+     "category": "食品"
+    },
+    {
+     "x_start": 220,
+     "x_end": 740,
+     "category": "お菓子・おつまみ"
+    },
+    {
+     "x_start": 740,
+     "x_end": 1000,
+     "category": "食品"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132835916.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 850,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 850,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132928289.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 280,
+     "category": "弁当・パン"
+    },
+    {
+     "x_start": 280,
+     "x_end": 1000,
+     "category": "お菓子・おつまみ"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132930330.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 750,
+     "category": "お菓子・おつまみ"
+    },
+    {
+     "x_start": 750,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132933014.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 150,
+     "category": "商品なし"
+    },
+    {
+     "x_start": 150,
+     "x_end": 500,
+     "category": "弁当・パン"
+    },
+    {
+     "x_start": 500,
+     "x_end": 1000,
+     "category": "お菓子・おつまみ"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132934697.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 680,
+     "category": "お菓子・おつまみ"
+    },
+    {
+     "x_start": 680,
+     "x_end": 880,
+     "category": "冷凍・アイス"
+    },
+    {
+     "x_start": 880,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132936506.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 200,
+     "category": "商品なし"
+    },
+    {
+     "x_start": 200,
+     "x_end": 1000,
+     "category": "食品"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132938183.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 500,
+     "category": "お菓子・おつまみ"
+    },
+    {
+     "x_start": 500,
+     "x_end": 680,
+     "category": "食品"
+    },
+    {
+     "x_start": 680,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.5-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132940518.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 600,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 600,
+     "x_end": 1000,
+     "category": "弁当・パン"
+    }
+   ],
+   "source": "gemini-3.5-flash-lite",
+   "reviewed": "fixed"
+  },
+  "PXL_20261105_132942294.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 1000,
+     "category": "弁当・パン"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132944040.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 540,
+     "category": "弁当・パン"
+    },
+    {
+     "x_start": 540,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132945956.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 660,
+     "category": "お菓子・おつまみ"
+    },
+    {
+     "x_start": 660,
+     "x_end": 1000,
+     "category": "飲み物・お酒"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132947171.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 220,
+     "category": "商品なし"
+    },
+    {
+     "x_start": 220,
+     "x_end": 1000,
+     "category": "飲み物・お酒"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132948521.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 750,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 750,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_132951988.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 450,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 450,
+     "x_end": 1000,
+     "category": "お菓子・おつまみ"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "fixed"
+  },
+  "PXL_20261105_132955455.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 430,
+     "category": "冷凍・アイス"
+    },
+    {
+     "x_start": 430,
+     "x_end": 475,
+     "category": "商品なし"
+    },
+    {
+     "x_start": 475,
+     "x_end": 1000,
+     "category": "冷凍・アイス"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_133003224.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 1000,
+     "category": "お菓子・おつまみ"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_133006182.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 1000,
+     "category": "お菓子・おつまみ"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_133008439.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 750,
+     "category": "お菓子・おつまみ"
+    },
+    {
+     "x_start": 750,
+     "x_end": 1000,
+     "category": "飲み物・お酒"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_133014564.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 140,
+     "category": "お菓子・おつまみ"
+    },
+    {
+     "x_start": 140,
+     "x_end": 580,
+     "category": "食品"
+    },
+    {
+     "x_start": 580,
+     "x_end": 1000,
+     "category": "お菓子・おつまみ"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "fixed"
+  },
+  "PXL_20261105_133018764.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 680,
+     "category": "日用品・雑貨"
+    },
+    {
+     "x_start": 680,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_133022452.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 750,
+     "category": "日用品・雑貨"
+    },
+    {
+     "x_start": 750,
+     "x_end": 850,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 850,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_133027450.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 1000,
+     "category": "日用品・雑貨"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_133030611.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 1000,
+     "category": "日用品・雑貨"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_133033238.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 280,
+     "category": "商品なし"
+    },
+    {
+     "x_start": 280,
+     "x_end": 680,
+     "category": "お菓子・おつまみ"
+    },
+    {
+     "x_start": 680,
+     "x_end": 1000,
+     "category": "飲み物・お酒"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "fixed"
+  },
+  "PXL_20261105_133035634.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 380,
+     "category": "日用品・雑貨"
+    },
+    {
+     "x_start": 380,
+     "x_end": 450,
+     "category": "飲み物・お酒"
+    },
+    {
+     "x_start": 450,
+     "x_end": 660,
+     "category": "商品なし"
+    },
+    {
+     "x_start": 660,
+     "x_end": 820,
+     "category": "食品"
+    },
+    {
+     "x_start": 820,
+     "x_end": 1000,
+     "category": "商品なし"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  },
+  "PXL_20261105_133041690.jpg": {
+   "slices": [
+    {
+     "x_start": 0,
+     "x_end": 1000,
+     "category": "飲み物・お酒"
+    }
+   ],
+   "source": "gemini-3.1-flash-lite",
+   "reviewed": "ok"
+  }
+ }
+}

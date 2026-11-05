@@ -28,6 +28,11 @@ android {
             "GEMINI_MODELS",
             "\"${localProperties.getProperty("GEMINI_MODELS", "gemini-3.8-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite")}\"",
         )
+        // 商品の OCR に使う Cloud Vision API のキー（GCP_API_KEY の名前でもよい）。なければ端末内の ML Kit で読む。
+        val visionKey = localProperties.getProperty("CLOUD_VISION_API_KEY") ?: localProperties.getProperty("GCP_API_KEY", "")
+        buildConfigField("String", "CLOUD_VISION_API_KEY", "\"$visionKey\"")
+        // 歩行中の判別に使うモデル。app/src/main/assets/coarse/<名前>.onnx と <名前>.head.json を置く（tools/coarse_experiment.py 参照）。
+        buildConfigField("String", "COARSE_MODEL", "\"${localProperties.getProperty("COARSE_MODEL", "MobileCLIP2-S0")}\"")
     }
 
     buildFeatures {
@@ -36,7 +41,7 @@ android {
     }
 
     androidResources {
-        noCompress += listOf("tflite", "task") // MediaPipe がモデルを直接読み込めるようにする
+        noCompress += listOf("tflite", "task", "onnx") // モデルを圧縮せずに入れ、そのまま読めるようにする
     }
 
     compileOptions {
@@ -56,6 +61,7 @@ dependencies {
     implementation(libs.litertlm)
     implementation(libs.mediapipe.tasks.vision)
     implementation(libs.mlkit.text.japanese)
+    implementation(libs.onnxruntime.android)
     implementation("org.tensorflow:tensorflow-lite:2.17.0") // Store3D
 
     androidTestImplementation(libs.androidx.test.runner)

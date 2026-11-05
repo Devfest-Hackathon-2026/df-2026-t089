@@ -1,0 +1,7 @@
+# 歩行中の大まかなカテゴリの実験（coarse_*.py）。requirements.txt に追加して入れる。
+# torch は CPU 版で十分： pip install torch --index-url https://download.pytorch.org/whl/cpu
+scikit-learn
+open_clip_torch
+onnxruntime
+# ONNX への書き出しに使う onnx は protobuf 6 以上が必要で、TensorFlow（protobuf 6 未満）と同じ環境に入らない。
+# 書き出すときだけ別の仮想環境に onnx と onnxscript を入れて使う。

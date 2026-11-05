@@ -29,6 +29,19 @@ internal class FittedSurface(
     val triangles: FloatArray,
     val outline: FloatArray,
     val area: Float,
+    /** 面の座標系。点 = origin + u * axisU + v * axisV。壁なら v は真上。 */
+    val basis: SurfaceBasis,
+)
+
+/** 面の上の 2 次元座標系と、面が広がっている範囲（メートル）。 */
+internal class SurfaceBasis(
+    val origin: FloatArray,
+    val axisU: FloatArray,
+    val axisV: FloatArray,
+    val uMin: Float,
+    val uMax: Float,
+    val vMin: Float,
+    val vMax: Float,
 )
 
 internal class FitResult(val surfaces: List<FittedSurface>, val discovered: List<PlaneSpec>)
@@ -427,10 +440,18 @@ internal class SurfaceFitter {
             val outline = FloatList()
             val used = BooleanArray(keep.size)
             var cells = 0
+            var minCol = Int.MAX_VALUE
+            var maxCol = Int.MIN_VALUE
+            var minRow = Int.MAX_VALUE
+            var maxRow = Int.MIN_VALUE
             for (row in 0 until grid.height) {
                 for (col in 0 until grid.width) {
                     if (!keep[grid.index(col, row)]) continue
                     cells++
+                    minCol = minOf(minCol, col)
+                    maxCol = maxOf(maxCol, col)
+                    minRow = minOf(minRow, row)
+                    maxRow = maxOf(maxRow, row)
                     addOutline(grid, keep, col, row, outline)
                     if (used[grid.index(col, row)]) continue
                     addRectangle(grid, keep, used, col, row, triangles)
@@ -439,6 +460,11 @@ internal class SurfaceFitter {
             return FittedSurface(
                 reference, members, reference.kind, floatArrayOf(nx, ny, nz),
                 triangles.toArray(), outline.toArray(), cells * CELL_M * CELL_M,
+                SurfaceBasis(
+                    floatArrayOf(ox, oy, oz), floatArrayOf(ux, uy, uz), floatArrayOf(vx, vy, vz),
+                    (grid.minU + minCol) * CELL_M, (grid.minU + maxCol + 1) * CELL_M,
+                    (grid.minV + minRow) * CELL_M, (grid.minV + maxRow + 1) * CELL_M,
+                ),
             )
         }
 

@@ -10,6 +10,8 @@ import jp.devfest.shelfsight.ar.GlUtil
 
 /** 描画できる形にした補正済みの面。 */
 internal class DrawableSurface(
+    /** 同じ平面なら補正をまたいでも変わらない番号。記録したデータで同じ壁を追うのに使う。 */
+    val id: Int,
     val kind: SurfaceKind,
     val normal: FloatArray,
     val triangles: FloatBuffer,
@@ -21,9 +23,23 @@ internal class DrawableSurface(
     /** 補正した時点の基準の逆行列。 */
     private val referenceAtFitInverse: FloatArray,
     val fromPoints: Boolean,
+    /** 補正した時点のワールド座標での面の座標系。 */
+    val basis: SurfaceBasis,
 ) {
     /** 補正した後に ARCore が直した分を反映する行列を [out] に書く。 */
     fun writeModel(out: FloatArray) = Matrix.multiplyMM(out, 0, reference, 0, referenceAtFitInverse, 0)
+
+    /** 今のワールド座標での面の座標系。GL スレッドで呼ぶ。 */
+    fun currentBasis(): SurfaceBasis {
+        val m = FloatArray(16)
+        writeModel(m)
+        fun point(p: FloatArray) = FloatArray(3) { i -> m[i] * p[0] + m[4 + i] * p[1] + m[8 + i] * p[2] + m[12 + i] }
+        fun direction(d: FloatArray) = FloatArray(3) { i -> m[i] * d[0] + m[4 + i] * d[1] + m[8 + i] * d[2] }
+        return SurfaceBasis(
+            point(basis.origin), direction(basis.axisU), direction(basis.axisV),
+            basis.uMin, basis.uMax, basis.vMin, basis.vMax,
+        )
+    }
 }
 
 internal class FusedSurfaces(
@@ -105,8 +121,11 @@ internal class SurfaceFusion {
             val patch = patchOf[surface.reference]
             val chunk = chunkOf[surface.reference]
             when {
-                patch != null -> drawable(surface, patch.patch.worldFromPlane, patch.pose, fromPoints = false)
-                chunk != null -> drawable(surface, chunk.chunk.worldFromChunk, chunk.matrix, fromPoints = true)
+                patch != null -> drawable(surface, patch.patch.worldFromPlane, patch.pose, false, System.identityHashCode(patch.patch))
+                chunk != null -> drawable(
+                    surface, chunk.chunk.worldFromChunk, chunk.matrix, true,
+                    foundSpecs.firstOrNull { it.second === surface.reference }?.let { System.identityHashCode(it.first) } ?: 0,
+                )
                 else -> null
             }
         }
@@ -151,14 +170,20 @@ internal class SurfaceFusion {
         return out / 3
     }
 
-    private fun drawable(surface: FittedSurface, reference: FloatArray, atFit: FloatArray, fromPoints: Boolean): DrawableSurface? {
+    private fun drawable(
+        surface: FittedSurface,
+        reference: FloatArray,
+        atFit: FloatArray,
+        fromPoints: Boolean,
+        id: Int,
+    ): DrawableSurface? {
         val inverse = FloatArray(16)
         if (!Matrix.invertM(inverse, 0, atFit, 0)) return null
         return DrawableSurface(
-            surface.kind, surface.normal,
+            id, surface.kind, surface.normal,
             GlUtil.floatBuffer(surface.triangles), surface.triangles.size / 3,
             GlUtil.floatBuffer(surface.outline), surface.outline.size / 3,
-            reference, inverse, fromPoints,
+            reference, inverse, fromPoints, surface.basis,
         )
     }
 

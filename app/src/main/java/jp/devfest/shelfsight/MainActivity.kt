@@ -36,16 +36,29 @@ import jp.devfest.shelfsight.mapping.MappingRenderer
 import jp.devfest.shelfsight.mapping.StoreMapper
 import jp.devfest.shelfsight.perception.MediaPipeHandDetector
 import jp.devfest.shelfsight.perception.MediaPipePersonDetector
+import jp.devfest.shelfsight.ocr.CloudVisionOcr
+import jp.devfest.shelfsight.ocr.FallbackOcr
 import jp.devfest.shelfsight.ocr.MlKitOcr
 import jp.devfest.shelfsight.perception.HandGesture
 import jp.devfest.shelfsight.perception.PerceptionPipeline
+import jp.devfest.shelfsight.record.TrainingRecorder
 import jp.devfest.shelfsight.ui.MappingScreen
+import jp.devfest.shelfsight.walking.CoarseClassifier
+import jp.devfest.shelfsight.walking.WalkingClassifier
 
 class MainActivity : ComponentActivity() {
     private val mapper = StoreMapper()
     private lateinit var perception: PerceptionPipeline
     private lateinit var labeler: StopLabeler
-    private val ocr by lazy { MlKitOcr() }
+    private lateinit var recorder: TrainingRecorder
+    private lateinit var walking: WalkingClassifier
+    private val localOcr by lazy { MlKitOcr() }
+
+    /** 商品の文字は Cloud Vision の方が正確に読める。キーがなければ端末内の ML Kit だけで読む。 */
+    private val ocr by lazy {
+        val key = BuildConfig.CLOUD_VISION_API_KEY
+        if (key.isBlank()) localOcr else FallbackOcr(CloudVisionOcr(key, MAX_CLOUD_OCR_PER_LAUNCH), localOcr)
+    }
 
     private lateinit var surfaceView: GLSurfaceView
     private lateinit var renderer: MappingRenderer
@@ -70,10 +83,12 @@ class MainActivity : ComponentActivity() {
             getExternalFilesDir(null)?.resolve("perception_log.csv"),
         )
         labeler = createLabeler()
+        recorder = TrainingRecorder(getExternalFilesDir(null) ?: filesDir, mapper)
+        walking = createWalkingClassifier()
         perception.onHandsDetected = { time, hands ->
             labeler.onHands(time, hands.map { HandCandidate(it.box, it.gesture == HandGesture.POINTING, it.distanceM) })
         }
-        renderer = MappingRenderer(mapper, perception, labeler, ::currentDisplayRotation)
+        renderer = MappingRenderer(mapper, perception, labeler, recorder, walking, ::currentDisplayRotation)
         surfaceView = GLSurfaceView(this).apply {
             preserveEGLContextOnPause = true
             setEGLContextClientVersion(2)
@@ -89,10 +104,17 @@ class MainActivity : ComponentActivity() {
                 val state by mapper.state.collectAsStateWithLifecycle()
                 val perceptionState by perception.state.collectAsStateWithLifecycle()
                 val labels by labeler.state.collectAsStateWithLifecycle()
+                val recordedFrames by recorder.frames.collectAsStateWithLifecycle()
+                val walkingState by walking.state.collectAsStateWithLifecycle()
                 MappingScreen(
                     state = state,
                     perception = perceptionState,
                     labels = labels,
+                    walking = walkingState,
+                    onToggleWalking = { walking.setEnabled(!walkingState.enabled) },
+                    // 学習データの記録は開発用。来店者が写るので、配布版では出さない。
+                    recordedFrames = if (BuildConfig.DEBUG) recordedFrames else null,
+                    onToggleRecordTraining = recorder::toggle,
                     surfaceView = surfaceView,
                     orbit = mapper.orbit,
                     onToggleMap = { mapper.setShowMap(!state.showMap) },
@@ -142,7 +164,9 @@ class MainActivity : ComponentActivity() {
         mapper.close()
         perception.close()
         labeler.close()
-        ocr.close()
+        recorder.close()
+        walking.close()
+        localOcr.close()
         super.onDestroy()
     }
 
@@ -180,7 +204,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** API キーがなければ棚の判別だけを止める。商品の OCR は端末内で動く。 */
+    /** Gemini の API キーがなければ棚の判別だけを止める。商品の OCR はキーがなくても端末内で動く。 */
     private fun createLabeler(): StopLabeler {
         // 読み取りに使った画像を確かめられるのはデバッグ版だけにする。
         val debugDir = if (BuildConfig.DEBUG) getExternalFilesDir(null) else null
@@ -190,6 +214,14 @@ class MainActivity : ComponentActivity() {
         val tasks = CloudTasks({ name -> assets.open(name).bufferedReader().readText() }, categories)
         val models = BuildConfig.GEMINI_MODELS.split(',').map { it.trim() }.filter { it.isNotEmpty() }
         return StopLabeler(GeminiClient(key, models), tasks, ocr, debugDir) { perception.uprightRotationDegrees }
+    }
+
+    /** 歩行中の判別。モデルは大きいのでリポジトリに含めておらず、入っていないビルドでは判別しない。 */
+    private fun createWalkingClassifier(): WalkingClassifier {
+        val debugDir = if (BuildConfig.DEBUG) getExternalFilesDir(null) else null
+        return WalkingClassifier({ CoarseClassifier.fromAssets(this, BuildConfig.COARSE_MODEL) }, debugDir) {
+            perception.uprightRotationDegrees
+        }
     }
 
     /** 標準の 640x480 では商品の文字を読めないので、なるべく大きなカメラ画像を選ぶ。 */
@@ -227,5 +259,8 @@ class MainActivity : ComponentActivity() {
         const val TAG = "MainActivity"
         const val MAX_CAMERA_IMAGE_WIDTH = 1920
         const val MIN_CAMERA_FPS = 30
+
+        /** 試験中は無料枠を守るため少なくしている。超えた分は端末内で読む。 */
+        const val MAX_CLOUD_OCR_PER_LAUNCH = 8
     }
 }

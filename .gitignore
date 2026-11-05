@@ -56,3 +56,6 @@ tools/assets/
 
 # Store3D
 dashboard/.cache/
+
+# 歩行中の判別モデル（数十 MB あるうえ、MobileCLIP の重みは Apple の研究用ライセンスなので公開リポジトリに載せない）
+app/src/main/assets/coarse/*.onnx

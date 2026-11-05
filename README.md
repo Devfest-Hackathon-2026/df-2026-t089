@@ -36,13 +36,14 @@
 
 | 場面 | 処理 | 処理する場所 |
 |---|---|---|
-| 歩いている | 棚の種類（MobileNetV3 Small。未接続） | 端末 |
+| 歩いている（0.5 秒以上の間隔で、前の判別が終わりしだい） | 画面を 8 列に分け、列ごとの大まかなカテゴリ（6 分類＋商品なし。`tools/coarse_categories.json`） | 端末（MobileCLIP ＋ ONNX Runtime） |
 | 棚の前で立ち止まる（`DwellDetector`：1.5 秒） | 列ごとのカテゴリ（`labels.txt` の 26 分類） | クラウド（Gemini） |
-| 商品を手に取る（`SceneChangeDetector` / `HeldProductDetector`：0.8 秒） | OCR で商品名を読み取る（ML Kit） | 端末 |
+| 商品を手に取る（`SceneChangeDetector` / `HeldProductDetector`：0.8 秒） | OCR で商品名を読み取る（Cloud Vision API。キーがない・通信できないときは ML Kit） | クラウド（予備は端末） |
 
-- 商品の画像は外部に送りません。読み取りは、箱で手が隠れても、視界がふさがれて AR の追跡が切れても動きます。文字を読めないときは撮り直し、それでも読めなければ読めないと伝えます
+- 商品の画像は、Cloud Vision の API キーを設定したときだけ Google に送ります（`local.properties` に `CLOUD_VISION_API_KEY=...` か `GCP_API_KEY=...`）。Vision API の同期の要求では、画像はメモリ上で処理され、保存も学習への利用もされません。読み取りは、箱で手が隠れても、視界がふさがれて AR の追跡が切れても動きます。文字を読めないときは撮り直し、それでも読めなければ読めないと伝えます
 - `RequestBudget` で、クラウドの呼び出しを 1 分あたり 12 回までに制限しています
 - 棚の判別を使うには `local.properties` に `GEMINI_API_KEY=...` を書きます（任意で `GEMINI_MODELS=a,b,c`。混雑していると次のモデルに切り替えます）。キーがなければ棚の判別だけが止まります
+- 歩行中の判別のモデルは大きく、重みが Apple の研究用ライセンス（apple-amlr）なのでリポジトリに含めていません。`tools/coarse_experiment.py --export-head 3` で作った `app/src/main/assets/coarse/<名前>.onnx` と `<名前>.head.json` を置き、`local.properties` の `COARSE_MODEL`（既定は `MobileCLIP-S1`）で選びます。置いていなければ歩行中の判別だけが止まります。デバッグ版は結果と時間を `walking_log.tsv` に残します
 - 指示文とスキーマは `app/src/main/assets/cloud/` にあり、`tools/cloud_test.py` で同じものを写真で試して、入出力の一覧を `tools/out/cloud_test/report.html` に出せます
 
 ### 使用技術

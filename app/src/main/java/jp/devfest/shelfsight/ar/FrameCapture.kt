@@ -41,6 +41,7 @@ internal object FrameCapture {
         uprightRotationDegrees: Int,
         depthEnabled: Boolean,
         fullResolution: Boolean = false,
+        usualLongSide: Int = USUAL_LONG_SIDE,
     ): CapturedFrame? {
         val image = try {
             frame.acquireCameraImage()
@@ -50,7 +51,7 @@ internal object FrameCapture {
             return null
         }
         return image.use {
-            val step = if (fullResolution) 1 else max(1, max(it.width, it.height) / USUAL_LONG_SIDE)
+            val step = if (fullResolution) 1 else max(1, max(it.width, it.height) / usualLongSide)
             // NV21 は色を 2x2 画素で共有するので、縦横とも偶数にする。
             val width = it.width / step and 1.inv()
             val height = it.height / step and 1.inv()
@@ -153,6 +154,13 @@ internal object JpegEncoder {
             upright.recycle()
             out.toByteArray()
         }
+    }
+
+    /** 回転させずにセンサーの向きのまま JPEG にする。カメラの内部パラメータをそのまま当てはめられる。 */
+    fun toSensorJpeg(frame: CapturedFrame, quality: Int = QUALITY): ByteArray = ByteArrayOutputStream().use { out ->
+        YuvImage(frame.nv21, ImageFormat.NV21, frame.width, frame.height, null)
+            .compressToJpeg(Rect(0, 0, frame.width, frame.height), quality, out)
+        out.toByteArray()
     }
 
     /** 正立させた ARGB_8888 の画像を返す。呼び出し側が recycle する。 */

@@ -23,7 +23,7 @@ import jp.devfest.shelfsight.cloud.CloudVisionClient
 import jp.devfest.shelfsight.cloud.PlacedShelfColumn
 import jp.devfest.shelfsight.model.NormalizedBox
 import jp.devfest.shelfsight.model.Vec3
-import jp.devfest.shelfsight.ocr.LocalOcr
+import jp.devfest.shelfsight.ocr.TextOcr
 import jp.devfest.shelfsight.ocr.ProductReading
 import jp.devfest.shelfsight.ocr.ProductResult
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,7 +43,7 @@ data class LabelState(
  * 立ち止まったときの棚の判別と、手に取った商品の読み取りを行う。
  *
  * - 棚：棚の前で立ち止まったときだけ、画像をクラウドに送って列ごとに判別する
- * - 商品：端末内の OCR で読み取る。画像は外に出ない
+ * - 商品：OCR で読み取る。Cloud Vision の API キーがあればクラウドで読み、なければ（または通信できなければ）端末内で読む
  *
  * 撮影だけを GL スレッドで行う。通信で OCR が待たされないよう、処理のスレッドは分ける。
  * 商品をカメラに近づけると視界がふさがれて AR の追跡が切れることが多いので、
@@ -55,7 +55,7 @@ data class LabelState(
 class StopLabeler internal constructor(
     private val client: CloudVisionClient?,
     private val tasks: CloudTasks?,
-    private val ocr: LocalOcr,
+    private val ocr: TextOcr,
     private val debugDir: File? = null,
     private val uprightRotationDegrees: () -> Int,
 ) {

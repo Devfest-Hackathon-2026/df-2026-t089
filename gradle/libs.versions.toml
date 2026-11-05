@@ -10,6 +10,7 @@ junit = "4.13.2"
 orgJson = "20250517"
 mediapipe = "1.2.2"
 mlkitTextJapanese = "16.0.1"
+onnxruntime = "1.31.1"
 androidxTestRunner = "1.6.2"
 androidxTestJunit = "1.2.1"
 
@@ -24,6 +25,7 @@ arcore = { module = "com.google.ar:core", version.ref = "arcore" }
 litertlm = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlm" }
 mediapipe-tasks-vision = { module = "com.google.mediapipe:tasks-vision", version.ref = "mediapipe" }
 mlkit-text-japanese = { module = "com.google.mlkit:text-recognition-japanese", version.ref = "mlkitTextJapanese" }
+onnxruntime-android = { module = "com.microsoft.onnxruntime:onnxruntime-android", version.ref = "onnxruntime" }
 androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidxTestRunner" }
 androidx-test-junit = { module = "androidx.test.ext:junit", version.ref = "androidxTestJunit" }
 junit = { module = "junit:junit", version.ref = "junit" }

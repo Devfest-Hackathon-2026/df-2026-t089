@@ -12,13 +12,17 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import jp.devfest.shelfsight.ar.BackgroundRenderer
 import jp.devfest.shelfsight.labeling.StopLabeler
+import jp.devfest.shelfsight.record.TrainingRecorder
 import jp.devfest.shelfsight.perception.PerceptionPipeline
+import jp.devfest.shelfsight.walking.WalkingClassifier
 
 /** ARCore の更新と描画を行う。地図を表示している間も、裏で記録と追跡を続ける。 */
 class MappingRenderer(
     private val mapper: StoreMapper,
     private val perception: PerceptionPipeline,
     private val labeler: StopLabeler,
+    private val recorder: TrainingRecorder,
+    private val walking: WalkingClassifier,
     private val displayRotation: () -> Int,
 ) : GLSurfaceView.Renderer {
 
@@ -80,6 +84,8 @@ class MappingRenderer(
         mapper.onFrame(current, frame, camera)
         perception.onFrame(frame, camera)
         labeler.onFrame(frame, camera)
+        recorder.onFrame(frame, camera)
+        walking.onFrame(frame, camera)
 
         if (showMap) {
             drawMapView(map)
