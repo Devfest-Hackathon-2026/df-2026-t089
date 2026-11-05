@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "jp.devfest.shelfsight"
-        minSdk = 26
+        minSdk = 31 // Store3D の要件に合わせる
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
@@ -40,6 +40,7 @@ dependencies {
     implementation(libs.arcore)
     implementation(libs.litertlm)
     implementation(libs.mediapipe.tasks.vision)
+    implementation("org.tensorflow:tensorflow-lite:2.17.0") // Store3D
 
     testImplementation(libs.junit)
     testImplementation(libs.org.json)

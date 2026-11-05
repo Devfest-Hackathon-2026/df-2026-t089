@@ -27,5 +27,24 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Store3D（ランチャーのアイコンが ShelfSight と別に表示される） -->
+        <activity
+            android:name="com.example.store3d.MainActivity"
+            android:label="Store3D"
+            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
+            android:exported="true"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name="com.example.store3d.ViewerActivity"
+            android:label="Store3D"
+            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
+            android:exported="false" />
     </application>
 </manifest>

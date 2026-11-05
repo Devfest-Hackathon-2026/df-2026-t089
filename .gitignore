@@ -43,3 +43,7 @@ captures/
 
 # Gemma のモデル（数 GB あるためコミットしない）
 *.litertlm
+
+# Store3D
+tools/.cache/
+*.iml
