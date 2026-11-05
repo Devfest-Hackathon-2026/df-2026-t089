@@ -267,7 +267,7 @@ def main():
         va, tr = real[:7], real[7:]
         print(f"boundary: real train {len(tr)} val {len(va)}")
         m = train_boundary(tr, by_class, 60, a.epochs)
-        for thr in (0.3, 0.4, 0.5, 0.6):
+        for thr in (0.05, 0.1, 0.2, 0.3, 0.5):
             p, r = pr(m, va, thr)
             print(f"  val thr={thr}: precision={p:.2f} recall={r:.2f}")
         final = train_boundary(real, by_class, 60, a.epochs)
