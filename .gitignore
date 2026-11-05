@@ -32,3 +32,14 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 *.log
+
+# Android
+.gradle/
+.kotlin/
+local.properties
+captures/
+*.apk
+*.aab
+
+# Gemma のモデル（数 GB あるためコミットしない）
+*.litertlm
