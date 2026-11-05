@@ -25,6 +25,14 @@ internal data class TrackedPerson(
     val motion: PersonMotion,
 )
 
+/** 地図に置く人。追跡中の人の、最新の推定位置。 */
+data class PersonMarker(
+    val id: Int,
+    val position: Vec3,
+    val motion: PersonMotion,
+    val lastSeenSeconds: Double,
+)
+
 /**
  * 検出結果を時間方向につなぎ、人の動きを判定する。
  *
@@ -32,15 +40,25 @@ internal data class TrackedPerson(
  * 画面上の動きでは、自分が歩いているのか相手が動いているのかを区別できないため。
  */
 internal class PersonTracker {
-    private class Track(var lastSeenSeconds: Double) {
+    private class Track(val id: Int, var lastSeenSeconds: Double) {
         val times = ArrayList<Double>()
         val xs = ArrayList<Float>()
         val zs = ArrayList<Float>()
         var position = Vec3(0f, 0f, 0f)
+        var motion = PersonMotion.UNKNOWN
 
         fun add(timeSeconds: Double, p: Vec3) {
+            // 距離の推定は検出ごとにばらつくので、地図の表示がちらつかないよう滑らかにする。
+            position = if (times.isEmpty()) {
+                p
+            } else {
+                Vec3(
+                    position.x + (p.x - position.x) * SMOOTHING,
+                    position.y + (p.y - position.y) * SMOOTHING,
+                    position.z + (p.z - position.z) * SMOOTHING,
+                )
+            }
             lastSeenSeconds = timeSeconds
-            position = p
             times += timeSeconds
             xs += p.x
             zs += p.z
@@ -53,6 +71,11 @@ internal class PersonTracker {
     }
 
     private val tracks = ArrayList<Track>()
+    private var nextId = 0
+
+    /** 見失ってから時間が経っていない人も含めた、位置の分かっている人。 */
+    fun markers(): List<PersonMarker> =
+        tracks.map { PersonMarker(it.id, it.position, it.motion, it.lastSeenSeconds) }
 
     fun update(timeSeconds: Double, observations: List<PersonObservation>, camera: Vec3): List<TrackedPerson> {
         tracks.removeAll { timeSeconds - it.lastSeenSeconds > TRACK_TIMEOUT_SECONDS }
@@ -66,9 +89,10 @@ internal class PersonTracker {
                 .filter { it.position.distanceTo(position) < MATCH_RADIUS_M }
                 .minByOrNull { it.position.distanceTo(position) }
                 ?.also { available.remove(it) }
-                ?: Track(timeSeconds).also { tracks += it }
+                ?: Track(nextId++, timeSeconds).also { tracks += it }
             track.add(timeSeconds, position)
-            TrackedPerson(observation.box, observation.distanceM, classify(track, camera))
+            track.motion = classify(track, camera)
+            TrackedPerson(observation.box, observation.distanceM, track.motion)
         }
         return result
     }
@@ -110,7 +134,8 @@ internal class PersonTracker {
 
     private companion object {
         const val WINDOW_SECONDS = 1.5
-        const val TRACK_TIMEOUT_SECONDS = 1.0
+        const val TRACK_TIMEOUT_SECONDS = 2.0
+        const val SMOOTHING = 0.5f
         const val MATCH_RADIUS_M = 1.2f
         const val MIN_SAMPLES = 4
         const val MIN_SPAN_SECONDS = 0.7

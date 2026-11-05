@@ -80,13 +80,15 @@ class MappingRenderer(
 
         if (showMap) {
             drawMapView(map)
+        } else if (mapper.state.value.showCamera) {
+            backgroundRenderer.draw(frame)
         } else {
             if (camera.trackingState == TrackingState.TRACKING) {
                 camera.getViewMatrix(view, 0)
                 camera.getProjectionMatrix(projection, 0, NEAR_M, FAR_M)
                 Matrix.multiplyMM(viewProjection, 0, projection, 0, view, 0)
                 // カメラ映像は描かず、読み取れた点だけを今の視点で表示する。
-                map.draw(mapper, viewProjection, projection[5], viewHeight, Float.MAX_VALUE, showTrail = false)
+                map.draw(mapper, viewProjection, projection[5], viewHeight, Float.MAX_VALUE, showTrail = false, perception.visibleMarkers())
             }
         }
     }
@@ -98,7 +100,7 @@ class MappingRenderer(
         Matrix.setLookAtM(view, 0, eye.x, eye.y, eye.z, center.x, center.y, center.z, 0f, 1f, 0f)
         Matrix.perspectiveM(projection, 0, FIELD_OF_VIEW_DEGREES, viewWidth.toFloat() / viewHeight, NEAR_M, MAP_FAR_M)
         Matrix.multiplyMM(viewProjection, 0, projection, 0, view, 0)
-        map.draw(mapper, viewProjection, projection[5], viewHeight, mapper.ceilingClipY, showTrail = true)
+        map.draw(mapper, viewProjection, projection[5], viewHeight, mapper.ceilingClipY, showTrail = true, perception.visibleMarkers())
     }
 
     private companion object {

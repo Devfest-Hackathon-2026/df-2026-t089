@@ -94,6 +94,66 @@ class PerceptionLogicTest {
         assertEquals(PersonMotion.UNKNOWN, tracked.single().motion)
     }
 
+    @Test
+    fun `tracked person appears on the map at their position`() {
+        val tracker = PersonTracker()
+        tracker.update(0.0, listOf(PersonObservation(box, 3f, Vec3(1f, 1f, -3f))), camera)
+        val marker = tracker.markers().single()
+        assertEquals(1f, marker.position.x, 0.001f)
+        assertEquals(-3f, marker.position.z, 0.001f)
+    }
+
+    @Test
+    fun `map position follows a moving person with the same id`() {
+        val tracker = PersonTracker()
+        for (i in 0 until 20) {
+            val t = i * 0.1
+            tracker.update(t, listOf(PersonObservation(box, 3f, Vec3(0.1f * i, 1f, -3f))), camera)
+        }
+        val marker = tracker.markers().single()
+        assertEquals(0, marker.id)
+        assertEquals(1.9f, marker.position.x, 0.2f)
+    }
+
+    @Test
+    fun `position jitter is smoothed on the map`() {
+        val tracker = PersonTracker()
+        tracker.update(0.0, listOf(PersonObservation(box, 3f, Vec3(0f, 1f, -3f))), camera)
+        tracker.update(0.1, listOf(PersonObservation(box, 3f, Vec3(0.4f, 1f, -3f))), camera)
+        assertEquals(0.2f, tracker.markers().single().position.x, 0.001f)
+    }
+
+    @Test
+    fun `person without a distance is not placed on the map`() {
+        val tracker = PersonTracker()
+        tracker.update(0.0, listOf(PersonObservation(box, null, null)), camera)
+        assertEquals(0, tracker.markers().size)
+    }
+
+    @Test
+    fun `lost person stays briefly and then leaves the map`() {
+        val tracker = PersonTracker()
+        tracker.update(0.0, listOf(PersonObservation(box, 3f, Vec3(0f, 1f, -3f))), camera)
+        tracker.update(1.5, emptyList(), camera)
+        assertEquals(1, tracker.markers().size)
+        tracker.update(2.5, emptyList(), camera)
+        assertEquals(0, tracker.markers().size)
+    }
+
+    @Test
+    fun `two people get separate ids on the map`() {
+        val tracker = PersonTracker()
+        tracker.update(
+            0.0,
+            listOf(
+                PersonObservation(box, 3f, Vec3(-3f, 1f, -3f)),
+                PersonObservation(box, 3f, Vec3(3f, 1f, -3f)),
+            ),
+            camera,
+        )
+        assertEquals(setOf(0, 1), tracker.markers().map { it.id }.toSet())
+    }
+
     /** 正面 [distance] メートルに、カメラと向かい合う縦の平面があるときの点。 */
     private fun wall(distance: Float) = (0 until 15).flatMap { row ->
         (0 until 15).map { col ->

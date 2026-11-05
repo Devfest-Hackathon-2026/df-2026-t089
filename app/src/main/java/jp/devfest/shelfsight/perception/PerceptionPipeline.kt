@@ -39,6 +39,8 @@ data class HandView(
     /** 指さしのとき、指先と、その指す先を結ぶ線の終点。 */
     val pointingFrom: ViewPoint?,
     val pointingTo: ViewPoint?,
+    /** 指の先で深度と交わった点。見つからなければ null。 */
+    val pointingTarget: ViewPoint? = null,
 )
 
 data class PerceptionState(
@@ -47,6 +49,9 @@ data class PerceptionState(
     val personRects: List<ViewRect> = emptyList(),
     val hands: String = "",
     val handViews: List<HandView> = emptyList(),
+    /** 今回の検出で地図に置けた人と、距離が分からず置けなかった人の数。 */
+    val placedPeople: Int = 0,
+    val unplacedPeople: Int = 0,
 )
 
 /**
@@ -55,6 +60,9 @@ data class PerceptionState(
  * 描画を止めないよう、撮影だけを GL スレッドで行い、検出はワーカースレッドで行う。
  * 手は速く動き、前のフレームからの追跡が途切れると見失うので、人の検出とは別のスレッドで頻繁に処理する。
  */
+/** @param isCurrent 今も見えていれば true。見失った直後は false。 */
+data class VisibleMarker(val marker: PersonMarker, val isCurrent: Boolean)
+
 class PerceptionPipeline internal constructor(
     private val detector: PersonDetector,
     private val handDetector: HandDetector,
@@ -65,6 +73,9 @@ class PerceptionPipeline internal constructor(
     val state: StateFlow<PerceptionState> = _state.asStateFlow()
 
     @Volatile var uprightRotationDegrees = 90
+
+    /** GL スレッドが読む。追跡中の人と、最後に見えた時刻（SystemClock.elapsedRealtime 基準）。 */
+    @Volatile private var liveMarkers: List<Pair<PersonMarker, Long>> = emptyList()
 
     private val worker = Executors.newSingleThreadExecutor { Thread(it, "perception") }
     private val handWorker = Executors.newSingleThreadExecutor { Thread(it, "hand-tracking") }
@@ -120,8 +131,7 @@ class PerceptionPipeline internal constructor(
         val handDue = !handDetectorFailed && !handBusy.get() && now - lastHandCaptureMillis >= HAND_INTERVAL_MS
         if (!personDue && !handDue) return
 
-        // 深度のコピーは人の判定にしか使わないので、必要なときだけ行う。
-        val captured = FrameCapture.capture(frame, camera, uprightRotationDegrees, depthEnabled = personDue) ?: return
+        val captured = FrameCapture.capture(frame, camera, uprightRotationDegrees, depthEnabled = true) ?: return
         val corners = FloatArray(6)
         frame.transformCoordinates2d(
             Coordinates2d.IMAGE_NORMALIZED, floatArrayOf(0f, 0f, 1f, 0f, 0f, 1f),
@@ -172,6 +182,14 @@ class PerceptionPipeline internal constructor(
         handWorker.shutdown()
     }
 
+    /** 地図に描く人。検出が止まっても古い位置を残さないよう、見失ってから一定時間で消す。 */
+    fun visibleMarkers(nowMillis: Long = SystemClock.elapsedRealtime()): List<VisibleMarker> =
+        liveMarkers.mapNotNull { (marker, seenMillis) ->
+            val ageMillis = nowMillis - seenMillis
+            if (ageMillis > MARKER_HOLD_MS) return@mapNotNull null
+            VisibleMarker(marker, isCurrent = ageMillis <= MARKER_CURRENT_MS)
+        }
+
     /** 手のスレッドで実行する。 */
     private fun processHands(frame: CapturedFrame, mapping: ViewMapping, timeSeconds: Double) {
         val startMillis = SystemClock.elapsedRealtime()
@@ -210,9 +228,9 @@ class PerceptionPipeline internal constructor(
         val text = if (hands.isEmpty() && timeSeconds - lastHandSeenSeconds < LOST_HAND_MESSAGE_SECONDS) {
             "手を見失っています（直前：${lastGesture?.labelJa ?: "不明"}）"
         } else {
-            handsText(hands)
+            handsText(hands, geometry)
         }
-        val views = hands.map { toHandView(it, mapping, geometry) }
+        val views = hands.map { toHandView(it, targetOf(it, geometry), mapping, geometry) }
         _state.update { it.copy(hands = text, handViews = views) }
     }
 
@@ -249,12 +267,25 @@ class PerceptionPipeline internal constructor(
             PersonObservation(box, distance, position)
         }
         val people = tracker.update(timeSeconds, observations, camera)
+        val nowMillis = SystemClock.elapsedRealtime()
+        liveMarkers = tracker.markers().map { marker ->
+            marker to nowMillis - ((timeSeconds - marker.lastSeenSeconds) * 1000).toLong()
+        }
+        val placed = observations.count { it.position != null }
         // 手の範囲は障害物に数えない。画面下部だけの枠は人と断定できないので、深度の判定には残す。
         val samples = ObstacleClassifier.collectSamples(geometry, detectedPeople - lowerOnly.toSet() + handBoxes)
         val ahead = ObstacleClassifier.classify(samples, camera.y, people)
 
         val rects = boxes.map { toViewRect(it, mapping, geometry.uprightRotationDegrees) }
-        _state.update { it.copy(ahead = aheadText(ahead), people = peopleText(people), personRects = rects) }
+        _state.update {
+            it.copy(
+                ahead = aheadText(ahead),
+                people = peopleText(people),
+                personRects = rects,
+                placedPeople = placed,
+                unplacedPeople = observations.size - placed,
+            )
+        }
         logStats(detectMillis, geometry.depth != null, ahead.kind, boxes.size)
     }
 
@@ -279,7 +310,18 @@ class PerceptionPipeline internal constructor(
         }
     }
 
-    private fun toHandView(hand: HandInfo, mapping: ViewMapping, geometry: CaptureGeometry): HandView {
+    private fun targetOf(hand: HandInfo, geometry: CaptureGeometry): PointingHit? {
+        if (hand.gesture != HandGesture.POINTING) return null
+        val tip = hand.fingertipWorld ?: return null
+        return PointingTarget.find(tip, hand.pointingWorld, geometry)
+    }
+
+    private fun toHandView(
+        hand: HandInfo,
+        target: PointingHit?,
+        mapping: ViewMapping,
+        geometry: CaptureGeometry,
+    ): HandView {
         val rotation = geometry.uprightRotationDegrees
         fun view(u: Float, v: Float): ViewPoint {
             val (sensorX, sensorY) = Unprojector.uprightToSensor(u, v, rotation)
@@ -294,16 +336,22 @@ class PerceptionPipeline internal constructor(
         val base = image[HandAnalysis.INDEX_MCP]
         val endU = tip.x + (tip.x - base.x) * POINTING_LINE_SCALE
         val endV = tip.y + (tip.y - base.y) * POINTING_LINE_SCALE
-        return HandView(image.map { view(it.x, it.y) }, view(tip.x, tip.y), view(endU, endV))
+        val targetPoint = target?.let { view(it.u, it.v) }
+        return HandView(image.map { view(it.x, it.y) }, view(tip.x, tip.y), targetPoint ?: view(endU, endV), targetPoint)
     }
 
-    private fun handsText(hands: List<HandInfo>): String =
+    private fun handsText(hands: List<HandInfo>, geometry: CaptureGeometry): String =
         hands.joinToString("\n") { hand ->
             val side = if (hand.landmarks.isRightHand) "右手" else "左手"
             val palm = if (hand.palmFacesCamera) "手のひら" else "手の甲"
             val distance = hand.distanceM?.let { formatMeters(it) } ?: "距離不明"
             val direction = HandAnalysis.directionLabel(hand.indexDirection)
-            "$side ${hand.gesture.labelJa}：$direction・$distance・$palm"
+            val target = when {
+                hand.gesture != HandGesture.POINTING -> ""
+                else -> targetOf(hand, geometry)?.let { "\n指す先：カメラから ${formatMeters(it.depthM)}" }
+                    ?: "\n指す先：確認できません"
+            }
+            "$side ${hand.gesture.labelJa}：$direction・$distance・$palm$target"
         }
 
     private fun toViewRect(box: NormalizedBox, mapping: ViewMapping, rotation: Int): ViewRect {
@@ -357,6 +405,8 @@ class PerceptionPipeline internal constructor(
     private companion object {
         const val TAG = "PerceptionPipeline"
         const val PERSON_INTERVAL_MS = 150L
+        const val MARKER_HOLD_MS = 2_000L
+        const val MARKER_CURRENT_MS = 500L
         const val HAND_INTERVAL_MS = 50L
         const val LOST_HAND_MESSAGE_SECONDS = 2.0
         const val STATS_LOG_INTERVAL_MS = 10_000L

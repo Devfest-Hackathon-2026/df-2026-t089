@@ -32,6 +32,8 @@ data class MapUiState(
     val walkedMeters: Float = 0f,
     val isRecording: Boolean = true,
     val showMap: Boolean = false,
+    /** true ならカメラ映像、false なら読み取れた点を表示する。 */
+    val showCamera: Boolean = true,
 )
 
 /**
@@ -117,6 +119,10 @@ class StoreMapper {
     fun setShowMap(show: Boolean) {
         if (show) fitRequested = true
         _state.update { it.copy(showMap = show) }
+    }
+
+    fun setShowCamera(show: Boolean) {
+        _state.update { it.copy(showCamera = show) }
     }
 
     /** 深度が使えないなど、歩いても解決しない問題を表示する。 */

@@ -4,6 +4,8 @@ import android.opengl.GLES20
 import android.opengl.Matrix
 import java.nio.IntBuffer
 import jp.devfest.shelfsight.ar.GlUtil
+import jp.devfest.shelfsight.perception.PersonMotion
+import jp.devfest.shelfsight.perception.VisibleMarker
 
 /** 地図の点群、歩いた軌跡、現在地を描く。AR 表示と地図表示で共通に使う。 */
 internal class MapRenderer {
@@ -32,6 +34,7 @@ internal class MapRenderer {
         viewportHeight: Int,
         clipY: Float,
         showTrail: Boolean,
+        people: List<VisibleMarker>,
     ) {
         GLES20.glUseProgram(program)
         GLES20.glUniformMatrix4fv(viewProjectionHandle, 1, false, viewProjection, 0)
@@ -49,6 +52,44 @@ internal class MapRenderer {
             drawTrail(mapper)
             drawCurrentPosition(mapper)
         }
+        if (people.isNotEmpty()) {
+            GLES20.glUniform1f(clipYHandle, Float.MAX_VALUE)
+            GLES20.glUniformMatrix4fv(modelHandle, 1, false, identity, 0)
+            drawPeople(people, mapper)
+        }
+    }
+
+    /** 人を、床から頭の高さまでの柱で描く。棚の裏にいても見えるようにする。 */
+    private fun drawPeople(people: List<VisibleMarker>, mapper: StoreMapper) {
+        // 床の高さは、胸につけた端末の高さから見積もる。端末の高さが分からなければ人の位置を基準にする。
+        val deviceY = mapper.currentPosition?.y
+        GLES20.glDisable(GLES20.GL_DEPTH_TEST)
+        GLES20.glLineWidth(PERSON_WIDTH_PX)
+        GLES20.glUniform1f(fixedPointSizeHandle, PERSON_HEAD_SIZE_PX)
+        GLES20.glEnableVertexAttribArray(positionHandle)
+        for (person in people) {
+            val p = person.marker.position
+            val floor = (deviceY ?: p.y) - DEVICE_HEIGHT_M
+            val (r, g, b) = colorOf(person.marker.motion)
+            val brightness = if (person.isCurrent) 1f else LOST_BRIGHTNESS
+            GLES20.glVertexAttrib4f(colorHandle, r * brightness, g * brightness, b * brightness, 1f)
+            markerBuffer.position(0)
+            markerBuffer.put(p.x).put(floor).put(p.z)
+            markerBuffer.put(p.x).put(floor + PERSON_HEIGHT_M).put(p.z)
+            markerBuffer.position(0)
+            GLES20.glVertexAttribPointer(positionHandle, 3, GLES20.GL_FLOAT, false, 0, markerBuffer)
+            GLES20.glDrawArrays(GLES20.GL_LINES, 0, 2)
+            GLES20.glDrawArrays(GLES20.GL_POINTS, 1, 1)
+        }
+        GLES20.glDisableVertexAttribArray(positionHandle)
+        GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+    }
+
+    private fun colorOf(motion: PersonMotion): Triple<Float, Float, Float> = when (motion) {
+        PersonMotion.APPROACHING -> Triple(1f, 0.1f, 0.1f)
+        PersonMotion.STATIONARY -> Triple(1f, 0.55f, 0f)
+        PersonMotion.LEAVING, PersonMotion.CROSSING -> Triple(0.2f, 0.9f, 0.3f)
+        PersonMotion.UNKNOWN -> Triple(1f, 1f, 1f)
     }
 
     private fun drawChunks(mapper: StoreMapper) {
@@ -135,6 +176,11 @@ internal class MapRenderer {
         const val TRAIL_WIDTH_PX = 6f
         const val MARKER_SIZE_PX = 36f
         const val HEADING_LENGTH_M = 0.8f
+        const val PERSON_WIDTH_PX = 14f
+        const val PERSON_HEAD_SIZE_PX = 44f
+        const val PERSON_HEIGHT_M = 1.65f
+        const val DEVICE_HEIGHT_M = 1.3f // 胸の高さ
+        const val LOST_BRIGHTNESS = 0.45f
 
         const val VERTEX_SHADER = """
             uniform mat4 u_ViewProjection;

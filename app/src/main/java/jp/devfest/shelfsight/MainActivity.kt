@@ -81,6 +81,7 @@ class MainActivity : ComponentActivity() {
                     surfaceView = surfaceView,
                     orbit = mapper.orbit,
                     onToggleMap = { mapper.setShowMap(!state.showMap) },
+                    onToggleCamera = { mapper.setShowCamera(!state.showCamera) },
                     onToggleRecording = { mapper.setRecording(!state.isRecording) },
                 )
             }

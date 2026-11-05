@@ -49,6 +49,7 @@ fun MappingScreen(
     surfaceView: GLSurfaceView,
     orbit: OrbitCamera,
     onToggleMap: () -> Unit,
+    onToggleCamera: () -> Unit,
     onToggleRecording: () -> Unit,
 ) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -114,12 +115,29 @@ fun MappingScreen(
                 color = Color.White,
                 fontSize = 18.sp,
             )
+            if (state.showMap || !state.showCamera) {
+                val unplaced = if (perception.unplacedPeople > 0) "（位置不明 ${perception.unplacedPeople}人）" else ""
+                Text(
+                    text = "地図上の人 ${perception.placedPeople}人$unplaced\n" +
+                        "赤：向かってくる　橙：止まっている　緑：その他　白：確認中",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                )
+            }
             if (state.showMap) {
                 Text(
                     text = "1本指で回転、2本指で移動と拡大",
                     color = Color(0xFFBDBDBD),
                     fontSize = 16.sp,
                 )
+            }
+            if (!state.showMap) {
+                Button(
+                    onClick = onToggleCamera,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                ) {
+                    Text(if (state.showCamera) "点の表示に切り替え" else "カメラ表示に切り替え", fontSize = 18.sp)
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
@@ -169,6 +187,14 @@ private fun DrawScope.drawHand(hand: HandView) {
             start = offset(from.x, from.y),
             end = offset(to.x, to.y),
             strokeWidth = 8.dp.toPx(),
+        )
+    }
+    hand.pointingTarget?.let { target ->
+        drawCircle(
+            color = Color(0xFFFF5252),
+            radius = 28.dp.toPx(),
+            center = offset(target.x, target.y),
+            style = Stroke(width = 8.dp.toPx()),
         )
     }
 }
