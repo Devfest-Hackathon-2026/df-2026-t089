@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shelf Training Data</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --text: #1d2228; --muted: #687280; --line: #e3e6ea;
+    --accent: #2f6fdb; --accent-soft: #e4edfb; --warn: #b4540a; --warn-soft: #fdf0e3; --cut: #e5322d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14171b; --panel: #1d2127; --text: #e6e9ed; --muted: #949ca7; --line: #2d333b;
+      --accent: #6b9ff0; --accent-soft: #22324a; --warn: #f0a35b; --warn-soft: #3a2a1a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, "Hiragino Sans", "Yu Gothic UI", sans-serif; }
+  header { padding: 20px 24px 8px; }
+  h1 { margin: 0; font-size: 20px; }
+  .sub { color: var(--muted); font-size: 12px; word-break: break-all; }
+  main { padding: 8px 24px 40px; display: grid; gap: 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  h2 { margin: 0 0 12px; font-size: 15px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .tile b { display: block; font-size: 24px; font-variant-numeric: tabular-nums; }
+  .tile span { color: var(--muted); font-size: 12px; }
+  .two { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+  .bars { display: grid; gap: 4px; }
+  .bar { display: grid; grid-template-columns: 170px 1fr 40px; gap: 8px; align-items: center; cursor: pointer; border-radius: 6px; padding: 2px 4px; }
+  .bar:hover, .bar.on { background: var(--accent-soft); }
+  .bar .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar .track { height: 12px; }
+  .bar .fill { height: 100%; background: var(--accent); border-radius: 0 3px 3px 0; }
+  .bar .fill.low { background: var(--warn); }
+  .bar .n { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .issues { margin: 0; padding-left: 18px; }
+  .issues li { margin-bottom: 6px; }
+  .issues .files { color: var(--muted); font-size: 12px; word-break: break-all; }
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .filters select, .filters input { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  .filters label { display: flex; gap: 4px; align-items: center; color: var(--muted); }
+  .count { margin-left: auto; color: var(--muted); }
+  .grid { display: grid; align-items: start; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; cursor: pointer; }
+  .card:hover { border-color: var(--accent); }
+  .frame { position: relative; background: var(--line); }
+  .frame img { width: 100%; height: auto; display: block; }
+  .cut { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--cut); box-shadow: 0 0 0 1px #fff8; }
+  .meta { padding: 6px 8px; font-size: 12px; }
+  .meta .lbl { font-weight: 600; }
+  .meta .lbl.none { color: var(--warn); }
+  .meta .fn { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); margin-left: 4px; }
+  dialog { border: none; border-radius: 12px; padding: 0; background: var(--panel); color: var(--text); max-width: 96vw; max-height: 96vh; }
+  dialog::backdrop { background: #000a; }
+  .big { position: relative; width: fit-content; margin: 0 auto; }
+  .big img { max-height: 82vh; max-width: 92vw; display: block; }
+  .big .cut { width: 3px; }
+  .dlg-meta { padding: 10px 14px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .dlg-meta button { margin-left: auto; font: inherit; padding: 4px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--text); cursor: pointer; }
+  .hint { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>棚の学習データ</h1>
+  <div class="sub" id="dataDir">読み込み中…</div>
+</header>
+<main>
+  <section class="tiles" id="tiles"></section>
+  <section class="two">
+    <div class="panel">
+      <h2>クラス別の枚数 <span class="hint">（クリックで絞り込み・オレンジは10枚未満）</span></h2>
+      <div class="bars" id="bars"></div>
+    </div>
+    <div class="panel">
+      <h2>データの問題点</h2>
+      <ul class="issues" id="issues"></ul>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="filters">
+      <select id="fClass"><option value="">すべてのクラス</option></select>
+      <select id="fBnd">
+        <option value="">境界：すべて</option>
+        <option value="has">境界アノテあり</option>
+        <option value="cuts">境界線あり（1本以上）</option>
+        <option value="none">境界アノテなし</option>
+      </select>
+      <input id="fText" type="search" placeholder="ファイル名で検索">
+      <label><input id="fUnl" type="checkbox"> 未ラベルのみ</label>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="grid" id="grid"></div>
+  </section>
+</main>
+<dialog id="dlg">
+  <div class="big" id="big"></div>
+  <div class="dlg-meta" id="dlgMeta"></div>
+</dialog>
+<script>
+const $ = id => document.getElementById(id);
+let D, imgs = [], shown = [];
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const cutsHtml = cuts => (cuts || []).map(c => `<div class="cut" style="left:${c * 100}%"></div>`).join('');
+
+fetch('/api/data').then(r => r.json()).then(d => { D = d; imgs = d.images; init(); });
+
+function init() {
+  $('dataDir').textContent = D.dataDir;
+  const labeled = imgs.filter(i => i.label), bnd = imgs.filter(i => i.cuts);
+  const counts = {};
+  labeled.forEach(i => counts[i.label] = (counts[i.label] || 0) + 1);
+  const classes = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  const nCuts = bnd.reduce((s, i) => s + i.cuts.length, 0);
+  $('tiles').innerHTML = [
+    [imgs.length, '画像'], [labeled.length, 'ラベル付き'], [classes.length, 'クラス'],
+    [bnd.length, '境界アノテ画像'], [nCuts, '境界線の本数'], [imgs.length - labeled.length, '未ラベル'],
+  ].map(([n, t]) => `<div class="tile"><b>${n}</b><span>${t}</span></div>`).join('');
+
+  const max = Math.max(...Object.values(counts));
+  $('bars').innerHTML = classes.map(c => `<div class="bar" data-c="${esc(c)}" title="${esc(c)}: ${counts[c]}枚">
+      <span class="name">${esc(c)}</span>
+      <span class="track"><div class="fill ${counts[c] < 10 ? 'low' : ''}" style="width:${counts[c] / max * 100}%"></div></span>
+      <span class="n">${counts[c]}</span></div>`).join('');
+  $('bars').onclick = e => { const b = e.target.closest('.bar'); if (!b) return;
+    $('fClass').value = $('fClass').value === b.dataset.c ? '' : b.dataset.c; render(); };
+  $('fClass').innerHTML += classes.map(c => `<option>${esc(c)}</option>`).join('');
+
+  const issues = [];
+  const unl = imgs.filter(i => !i.label);
+  if (unl.length) issues.push([`未ラベルの画像 ${unl.length}枚`, unl.map(i => i.file)]);
+  if (D.missingFiles.length) issues.push([`CSVにあるが画像が無い ${D.missingFiles.length}件`, D.missingFiles]);
+  const low = classes.filter(c => counts[c] < 10);
+  if (low.length) issues.push([`10枚未満のクラス ${low.length}個`, low.map(c => `${c}(${counts[c]})`)]);
+  const bndNoLabel = bnd.filter(i => !i.label);
+  if (bndNoLabel.length) issues.push([`境界アノテありでクラス無し ${bndNoLabel.length}枚`, bndNoLabel.map(i => i.file)]);
+  if (D.modelClasses.length) {
+    const a = D.modelClasses.filter(c => !counts[c]), b = classes.filter(c => !D.modelClasses.includes(c));
+    if (a.length || b.length) issues.push(['アプリ内モデルのクラスとデータが不一致（要再学習）', [...a.map(c => '−' + c), ...b.map(c => '+' + c)]]);
+  }
+  issues.push([`境界アノテは ${bnd.length}枚のみ（学習には100枚以上が目安）`, []]);
+  $('issues').innerHTML = issues.map(([t, f]) => `<li>${esc(t)}${f.length ? `<div class="files">${f.slice(0, 30).map(esc).join(', ')}${f.length > 30 ? ' …' : ''}</div>` : ''}</li>`).join('');
+
+  ['fClass', 'fBnd', 'fUnl'].forEach(id => $(id).onchange = render);
+  $('fText').oninput = render;
+  render();
+}
+
+function render() {
+  const c = $('fClass').value, b = $('fBnd').value, t = $('fText').value.trim().toLowerCase(), u = $('fUnl').checked;
+  shown = imgs.filter(i => (!c || i.label === c) && (!u || !i.label) && (!t || i.file.toLowerCase().includes(t))
+    && (!b || (b === 'has' ? i.cuts : b === 'cuts' ? i.cuts && i.cuts.length : !i.cuts)));
+  document.querySelectorAll('.bar').forEach(el => el.classList.toggle('on', el.dataset.c === c));
+  $('count').textContent = `${shown.length} / ${imgs.length} 枚`;
+  $('grid').innerHTML = shown.map((i, k) => `<div class="card" data-k="${k}">
+      <div class="frame"><img loading="lazy" src="/thumb/${encodeURIComponent(i.file)}" alt="${esc(i.file)}">${cutsHtml(i.cuts)}</div>
+      <div class="meta"><div class="lbl ${i.label ? '' : 'none'}">${esc(i.label || '未ラベル')}${i.cuts ? `<span class="chip">境界 ${i.cuts.length}</span>` : ''}</div>
+      <div class="fn">${esc(i.file)}</div></div></div>`).join('');
+}
+
+$('grid').onclick = e => { const card = e.target.closest('.card'); if (card) open(+card.dataset.k); };
+let cur = 0;
+function open(k) {
+  cur = k; const i = shown[k];
+  $('big').innerHTML = `<img src="/img/${encodeURIComponent(i.file)}" alt="${esc(i.file)}">${cutsHtml(i.cuts)}`;
+  $('dlgMeta').innerHTML = `<b>${esc(i.label || '未ラベル')}</b><span>${esc(i.file)}</span>
+    <span class="hint">${i.cuts ? '境界: ' + (i.cuts.join(', ') || 'なし（境界が無いと明示）') : '境界アノテなし'}　← → で移動</span>
+    <button onclick="dlg.close()">閉じる</button>`;
+  if (!$('dlg').open) $('dlg').showModal();
+}
+document.addEventListener('keydown', e => {
+  if (!$('dlg').open) return;
+  if (e.key === 'ArrowRight' && cur < shown.length - 1) open(cur + 1);
+  if (e.key === 'ArrowLeft' && cur > 0) open(cur - 1);
+});
+$('dlg').onclick = e => { if (e.target === $('dlg')) $('dlg').close(); };
+</script>
+</body>
+</html>

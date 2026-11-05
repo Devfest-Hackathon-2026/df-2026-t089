@@ -34,3 +34,9 @@ tools/.venv/Scripts/python tools/train.py --data <training_images のパス>
 ```
 `training_images/labels.csv`（file, shelf）と `boundaries.csv`（file, cuts＝境界の x 位置 0〜1 をスペース区切り）を使い、
 `app/src/main/assets/` に tflite と `labels.txt` を書き出す。
+
+## 学習データのダッシュボード
+```
+python dashboard/serve.py --data <training_images のパス>   # → http://127.0.0.1:8765
+```
+クラス別枚数・未ラベル/不足クラスなどの問題点・全画像（境界線を赤で重ね表示）を確認できる。Pillow があればサムネイルを `dashboard/.cache/` に作る。
