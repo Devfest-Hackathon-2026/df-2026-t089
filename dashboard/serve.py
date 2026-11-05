@@ -3,7 +3,7 @@
   python dashboard/serve.py [--data ../df-2026-t089/training_images] [--port 8765]
   -> http://127.0.0.1:8765
 """
-import argparse, csv, datetime, io, json, time
+import argparse, csv, datetime, io, json, shutil, threading, time
 import xml.etree.ElementTree as ET
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -26,14 +26,58 @@ def read_csv(path):
         return list(csv.DictReader(f))
 
 
+REVIEW = "labels_review.csv"  # who-checked-what log next to labels.csv; train.py ignores it
+REVIEW_FIELDS = ["file", "status", "original", "label", "at"]
+LOCK = threading.Lock()
+_backed_up = False
+
+
+def write_csv(path: Path, fields, rows):
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8", newline="") as f:  # same format as the original: UTF-8, CRLF
+        w = csv.DictWriter(f, fields)
+        w.writeheader()
+        w.writerows(rows)
+    tmp.replace(path)
+
+
+def save_label(data: Path, file: str, label):
+    """label=None -> exclude the image (row removed from labels.csv). Returns the review row."""
+    global _backed_up
+    with LOCK:
+        lp = data / "labels.csv"
+        if not _backed_up and lp.exists():  # one backup per server run, before the first edit
+            shutil.copy2(lp, data / f"labels.csv.bak-{datetime.datetime.now():%Y%m%d-%H%M%S}")
+            _backed_up = True
+        rows = read_csv(lp)
+        cur = {r["file"]: r["shelf"] for r in rows}
+        review = {r["file"]: r for r in read_csv(data / REVIEW)}
+        original = review[file]["original"] if file in review else cur.get(file, "")
+        if label is None:
+            rows = [r for r in rows if r["file"] != file]
+        elif file in cur:
+            for r in rows:
+                if r["file"] == file:
+                    r["shelf"] = label
+        else:
+            rows.append({"file": file, "shelf": label})
+        write_csv(lp, ["file", "shelf"], rows)
+        status = "excluded" if label is None else "ok" if label == original else "fixed"
+        review[file] = {"file": file, "status": status, "original": original, "label": label or "",
+                        "at": datetime.datetime.now().isoformat(timespec="seconds")}
+        write_csv(data / REVIEW, REVIEW_FIELDS, review.values())
+        return review[file]
+
+
 def build_data(data: Path):
     files = sorted(p.name for p in data.iterdir() if p.suffix.lower() in IMG_EXT)
     labels = {r["file"]: r["shelf"] for r in read_csv(data / "labels.csv")}
+    review = {r["file"]: r for r in read_csv(data / REVIEW)}
     cuts = {r["file"]: [float(c) for c in (r.get("cuts") or "").split()] for r in read_csv(data / "boundaries.csv")}
     model_labels = ROOT / "app/src/main/assets/labels.txt"
     return {
         "dataDir": str(data),
-        "images": [{"file": f, "label": labels.get(f), "cuts": cuts.get(f)} for f in files],
+        "images": [{"file": f, "label": labels.get(f), "cuts": cuts.get(f), "review": review.get(f)} for f in files],
         "missingFiles": sorted((set(labels) | set(cuts)) - set(files)),
         "modelClasses": [l for l in model_labels.read_text(encoding="utf-8").splitlines() if l] if model_labels.exists() else [],
     }
@@ -67,6 +111,24 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def do_POST(self):
+        # JSON-only: a cross-site form cannot send this content type without a CORS preflight, which we never answer
+        if self.path != "/api/label" or self.headers.get("Content-Type") != "application/json":
+            return self.send(b"bad request", "text/plain", 400)
+        try:
+            body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 10000)))
+            file, label = body["file"], body.get("label")
+            if file not in self.files:
+                raise ValueError("unknown file")
+            if label is not None:
+                label = str(label).strip()
+                if not label or len(label) > 40 or any(c in label for c in "\r\n,\""):
+                    raise ValueError("invalid label")
+        except (ValueError, KeyError, TypeError) as e:
+            return self.send(json.dumps({"error": str(e)}).encode(), "application/json", 400)
+        r = save_label(self.data, file, label)
+        self.send(json.dumps(r, ensure_ascii=False).encode(), "application/json; charset=utf-8")
 
     def do_GET(self):
         path = unquote(self.path.split("?")[0])

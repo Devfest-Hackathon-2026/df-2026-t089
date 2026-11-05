@@ -77,6 +77,23 @@
   .strip i { background: #35a2ff; }
   .top3 { font-size: 11px; color: var(--muted); }
   .legend-line { display: inline-block; width: 18px; vertical-align: middle; margin: 0 4px 0 10px; }
+  .rv { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 16px; margin-top: 16px; }
+  @media (max-width: 900px) { .rv { grid-template-columns: 1fr; } }
+  .rv-img { display: flex; justify-content: center; }
+  .rv-img .big img { max-height: 75vh; }
+  .rv-cur { font-size: 22px; font-weight: 700; margin: 4px 0; }
+  .rv-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 12px 0; }
+  .rv button, #rvSearch { font: inherit; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--text); cursor: pointer; }
+  .rv button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .rv button:focus-visible, #rvSearch:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  #rvSearch { width: 100%; cursor: text; }
+  .rv-classes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .rv-classes button { padding: 5px 9px; font-size: 13px; }
+  .rv-classes button.cur { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .rv-ex { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: 4px; }
+  .rv-ex img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 4px; }
+  kbd { font-size: 11px; opacity: 0.75; border: 1px solid currentColor; border-radius: 3px; padding: 0 3px; margin-left: 4px; }
+  .st-ok { color: #1f8a4c; } .st-fixed { color: var(--accent); } .st-excluded { color: var(--warn); }
 </style>
 </head>
 <body>
@@ -89,7 +106,33 @@
   <button data-tab="eval">モデル評価</button>
   <button data-tab="unit">ユニットテスト</button>
   <button data-tab="train">学習の進捗</button>
+  <button data-tab="review">ラベル修正</button>
 </nav>
+<main class="tab" id="tab-review" hidden>
+  <div class="panel filters">
+    <select id="rvFilter"></select>
+    <span class="hint" id="rvStats"></span>
+    <span class="count" id="rvPos"></span>
+  </div>
+  <div class="rv">
+    <div class="panel rv-img"><div class="big" id="rvBig"></div></div>
+    <div class="panel rv-side">
+      <div class="hint" id="rvFile"></div>
+      <div class="rv-cur" id="rvCur"></div>
+      <div id="rvInfo" class="hint"></div>
+      <div class="rv-actions">
+        <button id="rvOk" class="primary">✓ このままでOK <kbd>Enter</kbd></button>
+        <button id="rvEx">除外 <kbd>X</kbd></button>
+        <button id="rvPrev">← 前</button>
+        <button id="rvNext">次 →</button>
+      </div>
+      <input id="rvSearch" type="search" placeholder="クラスを検索して変更（/ でフォーカス、Enter で先頭を選択）">
+      <div class="rv-classes" id="rvClasses"></div>
+      <div class="hint" style="margin-top:12px">このクラスの他の画像（見比べ用）</div>
+      <div class="rv-ex" id="rvEx2"></div>
+    </div>
+  </div>
+</main>
 <main class="tab" id="tab-train" hidden></main>
 <main class="tab" id="tab-eval" hidden></main>
 <main class="tab" id="tab-unit" hidden></main>
@@ -152,7 +195,9 @@ function init() {
       <span class="n">${counts[c]}</span></div>`).join('');
   $('bars').onclick = e => { const b = e.target.closest('.bar'); if (!b) return;
     $('fClass').value = $('fClass').value === b.dataset.c ? '' : b.dataset.c; render(); };
-  $('fClass').innerHTML += classes.map(c => `<option>${esc(c)}</option>`).join('');
+  const keepC = $('fClass').value;
+  $('fClass').innerHTML = '<option value="">すべてのクラス</option>' + classes.map(c => `<option>${esc(c)}</option>`).join('');
+  $('fClass').value = keepC;
 
   const issues = [];
   const unl = imgs.filter(i => !i.label);
@@ -210,11 +255,119 @@ function showTab(t) {
   history.replaceState(null, '', '#' + t);
   clearInterval(pollTimer);
   if (t === 'train') { loadProgress(); pollTimer = setInterval(loadProgress, 3000); }
-  else if (t !== 'data') loadResults();
+  else if (t === 'review') whenData(initReview);
+  else if (t === 'data') { if (D) { init(); } }
+  else loadResults();
 }
 let pollTimer;
+const whenData = f => D ? f() : setTimeout(() => whenData(f), 100);
 document.querySelector('nav').onclick = e => { if (e.target.dataset.tab) showTab(e.target.dataset.tab); };
-if (['eval', 'unit', 'train'].includes(location.hash.slice(1))) showTab(location.hash.slice(1));
+
+// ---------- label review ----------
+const ST = { ok: '確認済み', fixed: '修正済み', excluded: '除外' };
+let rvQueue = [], rvPos = 0, rvReady = false, evalPred = {};
+
+function initReview() {
+  if (!rvReady) {
+    rvReady = true;
+    fetch('/api/results').then(r => r.json()).then(R => {
+      (R.eval?.classifier?.val || []).forEach(v => evalPred[v.file] = v.top);
+      const n = Object.entries(evalPred).filter(([f, t]) => imgs.find(i => i.file === f)?.label !== t[0][0]).length;
+      $('rvFilter').querySelector('[value="evalwrong"]').textContent = `モデル評価で外れた画像（${n}）`;
+      if (D) showReview();
+    });
+    $('rvOk').onclick = () => { const i = rvCur(); if (!i) return; if (i.label) setLabel(i.label); else $('rvSearch').focus(); }; // unlabeled: pick a class first
+    $('rvEx').onclick = () => setLabel(null);
+    $('rvPrev').onclick = () => move(-1);
+    $('rvNext').onclick = () => move(1);
+    $('rvFilter').onchange = () => { buildQueue(); showReview(); };
+    $('rvSearch').oninput = drawClasses;
+    $('rvSearch').onkeydown = e => {
+      if (e.key === 'Enter') { e.preventDefault(); const q = $('rvSearch').value.trim(); const m = classList().filter(c => c.includes(q));
+        if (q) setLabel(m[0] || q); }
+      if (e.key === 'Escape') { $('rvSearch').value = ''; $('rvSearch').blur(); drawClasses(); }
+    };
+    document.addEventListener('keydown', e => {
+      if ($('tab-review').hidden || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || $('dlg').open) return;
+      if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') { e.preventDefault(); $('rvOk').click(); }
+      else if (e.key === 'x' || e.key === 'X') $('rvEx').click();
+      else if (e.key === 'ArrowRight') move(1);
+      else if (e.key === 'ArrowLeft') move(-1);
+      else if (e.key === '/') { e.preventDefault(); $('rvSearch').focus(); }
+    });
+  }
+  const counts = labelCounts();
+  const prev = $('rvFilter').value || 'todo';
+  $('rvFilter').innerHTML = [['todo', '未確認'], ['all', 'すべて'], ['unlabeled', '未ラベル'], ['fixed', '修正済み'], ['excluded', '除外'],
+    ['evalwrong', 'モデル評価で外れた画像']].map(([v, t]) => `<option value="${v}">${t}</option>`).join('')
+    + Object.keys(counts).sort((a, b) => counts[b] - counts[a]).map(c => `<option value="c:${esc(c)}">クラス: ${esc(c)}（${counts[c]}）</option>`).join('');
+  $('rvFilter').value = [...$('rvFilter').options].some(o => o.value === prev) ? prev : 'todo';
+  buildQueue(); showReview();
+}
+
+const labelCounts = () => imgs.reduce((m, i) => (i.label && (m[i.label] = (m[i.label] || 0) + 1), m), {});
+function classList() {
+  const c = labelCounts();
+  return [...new Set([...Object.keys(c), ...D.modelClasses])].sort((a, b) => (c[b] || 0) - (c[a] || 0));
+}
+function buildQueue() {
+  const f = $('rvFilter').value;
+  const keep = {
+    todo: i => !i.review, all: () => true, unlabeled: i => !i.label && i.review?.status !== 'excluded',
+    fixed: i => i.review?.status === 'fixed', excluded: i => i.review?.status === 'excluded',
+    evalwrong: i => evalPred[i.file] && evalPred[i.file][0][0] !== (i.review?.original || i.label),
+  }[f] || (i => i.label === f.slice(2));
+  // grouped by class so a wrong one stands out against its neighbours
+  rvQueue = imgs.filter(keep).sort((a, b) => (a.label || '').localeCompare(b.label || '') || a.file.localeCompare(b.file));
+  rvPos = 0;
+}
+const rvCur = () => rvQueue[rvPos];
+function move(d) { rvPos = Math.min(Math.max(rvPos + d, 0), Math.max(rvQueue.length - 1, 0)); showReview(); }
+
+function showReview() {
+  const done = imgs.filter(i => i.review), fx = done.filter(i => i.review.status === 'fixed').length, ex = done.filter(i => i.review.status === 'excluded').length;
+  $('rvStats').textContent = `確認済み ${done.length} / ${imgs.length}（修正 ${fx}・除外 ${ex}）`;
+  const i = rvCur();
+  $('rvPos').textContent = rvQueue.length ? `${rvPos + 1} / ${rvQueue.length}` : '';
+  if (!i) {
+    $('rvBig').innerHTML = '<p class="note" style="padding:40px">この条件の画像はありません。上の絞り込みを変えてください。</p>';
+    ['rvFile', 'rvCur', 'rvInfo', 'rvClasses', 'rvEx2'].forEach(id => $(id).innerHTML = '');
+    return;
+  }
+  $('rvBig').innerHTML = `<img src="/img/${encodeURIComponent(i.file)}" alt="${esc(i.file)}">${cutsHtml(i.cuts)}`;
+  const nx = rvQueue[rvPos + 1]; if (nx) new Image().src = `/img/${encodeURIComponent(nx.file)}`; // prefetch
+  $('rvFile').textContent = i.file;
+  $('rvCur').innerHTML = i.review?.status === 'excluded' ? '<span class="st-excluded">除外</span>' : esc(i.label || '未ラベル');
+  const info = [];
+  if (i.review) info.push(`<span class="st-${i.review.status}">${ST[i.review.status]}</span>（${esc(i.review.at.replace('T', ' '))}）`);
+  if (i.review && i.review.original !== (i.label || '')) info.push(`元のラベル：${esc(i.review.original || '未ラベル')}`);
+  if (evalPred[i.file]) info.push(`モデル予測：${evalPred[i.file].map(t => `${esc(t[0])} ${pct(t[1])}`).join(' / ')}`);
+  $('rvInfo').innerHTML = info.join('<br>');
+  drawClasses();
+  const same = imgs.filter(o => i.label && o.label === i.label && o.file !== i.file).sort((a, b) => (b.review?.status === 'ok') - (a.review?.status === 'ok')).slice(0, 10);
+  $('rvEx2').innerHTML = same.map(o => `<img loading="lazy" src="${thumb(o.file)}" alt="${esc(o.file)}" title="${esc(o.file)}">`).join('');
+}
+
+function drawClasses() {
+  const i = rvCur(); if (!i) return;
+  const q = $('rvSearch').value.trim(), list = classList().filter(c => !q || c.includes(q));
+  $('rvClasses').innerHTML = list.map(c => `<button class="${c === i.label ? 'cur' : ''}" data-c="${esc(c)}">${esc(c)}</button>`).join('')
+    + (q && !list.includes(q) ? `<button data-c="${esc(q)}">＋「${esc(q)}」を新しいクラスにする</button>` : '');
+  $('rvClasses').onclick = e => { const b = e.target.closest('button'); if (b) setLabel(b.dataset.c); };
+}
+
+function setLabel(label) {
+  const i = rvCur(); if (!i) return;
+  fetch('/api/label', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file: i.file, label }) })
+    .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e.error)))
+    .then(rev => {
+      i.review = rev; i.label = label;
+      $('rvSearch').value = '';
+      if (rvPos < rvQueue.length - 1) rvPos++;
+      showReview();
+    })
+    .catch(err => alert('保存に失敗しました: ' + err));
+}
 
 // ---------- training progress ----------
 const dur = s => s < 60 ? `${Math.round(s)}秒` : s < 3600 ? `${Math.floor(s / 60)}分${Math.round(s % 60)}秒` : `${Math.floor(s / 3600)}時間${Math.round(s % 3600 / 60)}分`;
@@ -347,6 +500,8 @@ function renderUnit(U) {
     <p class="note">更新するには <code>./gradlew testDebugUnitTest</code> を実行してから、このタブを開き直す。</p></div>`
     : `<div class="panel">結果がありません。<code>./gradlew testDebugUnitTest</code> を実行してください。</div>`;
 }
+// last, so every const/let above is initialised before a tab renders
+if (['eval', 'unit', 'train', 'review'].includes(location.hash.slice(1))) showTab(location.hash.slice(1));
 </script>
 </body>
 </html>
