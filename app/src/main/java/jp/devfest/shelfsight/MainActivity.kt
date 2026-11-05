@@ -3,11 +3,14 @@ package jp.devfest.shelfsight
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.hardware.display.DisplayManager
 import android.opengl.GLSurfaceView
 import android.os.Bundle
 import android.util.Log
 import android.view.Display
+import android.view.Surface
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -26,10 +29,14 @@ import com.google.ar.core.exceptions.FatalException
 import com.google.ar.core.exceptions.UnavailableException
 import jp.devfest.shelfsight.mapping.MappingRenderer
 import jp.devfest.shelfsight.mapping.StoreMapper
+import jp.devfest.shelfsight.perception.MediaPipeHandDetector
+import jp.devfest.shelfsight.perception.MediaPipePersonDetector
+import jp.devfest.shelfsight.perception.PerceptionPipeline
 import jp.devfest.shelfsight.ui.MappingScreen
 
 class MainActivity : ComponentActivity() {
     private val mapper = StoreMapper()
+    private lateinit var perception: PerceptionPipeline
 
     private lateinit var surfaceView: GLSurfaceView
     private lateinit var renderer: MappingRenderer
@@ -48,7 +55,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        renderer = MappingRenderer(mapper, ::currentDisplayRotation)
+        perception = PerceptionPipeline(
+            MediaPipePersonDetector(this),
+            MediaPipeHandDetector(this),
+            getExternalFilesDir(null)?.resolve("perception_log.csv"),
+        )
+        renderer = MappingRenderer(mapper, perception, ::currentDisplayRotation)
         surfaceView = GLSurfaceView(this).apply {
             preserveEGLContextOnPause = true
             setEGLContextClientVersion(2)
@@ -62,8 +74,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 val state by mapper.state.collectAsStateWithLifecycle()
+                val perceptionState by perception.state.collectAsStateWithLifecycle()
                 MappingScreen(
                     state = state,
+                    perception = perceptionState,
                     surfaceView = surfaceView,
                     orbit = mapper.orbit,
                     onToggleMap = { mapper.setShowMap(!state.showMap) },
@@ -88,9 +102,10 @@ class MainActivity : ComponentActivity() {
             mapper.setBlockingMessage("カメラを使用できません")
             return
         }
-        if (!current.isDepthModeSupported(Config.DepthMode.RAW_DEPTH_ONLY)) {
+        if (!current.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) {
             mapper.setBlockingMessage("この端末は深度の取得に対応していません")
         }
+        perception.uprightRotationDegrees = uprightRotationDegrees(current)
         renderer.attachSession(current)
         surfaceView.onResume()
     }
@@ -107,6 +122,7 @@ class MainActivity : ComponentActivity() {
         session?.close()
         session = null
         mapper.close()
+        perception.close()
         super.onDestroy()
     }
 
@@ -123,8 +139,9 @@ class MainActivity : ComponentActivity() {
                     updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
                     planeFindingMode = Config.PlaneFindingMode.DISABLED
                     lightEstimationMode = Config.LightEstimationMode.DISABLED
-                    if (created.isDepthModeSupported(Config.DepthMode.RAW_DEPTH_ONLY)) {
-                        depthMode = Config.DepthMode.RAW_DEPTH_ONLY
+                    // 前方の判定に密な深度を、地図に生深度を使う。AUTOMATIC なら両方取得できる。
+                    if (created.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) {
+                        depthMode = Config.DepthMode.AUTOMATIC
                     }
                 },
             )
@@ -140,6 +157,19 @@ class MainActivity : ComponentActivity() {
             mapper.setBlockingMessage("AR を開始できませんでした")
             return null
         }
+    }
+
+    private fun uprightRotationDegrees(session: Session): Int {
+        val manager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        val sensor = manager.getCameraCharacteristics(session.cameraConfig.cameraId)
+            .get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+        val display = when (currentDisplayRotation()) {
+            Surface.ROTATION_90 -> 90
+            Surface.ROTATION_180 -> 180
+            Surface.ROTATION_270 -> 270
+            else -> 0
+        }
+        return (sensor - display + 360) % 360
     }
 
     private fun currentDisplayRotation(): Int =

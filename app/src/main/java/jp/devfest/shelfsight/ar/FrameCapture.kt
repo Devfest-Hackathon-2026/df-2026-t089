@@ -25,6 +25,8 @@ class CapturedFrame(
 )
 
 internal object FrameCapture {
+    private const val MAX_DEPTH_AGE_NANOS = 500_000_000L
+
     /** GL スレッドで呼ぶ。カメラ画像がまだ用意できていなければ null を返す。 */
     fun capture(frame: Frame, camera: Camera, uprightRotationDegrees: Int, depthEnabled: Boolean): CapturedFrame? {
         val image = try {
@@ -80,6 +82,8 @@ internal object FrameCapture {
             return null
         }
         return image.use {
+            // 古い深度が返ることがあるので、今の姿勢と組み合わせないよう捨てる。
+            if (frame.timestamp - it.timestamp > MAX_DEPTH_AGE_NANOS) return null
             val plane = it.planes[0]
             val shorts = plane.buffer.order(ByteOrder.nativeOrder()).asShortBuffer()
             val rowStride = plane.rowStride / Short.SIZE_BYTES
@@ -125,6 +129,16 @@ internal object JpegEncoder {
 
     /** 重い処理なので GL スレッドでは呼ばない。 */
     fun toUprightJpeg(frame: CapturedFrame): ByteArray {
+        val upright = toUprightBitmap(frame)
+        return ByteArrayOutputStream().use { out ->
+            upright.compress(Bitmap.CompressFormat.JPEG, QUALITY, out)
+            upright.recycle()
+            out.toByteArray()
+        }
+    }
+
+    /** 正立させた ARGB_8888 の画像を返す。呼び出し側が recycle する。 */
+    fun toUprightBitmap(frame: CapturedFrame): Bitmap {
         val raw = ByteArrayOutputStream().use { out ->
             YuvImage(frame.nv21, ImageFormat.NV21, frame.width, frame.height, null)
                 .compressToJpeg(Rect(0, 0, frame.width, frame.height), QUALITY, out)
@@ -137,11 +151,7 @@ internal object JpegEncoder {
             postRotate(frame.geometry.uprightRotationDegrees.toFloat())
         }
         val upright = Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true)
-        return ByteArrayOutputStream().use { out ->
-            upright.compress(Bitmap.CompressFormat.JPEG, QUALITY, out)
-            if (upright !== decoded) upright.recycle()
-            decoded.recycle()
-            out.toByteArray()
-        }
+        if (upright !== decoded) decoded.recycle()
+        return upright
     }
 }

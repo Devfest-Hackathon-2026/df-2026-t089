@@ -65,9 +65,28 @@ internal object Unprojector {
             else -> u to v
         }
 
-    /** 矩形の端は棚の背景を拾いやすいので、中央部分だけを見て中央値を取る。 */
-    private fun medianDepthMeters(box: NormalizedBox, geometry: CaptureGeometry): Float? {
+    /** 正立画像の座標 ([u], [v]) にある、カメラから [depth] メートルの点のワールド座標。 */
+    fun worldAt(u: Float, v: Float, depth: Float, geometry: CaptureGeometry): Vec3 {
+        val (sx, sy) = uprightToSensor(u, v, geometry.uprightRotationDegrees)
+        return pixelToWorld(sx * geometry.imageWidth, sy * geometry.imageHeight, depth, geometry)
+    }
+
+    /** 正立画像の座標 ([u], [v]) の深度。無効または範囲外なら null を返す。 */
+    fun depthAt(u: Float, v: Float, geometry: CaptureGeometry): Float? {
         val depth = geometry.depth ?: return null
+        val (sx, sy) = uprightToSensor(u, v, geometry.uprightRotationDegrees)
+        val du = geometry.depthU0 + sx * geometry.imageWidth * geometry.depthUPerPixel
+        val dv = geometry.depthV0 + sy * geometry.imageHeight * geometry.depthVPerPixel
+        val dx = (du * depth.width).toInt()
+        val dy = (dv * depth.height).toInt()
+        if (dx !in 0 until depth.width || dy !in 0 until depth.height) return null
+        val meters = depth.at(dx, dy) / 1000f
+        return meters.takeIf { it in MIN_DEPTH_M..MAX_DEPTH_M }
+    }
+
+    /** 矩形の端は棚の背景を拾いやすいので、中央部分だけを見て中央値を取る。 */
+    fun medianDepthMeters(box: NormalizedBox, geometry: CaptureGeometry): Float? {
+        if (geometry.depth == null) return null
         val centerU = (box.left + box.right) / 2f
         val centerV = (box.top + box.bottom) / 2f
         val halfW = (box.right - box.left) * SAMPLED_BOX_FRACTION / 2f
@@ -78,16 +97,7 @@ internal object Unprojector {
             for (col in 0 until SAMPLE_GRID) {
                 val u = centerU - halfW + 2f * halfW * col / (SAMPLE_GRID - 1)
                 val v = centerV - halfH + 2f * halfH * row / (SAMPLE_GRID - 1)
-                val (sx, sy) = uprightToSensor(u, v, geometry.uprightRotationDegrees)
-                val px = sx * geometry.imageWidth
-                val py = sy * geometry.imageHeight
-                val du = geometry.depthU0 + px * geometry.depthUPerPixel
-                val dv = geometry.depthV0 + py * geometry.depthVPerPixel
-                val dx = (du * depth.width).toInt()
-                val dy = (dv * depth.height).toInt()
-                if (dx !in 0 until depth.width || dy !in 0 until depth.height) continue
-                val meters = depth.at(dx, dy) / 1000f
-                if (meters in MIN_DEPTH_M..MAX_DEPTH_M) samples += meters
+                depthAt(u, v, geometry)?.let { samples += it }
             }
         }
         if (samples.isEmpty()) return null

@@ -1,6 +1,7 @@
 package jp.devfest.shelfsight.ui
 
 import android.opengl.GLSurfaceView
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -22,7 +23,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -34,10 +39,13 @@ import androidx.compose.ui.viewinterop.AndroidView
 import java.util.Locale
 import jp.devfest.shelfsight.mapping.MapUiState
 import jp.devfest.shelfsight.mapping.OrbitCamera
+import jp.devfest.shelfsight.perception.HandView
+import jp.devfest.shelfsight.perception.PerceptionState
 
 @Composable
 fun MappingScreen(
     state: MapUiState,
+    perception: PerceptionState,
     surfaceView: GLSurfaceView,
     orbit: OrbitCamera,
     onToggleMap: () -> Unit,
@@ -50,6 +58,20 @@ fun MappingScreen(
             Box(Modifier.fillMaxSize().pointerInput(orbit) { orbitGestures(orbit) })
         }
 
+        if (!state.showMap) {
+            Canvas(Modifier.fillMaxSize()) {
+                perception.personRects.forEach { rect ->
+                    drawRect(
+                        color = Color(0xFFFFEB3B),
+                        topLeft = Offset(rect.left * size.width, rect.top * size.height),
+                        size = Size(rect.width * size.width, rect.height * size.height),
+                        style = Stroke(width = 6.dp.toPx()),
+                    )
+                }
+                perception.handViews.forEach { hand -> drawHand(hand) }
+            }
+        }
+
         Column(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
@@ -59,6 +81,23 @@ fun MappingScreen(
                 .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(16.dp),
         ) {
+            Text(
+                text = perception.ahead,
+                color = Color(0xFFFFEB3B),
+                fontSize = 26.sp,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            )
+            if (perception.people.isNotEmpty()) {
+                Text(text = perception.people, color = Color.White, fontSize = 20.sp)
+            }
+            if (perception.hands.isNotEmpty()) {
+                Text(
+                    text = perception.hands,
+                    color = Color(0xFF80DEEA),
+                    fontSize = 20.sp,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                )
+            }
             Text(
                 text = state.status,
                 color = Color.White,
@@ -87,7 +126,7 @@ fun MappingScreen(
                     onClick = onToggleMap,
                     modifier = Modifier.weight(1f).heightIn(min = 72.dp),
                 ) {
-                    Text(if (state.showMap) "カメラに戻る" else "地図を見る", fontSize = 18.sp)
+                    Text(if (state.showMap) "今の視点に戻る" else "地図を見る", fontSize = 18.sp)
                 }
                 Button(
                     onClick = onToggleRecording,
@@ -97,6 +136,40 @@ fun MappingScreen(
                 }
             }
         }
+    }
+}
+
+/** MediaPipe の 21 点のうち、骨としてつなぐ組み合わせ。 */
+private val HAND_BONES = listOf(
+    0 to 1, 1 to 2, 2 to 3, 3 to 4,
+    0 to 5, 5 to 6, 6 to 7, 7 to 8,
+    5 to 9, 9 to 10, 10 to 11, 11 to 12,
+    9 to 13, 13 to 14, 14 to 15, 15 to 16,
+    13 to 17, 17 to 18, 18 to 19, 19 to 20,
+    0 to 17,
+)
+
+private fun DrawScope.drawHand(hand: HandView) {
+    fun offset(x: Float, y: Float) = Offset(x * size.width, y * size.height)
+    HAND_BONES.forEach { (a, b) ->
+        val from = hand.points[a]
+        val to = hand.points[b]
+        drawLine(
+            color = Color(0xFF80DEEA),
+            start = offset(from.x, from.y),
+            end = offset(to.x, to.y),
+            strokeWidth = 4.dp.toPx(),
+        )
+    }
+    val from = hand.pointingFrom
+    val to = hand.pointingTo
+    if (from != null && to != null) {
+        drawLine(
+            color = Color(0xFFFF5252),
+            start = offset(from.x, from.y),
+            end = offset(to.x, to.y),
+            strokeWidth = 8.dp.toPx(),
+        )
     }
 }
 

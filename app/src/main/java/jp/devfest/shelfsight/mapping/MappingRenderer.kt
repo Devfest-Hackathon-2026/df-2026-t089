@@ -11,10 +11,12 @@ import com.google.ar.core.exceptions.SessionPausedException
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import jp.devfest.shelfsight.ar.BackgroundRenderer
+import jp.devfest.shelfsight.perception.PerceptionPipeline
 
 /** ARCore の更新と描画を行う。地図を表示している間も、裏で記録と追跡を続ける。 */
 class MappingRenderer(
     private val mapper: StoreMapper,
+    private val perception: PerceptionPipeline,
     private val displayRotation: () -> Int,
 ) : GLSurfaceView.Renderer {
 
@@ -74,16 +76,16 @@ class MappingRenderer(
         }
         val camera = frame.camera
         mapper.onFrame(current, frame, camera)
+        perception.onFrame(frame, camera)
 
         if (showMap) {
             drawMapView(map)
         } else {
-            backgroundRenderer.draw(frame)
             if (camera.trackingState == TrackingState.TRACKING) {
                 camera.getViewMatrix(view, 0)
                 camera.getProjectionMatrix(projection, 0, NEAR_M, FAR_M)
                 Matrix.multiplyMM(viewProjection, 0, projection, 0, view, 0)
-                // カメラ映像に重ね、記録できた範囲が分かるようにする。
+                // カメラ映像は描かず、読み取れた点だけを今の視点で表示する。
                 map.draw(mapper, viewProjection, projection[5], viewHeight, Float.MAX_VALUE, showTrail = false)
             }
         }

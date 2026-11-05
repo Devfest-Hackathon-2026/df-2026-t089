@@ -16,9 +16,22 @@
 
 各区画は ARCore の Anchor に結びつけているため、歩行中に ARCore が位置を補正しても区画ごと追従します。
 
+### 人と壁の判別
+
+胸に固定したカメラで、正面にあるものを判定して画面に表示します。
+
+1. `MediaPipePersonDetector`：カメラ画像から人を検出する
+2. `PersonDistance` / `PersonTracker`：人の距離と 3D 位置を求め、位置の変化から「止まっている」「向かってくる」などを判定する
+3. `ObstacleClassifier`：人以外の正面の深度を 3D の点に戻し、縦の平面に並ぶなら壁、それ以外なら物とする。データが足りないときは「確認できません」と表示する
+
+### 手と指の認識
+
+`MediaPipeHandDetector` で手の 21 点を読み取り、`HandAnalysis` で左右、形（指さしなど）、指の向き、手のひらの向き、距離、指先のワールド座標を求めます。人として検出された枠が手で大きく占められている場合は、`OwnHandFilter` で自分の手や腕の誤認として除外します。
+
 ### 使用技術
 
-- ARCore（位置追跡、Raw Depth API）、OpenGL ES
+- ARCore（位置追跡、Depth API）、OpenGL ES
+- MediaPipe Object Detector（EfficientDet-Lite0）、Hand Landmarker（いずれも端末内で実行）
 - Kotlin / Jetpack Compose
 
 商品の判別（Gemma 4 / LiteRT-LM）のコードは `vision` パッケージなどにありますが、今は使っていません。地図へのラベル付けを実装するときに接続します。

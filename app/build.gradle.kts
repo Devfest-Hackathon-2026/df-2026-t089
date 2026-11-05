@@ -20,6 +20,10 @@ android {
         buildConfig = true
     }
 
+    androidResources {
+        noCompress += listOf("tflite", "task") // MediaPipe がモデルを直接読み込めるようにする
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -35,6 +39,7 @@ dependencies {
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.arcore)
     implementation(libs.litertlm)
+    implementation(libs.mediapipe.tasks.vision)
 
     testImplementation(libs.junit)
     testImplementation(libs.org.json)
