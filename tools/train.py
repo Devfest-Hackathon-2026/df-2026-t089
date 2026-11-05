@@ -5,7 +5,7 @@
 
 Usage:  python tools/train.py --data ../df-2026-t089/training_images
 """
-import argparse, csv, os, random
+import argparse, csv, datetime, json, random, sys, time, traceback
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +20,40 @@ CLS_SIZE = 224
 BND_SIZE = 384
 BND_COLS = BND_SIZE // 16
 SEED = 7
+
+
+# ---------------- progress (read by dashboard/serve.py) ----------------
+PROGRESS = ROOT / "tools/.cache/progress.json"
+P = {"status": "running", "phases": [], "phase": None, "epoch": 0, "epochs": 0, "step": 0, "steps": 0, "history": {}}
+
+
+def save_progress(**kw):
+    P.update(kw, updated=time.time())
+    PROGRESS.parent.mkdir(parents=True, exist_ok=True)
+    tmp = PROGRESS.with_suffix(".tmp")
+    tmp.write_text(json.dumps(P, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(PROGRESS)  # atomic, so the dashboard never reads half a file
+
+
+def start_phase(name, epochs):
+    P["history"][name] = []
+    save_progress(phase=name, epoch=0, epochs=epochs, step=0, phaseStarted=time.time())
+
+
+class Progress(keras.callbacks.Callback):
+    def __init__(self, offset=0):
+        super().__init__()
+        self.offset = offset
+
+    def on_train_batch_end(self, batch, logs=None):
+        P["step"], P["steps"] = batch + 1, self.params["steps"]
+        if time.time() - P.get("updated", 0) > 2:
+            save_progress()
+
+    def on_epoch_end(self, epoch, logs=None):
+        e = self.offset + epoch + 1
+        P["history"][P["phase"]].append({"epoch": e, **{k: round(float(v), 4) for k, v in (logs or {}).items()}})
+        save_progress(epoch=e, step=0)
 
 
 def load_cache(data: Path, cache: Path):
@@ -104,14 +138,14 @@ def train_classifier(train, val, classes, epochs):
     vx = np.stack([resize(img, CLS_SIZE, CLS_SIZE) for img, _ in val]) if val else None
     vy = np.array([y for _, y in val]) if val else None
     vd = (vx, vy) if val else None
-    for lr, unfreeze in ((1e-3, 0), (3e-5, 40)):
+    for stage, (lr, unfreeze) in enumerate(((1e-3, 0), (3e-5, 40))):
         if unfreeze:
             base.trainable = True
             for l in base.layers[:-unfreeze]:
                 l.trainable = False
         model.compile(keras.optimizers.Adam(lr), "sparse_categorical_crossentropy", metrics=["accuracy"])
         model.fit(cls_batches(train, len(classes), rng), steps_per_epoch=steps, epochs=epochs,
-                  validation_data=vd, verbose=2)
+                  validation_data=vd, verbose=2, callbacks=[Progress(offset=stage * epochs)])
     return model
 
 
@@ -224,7 +258,7 @@ def train_boundary(real, by_class, steps, epochs):
         return -tf.reduce_mean(pos_w * y * tf.math.log(p) + (1 - y) * tf.math.log(1 - p))
 
     model.compile(keras.optimizers.Adam(5e-4), loss)
-    model.fit(bnd_batches(real, by_class, rng), steps_per_epoch=steps, epochs=epochs, verbose=2)
+    model.fit(bnd_batches(real, by_class, rng), steps_per_epoch=steps, epochs=epochs, verbose=2, callbacks=[Progress()])
     return model
 
 
@@ -233,8 +267,14 @@ def main():
     ap.add_argument("--data", type=Path, default=ROOT.parent / "df-2026-t089/training_images")
     ap.add_argument("--epochs", type=int, default=12)
     ap.add_argument("--only", choices=["cls", "bnd"])
+    ap.add_argument("--eval-only", action="store_true", help="train holdout models + write results, keep the app models")
     a = ap.parse_args()
+    results_path = ROOT / "tools/results/eval.json"
+    results = json.loads(results_path.read_text(encoding="utf-8")) if results_path.exists() else {}
     random.seed(SEED); np.random.seed(SEED); keras.utils.set_random_seed(SEED)
+    phases = [n for k, n in (("cls", "棚種類（検証用）"), ("cls_f", "棚種類（最終）"), ("bnd", "境界（検証用）"), ("bnd_f", "境界（最終）"))
+              if a.only != {"cls": "bnd", "bnd": "cls"}[k.split("_")[0]] and not (a.eval_only and k.endswith("_f"))]
+    save_progress(phases=phases, started=time.time(), args=" ".join(sys.argv[1:]), phase="画像の読み込み")
     imgs = load_cache(a.data, ROOT / "tools/.cache/images.npz")
     labels = [(r["file"], r["shelf"]) for r in read_csv(a.data / "labels.csv") if r["file"] in imgs]
     classes = sorted({s for _, s in labels})
@@ -242,6 +282,7 @@ def main():
 
     if a.only != "bnd":
         items = [(imgs[f], classes.index(s)) for f, s in labels]
+        files = [f for f, _ in labels]
         rng = np.random.default_rng(SEED)
         val_idx = set()
         for c in range(len(classes)):  # stratified ~15% holdout, at least 1 per class with >=4 samples
@@ -251,28 +292,58 @@ def main():
         tr = [it for i, it in enumerate(items) if i not in val_idx]
         va = [it for i, it in enumerate(items) if i in val_idx]
         print(f"classifier: {len(classes)} classes, train {len(tr)} val {len(va)}")
-        train_classifier(tr, va, classes, a.epochs)
-        final = train_classifier(items, [], classes, a.epochs)
-        export_tflite(final, ASSETS / "shelf_classifier.tflite")
-        (ASSETS / "labels.txt").write_text("\n".join(classes) + "\n", encoding="utf-8")
+        start_phase("棚種類（検証用）", 2 * a.epochs)
+        m = train_classifier(tr, va, classes, a.epochs)
+        vi = sorted(val_idx)
+        probs = m.predict(np.stack([resize(items[i][0], CLS_SIZE, CLS_SIZE) for i in vi]), verbose=0)
+        rows = [{"file": files[i], "label": classes[items[i][1]],
+                 "top": [[classes[k], round(float(p[k]), 3)] for k in np.argsort(-p)[:3]]} for i, p in zip(vi, probs)]
+        acc = sum(r["label"] == r["top"][0][0] for r in rows) / len(rows)
+        print(f"  holdout accuracy {acc:.3f}")
+        results["classifier"] = {"accuracy": acc, "train": len(tr), "val": rows, "classes": classes,
+                                 "epochs": a.epochs, "at": datetime.datetime.now().isoformat(timespec="seconds")}
+        if not a.eval_only:
+            start_phase("棚種類（最終）", 2 * a.epochs)
+            final = train_classifier(items, [], classes, a.epochs)
+            export_tflite(final, ASSETS / "shelf_classifier.tflite")
+            (ASSETS / "labels.txt").write_text("\n".join(classes) + "\n", encoding="utf-8")
 
     if a.only != "cls":
-        real = [(imgs[r["file"]], [float(c) for c in r["cuts"].split()])
+        real = [(imgs[r["file"]], [float(c) for c in r["cuts"].split()], r["file"])
                 for r in read_csv(a.data / "boundaries.csv") if r["file"] in imgs]
         by_class = {}
         for f, s in labels:
             by_class.setdefault(s, []).append(imgs[f])
         rng = random.Random(SEED)
         rng.shuffle(real)
+        names = [f for _, _, f in real]
+        real = [(i, c) for i, c, _ in real]
         va, tr = real[:7], real[7:]
         print(f"boundary: real train {len(tr)} val {len(va)}")
+        start_phase("境界（検証用）", a.epochs)
         m = train_boundary(tr, by_class, 60, a.epochs)
-        for thr in (0.3, 0.4, 0.5, 0.6):
+        sweep = []
+        for thr in (0.05, 0.1, 0.2, 0.3, 0.5):
             p, r = pr(m, va, thr)
+            sweep.append({"thr": thr, "precision": p, "recall": r})
             print(f"  val thr={thr}: precision={p:.2f} recall={r:.2f}")
-        final = train_boundary(real, by_class, 60, a.epochs)
-        export_tflite(final, ASSETS / "shelf_boundary.tflite")
+        rows = [{"file": n, "cuts": c, "probs": [round(float(x), 3) for x in m.predict(resize(img, BND_SIZE, BND_SIZE)[None], verbose=0)[0]]}
+                for n, (img, c) in zip(names[:7], va)]
+        results["boundary"] = {"sweep": sweep, "appThreshold": 0.1, "tolerance": 0.06, "train": len(tr), "val": rows,
+                               "epochs": a.epochs, "at": datetime.datetime.now().isoformat(timespec="seconds")}
+        if not a.eval_only:
+            start_phase("境界（最終）", a.epochs)
+            final = train_boundary(real, by_class, 60, a.epochs)
+            export_tflite(final, ASSETS / "shelf_boundary.tflite")
+    results_path.parent.mkdir(parents=True, exist_ok=True)
+    results_path.write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
+    print("wrote", results_path)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+        save_progress(status="done")
+    except BaseException:  # incl. Ctrl+C, so the dashboard does not show "running" forever
+        save_progress(status="failed", error=traceback.format_exc()[-2000:])
+        raise

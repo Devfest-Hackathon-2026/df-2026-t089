@@ -34,3 +34,18 @@ tools/.venv/Scripts/python tools/train.py --data <training_images のパス>
 ```
 `training_images/labels.csv`（file, shelf）と `boundaries.csv`（file, cuts＝境界の x 位置 0〜1 をスペース区切り）を使い、
 `app/src/main/assets/` に tflite と `labels.txt` を書き出す。
+
+## 学習データのダッシュボード
+```
+python dashboard/serve.py --data <training_images のパス>   # → http://127.0.0.1:8765
+```
+- データ：クラス別枚数・未ラベル/不足クラスなどの問題点・全画像（境界線を赤で重ね表示）
+- モデル評価（`#eval`）：検証用データでの正解率・誤分類画像・境界の正解/予測の重ね表示・しきい値ごとの精度。
+  `tools/train.py --eval-only` が書く `tools/results/eval.json` を表示する
+- ユニットテスト（`#unit`）：`./gradlew testDebugUnitTest` の結果
+- ラベル修正（`#review`）：1枚ずつ見て、OK（Enter）・クラス変更（クリック／`/` で検索）・除外（X）。← → で移動。
+  `training_images/labels.csv` を直接書き換える（起動ごとに最初の保存前に `labels.csv.bak-<日時>` を作成）。
+  確認履歴（元のラベル・状態・日時）は `labels_review.csv` に残る。除外した画像は `labels.csv` から外れ、学習に使われない
+- 学習の進捗（`#train`）：`tools/train.py` 実行中の段階・エポック・残り時間・損失や正解率の推移（3秒ごとに更新）
+
+Pillow があればサムネイルを `dashboard/.cache/` に作る。

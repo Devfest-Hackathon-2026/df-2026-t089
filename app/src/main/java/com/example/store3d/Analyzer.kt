@@ -110,6 +110,6 @@ class Analyzer(ctx: Context) {
         const val CLS_SIZE = 224
         const val BND_SIZE = 384
         const val BND_COLS = 24
-        const val BOUNDARY_THR = 0.5f
+        const val BOUNDARY_THR = 0.1f // tuned on boundaries.csv sweep; 3D voting (MIN_SUPPORT) removes one-frame false positives
     }
 }

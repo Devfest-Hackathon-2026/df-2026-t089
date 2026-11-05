@@ -52,3 +52,6 @@ tools/.cache/
 tools/.venv/
 tools/out/
 boundary_training_images/
+
+# Store3D
+dashboard/.cache/
