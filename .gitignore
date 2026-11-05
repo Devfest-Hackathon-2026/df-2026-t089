@@ -47,3 +47,8 @@ captures/
 # Store3D
 tools/.cache/
 *.iml
+
+# 学習（環境と成果物。写真には来店者が写るので公開しない）
+tools/.venv/
+tools/out/
+boundary_training_images/
