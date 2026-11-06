@@ -19,8 +19,8 @@ import org.json.JSONObject
 internal class Narrator(private val client: CloudVisionClient?) {
     val available: Boolean get() = client != null
 
-    fun describeShelf(products: List<RecognizedProduct>, jpeg: ByteArray): String? {
-        val kept = ShelfDescriber.withoutOutliers(products)
+    /** [kept] は場違いな商品を外したあとの商品（[ShelfDescriber.split]）。 */
+    fun describeShelf(kept: List<RecognizedProduct>, jpeg: ByteArray): String? {
         if (kept.size < ShelfDescriber.MIN_PRODUCTS) return null
         return ask(CloudTask(shelfPrompt(ShelfDescriber.rows(kept)), SCHEMA, "low"), jpeg)
     }

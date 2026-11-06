@@ -117,20 +117,51 @@ class AssistLogicTest {
         )
     }
 
+    private val root = listOf(File("."), File("..")).first { File(it, "tools/coarse_categories.json").exists() }
+    private val groups = ShelfDescriber.Groups.parse(File(root, "tools/coarse_categories.json").readText())
+
     @Test
-    fun `a chocolate bar on the bread shelf is not mentioned`() {
-        val bread = (0 until 8).map { i -> p(0.1f + 0.1f * i, if (i < 4) 0.2f else 0.6f, if (i % 2 == 0) "菓子パン" else "食パン・調理パン", "パン") }
-        val odd = p(0.45f, 0.6f, "チョコレート", "チョコ・ビスケット")
-        val text = ShelfDescriber.describe(bread + odd)!!
-        assertFalse(text, "チョコ" in text)
-        assertTrue(text, "菓子パン" in text)
+    fun `the app's copy of the 7 groups is the same as the training one`() {
+        assertEquals(File(root, "tools/coarse_categories.json").readText(), File(root, "app/src/main/assets/coarse/categories.json").readText())
+    }
+
+    @Test
+    fun `odd products on the bread shelf are removed even when several were misrecognized`() {
+        val bread = (0 until 12).map { i -> p(0.05f + 0.08f * i, if (i < 6) 0.2f else 0.6f, if (i % 2 == 0) "菓子パン" else "食パン・調理パン", "パン") }
+        // 間違った商品が 3 つずつ（前は「2 個以下」しか外さなかったので残っていた）
+        val odd = (0 until 3).map { p(0.5f, 0.4f, "チョコレート", "チョコ・ビスケット") } + (0 until 3).map { p(0.6f, 0.4f, "緑茶", "ソフトドリンク") }
+        val split = ShelfDescriber.split(bread + odd, groups)
+        assertEquals("弁当・パン", split.mainGroup)
+        assertEquals(12, split.kept.size)
+        assertEquals(6, split.removed.size)
+        val text = ShelfDescriber.describe(split.kept)!!
+        assertFalse(text, "チョコ" in text || "緑茶" in text)
+    }
+
+    @Test
+    fun `different snack genres on a snack shelf all stay`() {
+        val snacks = listOf("スナック菓子" to "ポテトチップス・スナック", "チョコ・ビスケット" to "チョコレート", "グミ・キャンディ" to "グミ")
+            .flatMap { (g, f) -> (0 until 4).map { p(0.1f + 0.2f * it, 0.3f, f, g) } }
+        val split = ShelfDescriber.split(snacks + p(0.5f, 0.8f, "カップ麺", "カップ麺"), groups)
+        assertEquals("お菓子・おつまみ", split.mainGroup)
+        assertEquals(12, split.kept.size)
+        assertEquals(listOf("カップ麺"), split.removed.map { it.genre })
+    }
+
+    @Test
+    fun `the shelf type from the walking classifier decides the main group`() {
+        // 飲み物の方が多く認識されても、目の前の棚がお菓子の棚と分かっていればお菓子を残す
+        val drinks = (0 until 6).map { p(0.1f * it, 0.2f, "緑茶") }
+        val snacks = (0 until 4).map { p(0.1f * it, 0.6f, "チョコレート", "チョコ・ビスケット") }
+        assertEquals("お菓子・おつまみ", ShelfDescriber.split(drinks + snacks, groups, "お菓子・おつまみ").mainGroup)
+        assertEquals("飲み物・お酒", ShelfDescriber.split(drinks + snacks, groups).mainGroup)
     }
 
     @Test
     fun `a genuinely mixed shelf keeps both genres`() {
         val mixed = (0 until 4).map { p(0.1f + 0.2f * it, 0.2f, "菓子パン", "パン") } +
             (0 until 4).map { p(0.1f + 0.2f * it, 0.6f, "チョコレート", "チョコ・ビスケット") }
-        val text = ShelfDescriber.describe(mixed)!!
+        val text = ShelfDescriber.describe(ShelfDescriber.split(mixed, groups).kept)!!
         assertTrue(text, "菓子パン" in text && "チョコレート" in text)
     }
 

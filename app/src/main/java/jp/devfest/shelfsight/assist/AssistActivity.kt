@@ -21,11 +21,11 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
-import android.widget.TextView
 import com.example.store3d.CameraBackground
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.CameraConfigFilter
 import com.google.ar.core.Config
+import com.google.ar.core.Coordinates2d
 import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
 import com.google.ar.core.exceptions.UnavailableException
@@ -66,7 +66,8 @@ import kotlin.math.sqrt
  */
 class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private lateinit var gl: GLSurfaceView
-    private lateinit var status: TextView
+    /** 画面に出す内部状態。 */
+    private val debug = AssistDebug()
     private var session: Session? = null
     private var installRequested = false
     private var sensorRotation = 90
@@ -101,6 +102,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     )
     private val judge = SceneJudge()
     private val shelfMemory = ShelfMemory()
+    /** 商品のジャンル（26 種類）→ 歩行中の判別と同じ 7 分類。場違いな商品を外すのに使う。 */
+    private val groups by lazy { ShelfDescriber.Groups.parse(assets.open("coarse/categories.json").bufferedReader().readText()) }
 
     private var lastScene = 0L
     private var lastPerson = 0L
@@ -131,10 +134,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
-        status = TextView(this).apply {
-            setTextColor(-1); setBackgroundColor(0x88000000.toInt()); setPadding(24, 24, 24, 24); textSize = 14f
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }
         // 画面全体を 1 つのボタンにする（どこを触ってもよい）
         val gestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent) = true
@@ -154,10 +153,10 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         }
         setContentView(FrameLayout(this).apply {
             addView(gl)
-            addView(status, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
+            addView(DebugOverlay(this@AssistActivity, debug), FrameLayout.LayoutParams(-1, -1))
             addView(touch, FrameLayout.LayoutParams(-1, -1))
         })
-        status.text = "準備しています"
+        updateSettings()
     }
 
     override fun onResume() {
@@ -183,7 +182,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             }
         } catch (e: UnavailableException) {
             voice.say("このスマホでは、カメラの位置合わせが使えません。")
-            status.text = "ARCore が使えません: $e"
+            debug.tracking = "ARCore が使えません: $e"
             return
         }
         session!!.resume()
@@ -237,6 +236,16 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val frame = try { s.update() } catch (e: Exception) { return }
         background.draw(frame)
         val camera = frame.camera
+        // 画面の表示用: センサー画像の正規化座標が、画面のどこに来るか
+        val corners = FloatArray(6)
+        frame.transformCoordinates2d(Coordinates2d.IMAGE_NORMALIZED, floatArrayOf(0f, 0f, 1f, 0f, 0f, 1f), Coordinates2d.VIEW_NORMALIZED, corners)
+        debug.corners = corners
+        debug.rotation = sensorRotation
+        debug.tracking = when (camera.trackingState) {
+            TrackingState.TRACKING -> "追跡中"
+            TrackingState.PAUSED -> "一時停止（${camera.trackingFailureReason}）"
+            else -> "停止"
+        }
         if (camera.trackingState != TrackingState.TRACKING) return
 
         // 聞く人の向き: スマホを胸の前に立てて持つので、カメラの前（-z）を水平にしたもの
@@ -245,7 +254,10 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val fx = -z[0]
         val fz = -z[2]
         val len = sqrt(fx * fx + fz * fz)
-        if (len > 0.3f) listener = Listener(Vec3(pose.tx(), pose.ty(), pose.tz()), fx / len, fz / len)
+        if (len > 0.3f) {
+            listener = Listener(Vec3(pose.tx(), pose.ty(), pose.tz()), fx / len, fz / len)
+            debug.headingDeg = Math.toDegrees(kotlin.math.atan2(fx.toDouble(), -fz.toDouble())).toFloat()
+        }
 
         val now = SystemClock.elapsedRealtime()
         val rotation = sensorRotation   // 画面は縦に固定している
@@ -277,11 +289,21 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val image = JpegEncoder.toUprightBitmap(f, SCENE_LONG_SIDE)
         try {
             val now = SystemClock.elapsedRealtime()
-            val shelves = coarse?.classify(image)?.let { r -> ShelfMemory.shelves(r.columns, r.confidence) }.orEmpty().map { s ->
+            val coarseResult = coarse?.classify(image)
+            val coarseMs = SystemClock.elapsedRealtime() - now
+            val shelves = coarseResult?.let { r -> ShelfMemory.shelves(r.columns, r.confidence) }.orEmpty().map { s ->
                 s.copy(position = Unprojector.unproject(NormalizedBox(s.left, 0.3f, s.right, 0.7f), f.geometry).position)
             }
             val boxes = recognizer.detect(image).map { it.first }
+            val detectMs = SystemClock.elapsedRealtime() - now - coarseMs
             val switched = judge.update(SceneEvidence(shelves.size, boxes))
+            debug.columns = coarseResult?.columns.orEmpty()
+            debug.columnConfidence = coarseResult?.confidence ?: FloatArray(0)
+            debug.shelves = shelves
+            debug.productBoxes = boxes
+            debug.scene = judge.scene
+            debug.sceneMs = "棚の判別 ${if (coarse == null) "モデルなし" else "${coarseMs}ms"} / 商品の枠 ${detectMs}ms"
+            debug.sceneAt = now
             val main = SceneJudge.mainProduct(boxes)
             latestShelves = shelves
             latestShelvesAt = now
@@ -315,9 +337,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                     describe(image, boxes, camera, requested = false)
                 }
             }
-            runOnUiThread {
-                status.text = "場面: ${judge.scene}  棚: ${shelves.joinToString(" | ") { it.category }}  商品の枠: ${boxes.size}"
-            }
         } catch (e: RuntimeException) {
             Log.e(TAG, "scene analysis failed", e)
         } finally {
@@ -346,10 +365,21 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
      * LLM の返事を待つので、呼んだスレッドはしばらく止まる。
      */
     private fun describe(image: Bitmap, boxes: List<FloatArray>, camera: Vec3?, requested: Boolean) {
+        val t0 = SystemClock.elapsedRealtime()
         val products = recognizer.recognize(image, boxes)
-        val text = (if (narrator.available) narrator.describeShelf(products, jpeg(image, NARRATE_LONG_SIDE)) else null)
-            ?: ShelfDescriber.describe(products)
-        Log.i(TAG, "describe: ${products.size} products -> $text")
+        val t1 = SystemClock.elapsedRealtime()
+        val split = ShelfDescriber.split(products, groups, shelfInFront()?.category)
+        debug.kept = split.kept
+        debug.removed = split.removed
+        debug.unnamed = boxes.size - products.size
+        debug.mainGroup = split.mainGroup
+        debug.productsAt = t1
+        val llm = if (narrator.available) narrator.describeShelf(split.kept, jpeg(image, NARRATE_LONG_SIDE)) else null
+        val text = llm ?: ShelfDescriber.describe(split.kept)
+        val t2 = SystemClock.elapsedRealtime()
+        debug.description = text ?: "（商品が少なく説明なし）"
+        debug.describeInfo = "認識 ${t1 - t0}ms / 文 ${if (llm != null) "LLM" else "定型"} ${t2 - t1}ms"
+        Log.i(TAG, "describe: ${products.size} products, kept ${split.kept.size}, removed ${split.removed.size} (${split.mainGroup}) -> $text")
         if (text != null) {
             if (camera != null) describedAt = camera
             lastDescription = text
@@ -364,11 +394,15 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     /** 目の前（画面のまん中）の棚の種類を、最後の解析の結果ですぐに言う。 */
     private fun tellShelf() {
         listening.cancel()
+        voice.say(shelfInFront()?.let { shelfSentence(it.category) } ?: NO_SHELF, interrupt = true)
+    }
+
+    /** 画面のまん中（なければいちばん近い）の棚。最後の解析が古ければ null。 */
+    private fun shelfInFront(): PlacedShelf? {
         val fresh = SystemClock.elapsedRealtime() - latestShelvesAt < SHELF_FRESH_MS
         val shelves = if (fresh) latestShelves else emptyList()
-        val front = shelves.firstOrNull { it.left <= 0.5f && it.right >= 0.5f }
+        return shelves.firstOrNull { it.left <= 0.5f && it.right >= 0.5f }
             ?: shelves.minByOrNull { kotlin.math.abs((it.left + it.right) / 2 - 0.5f) }
-        voice.say(front?.let { shelfSentence(it.category) } ?: NO_SHELF, interrupt = true)
     }
 
     private fun shelfSentence(category: String) = "${category.replace("・", "と")}の棚です。"
@@ -387,7 +421,13 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         try {
             val boxes = recognizer.detect(image).map { it.first }
             val (focus, productBox) = SceneJudge.focus(boxes)
-            Log.i(TAG, "long press: ${boxes.size} boxes, largest ${boxes.maxOfOrNull { SceneJudge.area(it) }} -> $focus")
+            val largest = boxes.maxOfOrNull { SceneJudge.area(it) } ?: 0f
+            Log.i(TAG, "long press: ${boxes.size} boxes, largest $largest -> $focus")
+            debug.longPress = "$focus（枠 ${boxes.size} 個、いちばん大きい枠 ${(largest * 100).toInt()}%）"
+            debug.focusBox = productBox
+            debug.focusAt = SystemClock.elapsedRealtime()
+            debug.productBoxes = boxes
+            debug.sceneAt = debug.focusAt
             when (focus) {
                 Focus.PRODUCT -> lookupProduct(image, productBox!!)
                 Focus.SHELF -> describe(image, boxes, camera = null, requested = true)
@@ -404,14 +444,17 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
 
     /** ③ 手前の商品を Cloud Vision API で調べる。この接近ですでに調べていれば、API を呼ばずにその結果を言う。 */
     private fun lookupProduct(image: Bitmap, box: FloatArray) {
-        lookup.cachedResult?.let { speakLookup(it); return }
+        lookup.cachedResult?.let { debug.lookup = "（この接近で調べた結果を使う）"; speakLookup(it); return }
         if (!lookup.configured) {
             voice.say("商品を調べる設定がされていません。")
             return
         }
         val crop = cropWithMargin(image, box, 0.08f)
+        val t0 = SystemClock.elapsedRealtime()
         val result = try { lookup.lookup(crop) } finally { if (crop !== image) crop.recycle() }
         result.exceptionOrNull()?.let { Log.w(TAG, "lookup failed", it) }
+        debug.lookup = result.fold({ it?.let { a -> "社名「${a.maker}」商品「${a.product}」" } ?: "分からない" }, { "失敗: ${it.message}" }) +
+            "（Cloud Vision ${SystemClock.elapsedRealtime() - t0}ms）"
         speakLookup(result)
     }
 
@@ -434,11 +477,12 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             Log.e(TAG, "person detection failed", e); emptyList()
         } finally { image.recycle() }
         // 自分の手や、持っている商品を人と間違えたものを外す
-        val boxes = detected.filterNot { box ->
+        val judged = detected.map { box ->
             val aspect = (box.bottom - box.top) * h / ((box.right - box.left) * w).coerceAtLeast(1f)
-            PersonFilter.isOwnHand(box, aspect, Unprojector.medianDepthMeters(box, f.geometry))
+            val depth = Unprojector.medianDepthMeters(box, f.geometry)
+            Triple(box, PersonFilter.isOwnHand(box, aspect, depth), depth)
         }
-        if (boxes.size != detected.size) Log.d(TAG, "ignored ${detected.size - boxes.size} person boxes as own hand")
+        val boxes = judged.filterNot { it.second }.map { it.first }
         val t = SystemClock.elapsedRealtime() / 1000.0
         val camera = cameraPosition(f)
         val observations = boxes.map { box ->
@@ -446,7 +490,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             val pos = d?.let { Unprojector.worldAt((box.left + box.right) / 2f, (box.top + box.bottom) / 2f, it, f.geometry) }
             PersonObservation(box, d, pos)
         }
-        tracker.update(t, observations, camera)
+        val tracked = tracker.update(t, observations, camera)
         // 近づいてくる人と、すぐ近くにいる人から鳴らす。近いほど速く
         val sounding = tracker.markers()
             .filter { t - it.lastSeenSeconds < PERSON_HOLD_S }
@@ -457,6 +501,11 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                 m.id to Triple(m.position, beepInterval(d), if (approaching) 1f else 0.6f)
             }.toMap()
         mixer.setEmitters(sounding)
+        val m = { x: Float? -> x?.let { "%.1fm".format(it) } ?: "?" }
+        debug.people = judged.filter { it.second }.map { (b, _, depth) -> AssistDebug.PersonView(b, true, "手 深度${m(depth)}") } +
+            tracked.map { p -> AssistDebug.PersonView(p.box, false, "人 ${m(p.distanceM)} ${p.motion.labelJa}") }
+        debug.peopleInfo = "検出 ${detected.size}（手として外した ${detected.size - boxes.size}）/ 追跡 ${tracker.markers().size} / 鳴らしている ${sounding.size}"
+        debug.peopleAt = SystemClock.elapsedRealtime()
     }
 
     // ---------------------------------------------------------------- 声の操作
@@ -467,8 +516,10 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             return
         }
         voice.stop()
+        debug.voice = "聞いています…"
         listening.listen(onReady = { mixer.play(SpatialMixer.Sound(SpatialMixer.makeTick(), gain = 0.6f)) }) { text ->
             Log.i(TAG, "heard: $text")
+            debug.voice = "聞き取り「${text ?: "（聞き取れず）"}」→ ${text?.let(Commands::parse) ?: if (text == null) "-" else "LLM に質問"}"
             handle(text?.let(Commands::parse), text)
         }
     }
@@ -477,8 +528,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         when (command) {
             Command.SHELVES -> tellShelf()
             Command.DESCRIBE, Command.LOOKUP -> onLongPressed()
-            Command.PAUSE -> { auto = false; voice.say("お知らせを止めます。人が近づいたときの音は鳴ります。", interrupt = true) }
-            Command.RESUME -> { auto = true; shelfMemory.clear(); describedAt = null; voice.say("お知らせを再開します。", interrupt = true) }
+            Command.PAUSE -> { auto = false; updateSettings(); voice.say("お知らせを止めます。人が近づいたときの音は鳴ります。", interrupt = true) }
+            Command.RESUME -> { auto = true; updateSettings(); shelfMemory.clear(); describedAt = null; voice.say("お知らせを再開します。", interrupt = true) }
             Command.REPEAT -> voice.say(voice.lastSpoken.ifEmpty { "まだ何も話していません。" }, interrupt = true)
             Command.HELP -> voice.say(Commands.HELP_TEXT, interrupt = true)
             null -> if (heard.isNullOrBlank()) voice.say("聞き取れませんでした。", interrupt = true) else ask(heard)
@@ -501,7 +552,9 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                 if (lastDescription.isNotEmpty()) appendLine("- 最後に伝えた棚の説明: $lastDescription")
                 if (lastProduct.isNotEmpty()) appendLine("- 最後に調べた商品: $lastProduct")
             }
+            val t0 = SystemClock.elapsedRealtime()
             val answer = try { narrator.answer(question, context, jpeg(image, QUESTION_LONG_SIDE)) } finally { image.recycle() }
+            debug.voice = "質問「$question」→「${answer ?: "失敗"}」（${SystemClock.elapsedRealtime() - t0}ms）"
             voice.say(answer ?: "答えられませんでした。通信を確認してください。")
         }
     }
@@ -517,6 +570,12 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     }
 
     // ---------------------------------------------------------------- 補助
+
+    private fun updateSettings() {
+        val ok = { b: Boolean -> if (b) "○" else "×" }
+        val coarseFile = runCatching { "${BuildConfig.COARSE_MODEL}.onnx" in assets.list("coarse").orEmpty() }.getOrDefault(false)
+        debug.settings = "棚モデル${ok(coarseFile)} Gemini${ok(narrator.available)} Vision${ok(lookup.configured)} 自動のお知らせ${ok(auto)}"
+    }
 
     private fun useHighResolutionCameraImage(s: Session) {
         val best = s.getSupportedCameraConfigs(CameraConfigFilter(s))

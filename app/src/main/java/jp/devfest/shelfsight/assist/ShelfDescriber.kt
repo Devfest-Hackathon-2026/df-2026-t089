@@ -20,25 +20,49 @@ data class RecognizedProduct(
  * 例: 「上の段には緑茶や麦茶、真ん中の段にはウーロン茶とハーブティー、下の段には果汁ジュースと炭酸飲料があります。」
  *
  * 場違いな商品（パン棚のチョコ菓子など）は言わない。周りの商品による補正（[ContextAdjust]）に加えて、
- * 棚全体で少数しかないジャンルの商品をここで外す。
+ * 歩行中の判別と同じ 7 分類（coarse の categories.json）で、棚の中で少ない分類の商品を [split] で外す。
  */
 object ShelfDescriber {
-    /** 棚全体でこの割合未満のジャンルは、場違いな商品として外す。 */
-    const val OUTLIER_SHARE = 0.15f
-    /** これより多くあるジャンルは、割合が小さくても外さない（本当に混ざった棚）。 */
-    const val OUTLIER_MAX_COUNT = 2
+    /** 棚の中でこの割合に届かない分類（7 分類）の商品は、場違いな商品として外す。 */
+    const val OUTLIER_SHARE = 0.25f
     /** 1 段で言う種類の数。 */
     const val TYPES_PER_ROW = 3
     const val MIN_PRODUCTS = 3
 
-    /** 場違いな商品を除いた一覧。 */
-    fun withoutOutliers(products: List<RecognizedProduct>): List<RecognizedProduct> {
-        val withGenre = products.filter { it.genre != null }
-        if (withGenre.size < 4) return products
-        val counts = withGenre.groupingBy { it.genre!! }.eachCount()
-        val dominant = counts.maxBy { it.value }.key
-        val odd = counts.filter { (g, c) -> g != dominant && c <= OUTLIER_MAX_COUNT && c < withGenre.size * OUTLIER_SHARE }.keys
-        return products.filterNot { it.genre in odd }
+    /** 商品のジャンル（26 種類）→ 7 分類。 */
+    class Groups(private val groupOf: Map<String, String>) {
+        fun of(p: RecognizedProduct): String? = p.genre?.let { groupOf[it] }
+
+        companion object {
+            /** coarse/categories.json（tools/coarse_categories.json と同じ）を読む。 */
+            fun parse(json: String): Groups {
+                val o = org.json.JSONObject(json)
+                val map = HashMap<String, String>()
+                for (group in o.keys()) {
+                    if (group.startsWith("_")) continue
+                    val a = o.getJSONArray(group)
+                    for (k in 0 until a.length()) map[a.getString(k)] = group
+                }
+                return Groups(map)
+            }
+        }
+    }
+
+    /** 残した商品と、場違いとして外した商品。[mainGroup] は棚の主な分類。 */
+    data class Split(val kept: List<RecognizedProduct>, val removed: List<RecognizedProduct>, val mainGroup: String?)
+
+    /**
+     * 場違いな商品を外す。棚の主な分類は、歩行中の判別が目の前の棚に付けた分類（[shelfGroup]）が商品にも十分あればそれ、
+     * なければいちばん多い分類。主な分類と、[OUTLIER_SHARE] 以上ある分類だけを残す。分類の分からない商品も外す。
+     */
+    fun split(products: List<RecognizedProduct>, groups: Groups, shelfGroup: String? = null): Split {
+        val withGroup = products.filter { groups.of(it) != null }
+        if (withGroup.isEmpty()) return Split(emptyList(), products, null)
+        val counts = withGroup.groupingBy { groups.of(it)!! }.eachCount()
+        val main = shelfGroup?.takeIf { (counts[it] ?: 0) >= MIN_PRODUCTS } ?: counts.maxBy { it.value }.key
+        val keep = counts.filter { (g, c) -> g == main || c >= withGroup.size * OUTLIER_SHARE }.keys
+        val (kept, removed) = products.partition { groups.of(it) in keep }
+        return Split(kept, removed, main)
     }
 
     /** 中心の高さで段に分ける（上から順）。段の切れ目は、商品の高さの中央値の半分より大きいすき間。 */
@@ -54,9 +78,8 @@ object ShelfDescriber {
         return out
     }
 
-    /** 説明の文。商品が少なすぎて分からないときは null。 */
-    fun describe(products: List<RecognizedProduct>): String? {
-        val kept = withoutOutliers(products)
+    /** 説明の文（場違いな商品は [split] で外してから渡す）。商品が少なすぎて分からないときは null。 */
+    fun describe(kept: List<RecognizedProduct>): String? {
         if (kept.size < MIN_PRODUCTS) return null
         val rows = rows(kept).map { typesOf(it) }.filter { it.isNotEmpty() }
         // 同じ種類が続く段はまとめる
