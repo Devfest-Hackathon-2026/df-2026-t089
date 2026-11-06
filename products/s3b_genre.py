@@ -1,4 +1,4 @@
-"""②c 命名済みの商品名にジャンル（棚の種類）を付ける。ジャンルは既存の棚認識アプリと同じ training_images/labels.csv の種類。
+"""②c 命名済みの商品名にジャンル（棚の種類）を付ける。ジャンルは既存の棚認識アプリと同じ app/src/main/assets/labels.txt の種類。
 画像は使わず、商品名のテキストだけを 200件ずつ Gemini に渡す（安い）。済んだものは飛ばす。
 
   .venv/Scripts/python products/s3b_genre.py
@@ -27,12 +27,8 @@ FINE = ["緑茶", "麦茶・ほうじ茶・その他のお茶", "紅茶", "コ�
 
 
 def genre_list():
-    cats = []
-    for line in (ROOT / "training_images" / "labels.csv").read_text(encoding="utf-8").splitlines()[1:]:
-        g = line.split(",", 1)[1].strip() if "," in line else ""
-        if g and g not in cats and g != "shelf":
-            cats.append(g)
-    return cats
+    # 棚認識アプリと同じ 26 種類（写真と一緒にある training_images/labels.csv は無いことがあるので、リポジトリにある方を読む）
+    return [g.strip() for g in (ROOT / "app/src/main/assets/labels.txt").read_text(encoding="utf-8").splitlines() if g.strip()]
 
 
 def ask(items, cats):

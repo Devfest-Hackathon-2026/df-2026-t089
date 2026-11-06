@@ -91,6 +91,18 @@ def main_gemini(n, workers=32):
     crops = {c["id"]: c for c in read_json(WORK / "crops.json", [])}
     groups = [g for g in read_json(WORK / "groups.json", {}).get("groups", []) if g["size"] >= 2]
     names = read_json(WORK / "names.json", {})
+    # 写真を足して命名済みのグループに入った新しい切り抜きには、そのグループの名前を写す（API は使わない）
+    copied = 0
+    for g in groups:
+        named = [names[m] for m in g["members"] if m in names]
+        if named:
+            src = next((e for e in named if e.get("source") == "manual"), named[0])
+            for m in g["members"]:
+                if m not in names:
+                    names[m], copied = src, copied + 1
+    if copied:
+        write_json(WORK / "names.json", names)
+        log("name", f"命名済みのグループに入った {copied} 枚に名前を写した")
     todo = [g for g in groups if not any(m in names for m in g["members"]) and g["rep"] in crops][:n]
     log("name", f"{GEMINI_MODEL} で {len(groups)} グループ中 未命名 {len(todo)} グループを命名（今回の上限 {n}）")
     ask = m_gemini(GEMINI_MODEL)
