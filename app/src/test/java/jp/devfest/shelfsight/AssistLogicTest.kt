@@ -11,8 +11,6 @@ import jp.devfest.shelfsight.assist.RecognizedProduct
 import jp.devfest.shelfsight.assist.Scene
 import jp.devfest.shelfsight.assist.SceneEvidence
 import jp.devfest.shelfsight.assist.SceneJudge
-import jp.devfest.shelfsight.assist.Shelf8
-import jp.devfest.shelfsight.assist.ShelfCategoryMap
 import jp.devfest.shelfsight.assist.ShelfDescriber
 import jp.devfest.shelfsight.assist.ShelfMemory
 import jp.devfest.shelfsight.assist.VisionProductParser
@@ -30,45 +28,38 @@ import java.nio.ByteOrder
 import kotlin.math.PI
 
 class AssistLogicTest {
-    // ---------------------------------------------------------------- ① 8 分類
-
-    private val labels = listOf("src/main/assets/labels.txt", "app/src/main/assets/labels.txt").map(::File).first { it.exists() }
-        .readLines().map { it.trim() }.filter { it.isNotEmpty() }
+    // ---------------------------------------------------------------- ① 列ごとのカテゴリ → 棚
 
     @Test
-    fun `every shelf type in labels_txt belongs to exactly one of the 8 categories`() {
-        assertEquals(8, Shelf8.entries.size)
-        ShelfCategoryMap(labels) // 入っていない種類があれば例外
-        for (l in labels) assertEquals(l, 1, Shelf8.entries.count { l in it.members })
+    fun `runs of the same column category become shelves and no-product columns are dropped`() {
+        val cols = listOf("飲み物・お酒", "飲み物・お酒", "商品なし", "日用品・雑貨", "日用品・雑貨", "日用品・雑貨", "お菓子・おつまみ", "お菓子・おつまみ")
+        val conf = floatArrayOf(0.9f, 0.7f, 0.8f, 0.6f, 0.6f, 0.9f, 0.5f, 0.7f)
+        val shelves = ShelfMemory.shelves(cols, conf)
+        assertEquals(listOf("飲み物・お酒", "日用品・雑貨", "お菓子・おつまみ"), shelves.map { it.category })
+        assertEquals(0f, shelves[0].left, 1e-6f)
+        assertEquals(0.25f, shelves[0].right, 1e-6f)
+        assertEquals(0.375f, shelves[1].left, 1e-6f)
+        assertEquals(0.75f, shelves[1].right, 1e-6f)
+        assertEquals(0.8f, shelves[0].confidence, 1e-6f)
+        assertEquals("飲み物とお酒", shelves[0].spoken)
+        assertTrue(ShelfMemory.shelves(List(8) { ShelfMemory.NO_PRODUCT }, FloatArray(8) { 1f }).isEmpty())
     }
 
     @Test
-    fun `8 category probability is the max of its members and low scores are unknown`() {
-        val map = ShelfCategoryMap(labels)
-        val p = FloatArray(labels.size)
-        p[labels.indexOf("酒")] = 0.3f
-        p[labels.indexOf("ソフトドリンク")] = 0.5f
-        p[labels.indexOf("紙パック飲料・乳製品")] = 0.4f
-        assertEquals(Shelf8.DRINK, map.best(p)!!.first)
-        assertEquals(0.5f, map.probabilities(p)[Shelf8.DRINK.ordinal], 1e-6f)
-        assertNull(map.best(FloatArray(labels.size) { 0.05f }))
-    }
-
-    @Test
-    fun `neighbouring segments of the same category are merged`() {
-        val a = PlacedShelf(Shelf8.SNACK, 0.6f, 0f, 0.4f, Vec3(0f, 0f, -1f))
-        val b = PlacedShelf(Shelf8.SNACK, 0.7f, 0.4f, 0.7f, Vec3(1f, 0f, -1f))
-        val c = PlacedShelf(Shelf8.DRINK, 0.7f, 0.7f, 1f, Vec3(2f, 0f, -1f))
-        val merged = ShelfMemory.mergeNeighbors(listOf(c, b, a))
-        assertEquals(listOf(Shelf8.SNACK, Shelf8.DRINK), merged.map { it.category })
-        assertEquals(0.7f, merged[0].right, 1e-6f)
-        assertEquals(0.5f, merged[0].position.x, 1e-6f)
+    fun `the walking classifier head has the 7 categories over 8 columns`() {
+        val dir = listOf("src/main/assets/coarse", "app/src/main/assets/coarse").map(::File).first { it.exists() }
+        for (f in dir.listFiles { x -> x.name.endsWith(".head.json") }!!) {
+            val head = jp.devfest.shelfsight.walking.CoarseHead.parse(f.readText())
+            assertEquals(f.name, 7, head.classes.size)
+            assertEquals(f.name, 8, head.columns)
+            assertTrue(ShelfMemory.NO_PRODUCT in head.classes)
+        }
     }
 
     @Test
     fun `the same shelf at the same place is announced once`() {
         val m = ShelfMemory()
-        val s = PlacedShelf(Shelf8.FROZEN, 0.6f, 0f, 1f, Vec3(0f, 0f, -2f))
+        val s = PlacedShelf("冷凍・アイス", 0.6f, 0f, 1f, Vec3(0f, 0f, -2f))
         assertTrue(m.isNew(s, 0))
         m.remember(s, 0)
         assertFalse(m.isNew(s.copy(position = Vec3(0.5f, 0f, -2f)), 1000))

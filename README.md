@@ -12,7 +12,7 @@
 
 | 場面 | すること | 使うもの |
 |---|---|---|
-| ① 棚が複数写っている | 棚の境界で区切り、それぞれを 8 分類して、**棚のある方向から**棚の種類を読み上げる。同じ場所の同じ棚は 1 分間繰り返さない | `shelf_boundary.tflite` / `shelf_classifier.tflite`（Store3D）、26 種類 → 8 分類（`Shelf8`） |
+| ① 棚が複数写っている | 画面を 8 列に分けて列ごとにカテゴリを判別し、カテゴリが変わる所を棚の境界とする。それぞれの棚の種類を、**棚のある方向から**読み上げる。同じ場所の同じ棚は 1 分間繰り返さない | 歩行中の判別（`CoarseClassifier`、MobileCLIP2-S0 ＋ `coarse/MobileCLIP2-S0.head.json` の 7 分類）をそのまま使う |
 | ② 棚が 1 つ写っている | 商品を認識して「上の段には緑茶や麦茶、下の段には…があります」と話す。**場違いな商品（パン棚のチョコ菓子など）は言わない** | 商品認識ダッシュボード（`products/`）の YOLO・埋め込み・照合先、周りの商品による補正（`ContextAdjust`）、少数ジャンルの除外（`ShelfDescriber`） |
 | ③ 商品が 1 つ大きく写っている | **長押し**で「調べています」と言い、Cloud Vision API（Web 検索・ロゴ・文字）で調べて社名と商品名を言う。1 回の接近につき API は 1 回だけ呼ぶ | `ProductLookup`、`VisionProductParser` |
 | ④ 人が近づいてくる | その人の方向からピコピコ鳴らす（近いほど速く） | MediaPipe の人検出、`PersonTracker` |
@@ -20,14 +20,15 @@
 - 写っているものは `SceneJudge` が決めます（2 回続けて同じ判定になったら切り替え）
 - 立体音響は `SpatialMixer` / `Binaural`（左右の時間差・音量差・頭の陰、後ろはこもらせる）。ARCore の向きで毎ブロック計算し直すので、スマホを回しても音は店の中の同じ場所にとどまります
 - 声は端末の音声合成（日本語）、聞き取りは端末の音声認識です。**タップ**で話しかけられます（「何がある？」「これは何？」「何の棚？」「止めて」「再開」「もう一度」「使い方」）。TalkBack が有効なら、ダブルタップとダブルタップ長押しです
-- 8 分類: 飲み物 / お酒 / 冷凍食品とアイス / お弁当とお惣菜 / パンとデザート / お菓子 / カップ麺と食品 / 日用品
-- 精度の目安（仮の正解ラベルによるテスト 197 区間）: 棚の種類は 26 種類で 23%、8 分類で 43%。商品認識の検出は val mAP50 0.62
+- 棚の分類（7 分類）: 飲み物・お酒 / 冷凍・アイス / 弁当・パン / お菓子・おつまみ / 食品 / 日用品・雑貨 / 商品なし（「商品なし」の列は棚として言わない）
+- 商品認識の検出の精度は val mAP50 0.62
 
 #### 準備
 
 1. `local.properties` に Cloud Vision API のキーを書く（`CLOUD_VISION_API_KEY=...` か `GCP_API_KEY=...`）。なければ ③ だけ使えません
-2. 商品認識のモデルを書き出す（商品認識ダッシュボードで学習し直したとき）: `python tools/export_products.py --work products/work`
-3. `./gradlew :app:installDebug`（JDK 17 以上）。カメラとマイクを許可します
+2. 歩行中の判別の画像エンコーダを書き出す（重みが Apple の研究用ライセンスなのでリポジトリに含めていない）: `tools/coarse_export_encoder.py` の説明どおりに環境を作り、`python tools/coarse_export_encoder.py MobileCLIP2-S0`。`app/src/main/assets/coarse/MobileCLIP2-S0.onnx` ができる。なければ ① だけ使えません
+3. 商品認識のモデルを書き出す（商品認識ダッシュボードで学習し直したとき）: `python tools/export_products.py --work products/work`
+4. `./gradlew :app:installDebug`（JDK 17 以上）。カメラとマイクを許可します
 
 地図づくり（下記）と Store3D の画面は開発用として残してあり、ランチャーには出ません。
 

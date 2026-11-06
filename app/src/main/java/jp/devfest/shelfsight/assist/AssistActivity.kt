@@ -20,7 +20,6 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.TextView
-import com.example.store3d.Analyzer
 import com.example.store3d.CameraBackground
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.CameraConfigFilter
@@ -40,6 +39,7 @@ import jp.devfest.shelfsight.perception.PersonDistance
 import jp.devfest.shelfsight.perception.PersonMotion
 import jp.devfest.shelfsight.perception.PersonObservation
 import jp.devfest.shelfsight.perception.PersonTracker
+import jp.devfest.shelfsight.walking.CoarseClassifier
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.microedition.khronos.egl.EGLConfig
@@ -49,7 +49,8 @@ import kotlin.math.sqrt
 /**
  * 視覚障害のある人のための、コンビニの棚と商品の案内。胸の前にスマホを立てて持ち、イヤホンで聞く。
  *
- * ① 棚が複数写っている: 棚の境界で区切り、それぞれを 8 分類して、棚のある方向から棚の種類を読み上げる
+ * ① 棚が複数写っている: 歩行中の判別（画面を 8 列に分け、列ごとに 7 分類）で、カテゴリが変わる所を棚の境界とし、
+ *    それぞれの棚の方向から棚の種類を読み上げる
  * ② 棚が 1 つ写っている: 商品を認識し、段ごとに何があるかを話す（場違いな商品は言わない）
  * ③ 商品が 1 つ大きく写っている: 長押しで Cloud Vision API に聞き、社名と商品名を言う（1 回の接近で 1 回だけ呼ぶ）
  * ④ 人が近づいてくる: その人の方向からピコピコ鳴らす
@@ -79,8 +80,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private val personBusy = AtomicBoolean(false)
     @Volatile private var lookupRequested = false
 
-    private val analyzer by lazy { Analyzer(this) }
-    private val shelfMap by lazy { ShelfCategoryMap(analyzer.labels) }
+    /** 歩行中の判別のモデル。大きいのでリポジトリに含めておらず、入っていないビルドでは null（① だけが止まる）。 */
+    private val coarse by lazy { CoarseClassifier.fromAssets(this, BuildConfig.COARSE_MODEL) }
     private val recognizer by lazy { ProductRecognizer(this) }
     private val personDetector by lazy { MediaPipePersonDetector(this) }
     private val tracker = PersonTracker()
@@ -166,6 +167,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         gl.onResume()
         if (!greeted) {
             greeted = true
+            sceneWorker.execute { if (coarse == null) Log.w(TAG, "coarse/${BuildConfig.COARSE_MODEL}.onnx is missing: shelf categories are off") }
             voice.say("準備ができました。画面をタップすると話しかけられます。長押しで、商品を調べます。")
         }
     }
@@ -251,11 +253,9 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val image = JpegEncoder.toUprightBitmap(f, SCENE_LONG_SIDE)
         try {
             val now = SystemClock.elapsedRealtime()
-            val shelves = analyzer.segments(image).mapNotNull { seg ->
-                val (cat, p) = shelfMap.best(seg.probs) ?: return@mapNotNull null
-                val pos = Unprojector.unproject(NormalizedBox(seg.left, 0.3f, seg.right, 0.7f), f.geometry).position
-                PlacedShelf(cat, p, seg.left, seg.right, pos)
-            }.let(ShelfMemory::mergeNeighbors)
+            val shelves = coarse?.classify(image)?.let { r -> ShelfMemory.shelves(r.columns, r.confidence) }.orEmpty().map { s ->
+                s.copy(position = Unprojector.unproject(NormalizedBox(s.left, 0.3f, s.right, 0.7f), f.geometry).position)
+            }
             val boxes = recognizer.detect(image).map { it.first }
             val switched = judge.update(SceneEvidence(shelves.size, boxes))
             val main = SceneJudge.mainProduct(boxes)
@@ -294,7 +294,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                 }
             }
             runOnUiThread {
-                status.text = "場面: ${judge.scene}  棚: ${shelves.joinToString(" | ") { it.category.spoken }}  商品の枠: ${boxes.size}"
+                status.text = "場面: ${judge.scene}  棚: ${shelves.joinToString(" | ") { it.category }}  商品の枠: ${boxes.size}"
             }
         } catch (e: RuntimeException) {
             Log.e(TAG, "scene analysis failed", e)
@@ -315,7 +315,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         toSay.sortedBy { it.left }.forEachIndexed { i, s ->
             shelfMemory.remember(s, now)
             val pos = s.position
-            voice.say(s.category.spoken, position = { pos }, interrupt = requested && i == 0)
+            voice.say(s.spoken, position = { pos }, interrupt = requested && i == 0)
         }
     }
 

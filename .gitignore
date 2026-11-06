@@ -62,3 +62,4 @@ app/src/main/assets/coarse/*.onnx
 
 # 商品認識の作業データ（店内写真の切り抜き・API の生の結果を含むので公開しない）
 products/work/
+tools/.venv-clip/
