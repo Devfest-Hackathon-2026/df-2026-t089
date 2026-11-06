@@ -12,7 +12,7 @@ import time, unicodedata, zlib
 
 import numpy as np
 
-from common import WORK, log, read_json, run_stage, status, write_json
+from common import WORK, category_levels, crop_labels, log, read_json, run_stage, status, write_json
 
 RERANK_K = 10  # 再順位付けの候補数
 THRESHOLDS = [0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95]
@@ -78,7 +78,8 @@ def evaluate(name, S, ms, labels, is_test, ids, shown):
 
 
 # 周辺カテゴリ補正の強さ（粗いジャンル λ, 細分類 λ）の組み合わせ
-COMBOS = [(0.1, 0.0), (0.0, 0.05), (0.0, 0.1), (0.05, 0.05), (0.1, 0.05), (0.1, 0.1), (0.05, 0.1)]
+# 周辺補正の強さ（粗いジャンル, 細分類, カテゴリそのもの）の組み合わせ
+COMBOS = [(g, f, c) for g in (0.0, 0.05, 0.1, 0.2, 0.4) for f in (0.0, 0.05, 0.1, 0.2, 0.4) for c in (0.0, 0.05, 0.1, 0.2)]
 
 
 def mnv3():
@@ -102,7 +103,7 @@ def mnv3_all(mn):
     return ids, np.stack([mn[k] for k in ids])
 
 
-def with_context(name, combos, base, all_ids, A, ids, labels, tr, te, stem, genre_of, fine_of):
+def with_context(name, combos, base, all_ids, A, ids, labels, tr, te, stem, genre_of, fine_of, cat_of):
     """テスト用の切り抜きがある写真ごとに、写真内の合格（緑）の全切り抜きの候補を出し（1回だけ）、
     周辺カテゴリ（粗いジャンル・細分類）の補正の強さの組み合わせごとに選び直して正解率を測る"""
     from context import adjust
@@ -140,7 +141,7 @@ def with_context(name, combos, base, all_ids, A, ids, labels, tr, te, stem, genr
         eval_idx = [k for k, c in enumerate(members) if c in truth and truth[c] in train_labels]
         known += len(eval_idx)
         for combo in combos:
-            new = adjust(centers, cands, [(genre_of, combo[0]), (fine_of, combo[1])])
+            new = adjust(centers, cands, [(genre_of, combo[0]), (fine_of, combo[1]), (cat_of, combo[2])])
             for k in eval_idx:
                 t = truth[members[k]]
                 before, after = cands[k][0][0] == t, new[k][0] == t
@@ -148,23 +149,21 @@ def with_context(name, combos, base, all_ids, A, ids, labels, tr, te, stem, genr
                 stat[combo][1] += after and not before
                 stat[combo][2] += before and not after
     out = []
-    for (lg, lf), (correct, fixed, broken) in stat.items():
+    for (lg, lf, lc), (correct, fixed, broken) in stat.items():
         top1 = correct / max(known, 1)
-        nm = f"{name} ＋周辺補正 ジャンルλ={lg} 細分類λ={lf}"
+        nm = f"{name} ＋周辺補正 ジャンルλ={lg} 細分類λ={lf} カテゴリλ={lc}"
         log("classify", f"{nm}: Top-1 {top1:.3f}（直った {fixed} / 悪化 {broken}）")
         out.append({"name": nm, "top1": round(top1, 3), "top5": None, "known": known, "unknown": base["unknown"],
                     "gallery": base["gallery"], "ms_per_query": base["ms_per_query"], "fixed": fixed, "broken": broken,
-                    "lambda_genre": lg, "lambda_fine": lf, "sweep": [], "examples": [], "shown": {}})
+                    "lambda_genre": lg, "lambda_fine": lf, "lambda_cat": lc, "sweep": [], "examples": [], "shown": {}})
     return out
 
 
 def main():
-    names = read_json(WORK / "names.json", {})
     groups = read_json(WORK / "groups.json", {}).get("of", {})
-    named = {cid: norm(v.get("maker", "") + v.get("product", "")) for cid, v in names.items()
-             if (v.get("maker") or v.get("product")) and v.get("vision") != "bad"}
-    disp = {norm(v.get("maker", "") + v.get("product", "")): f'{v.get("maker", "")} {v.get("product", "")}'.strip() for v in names.values()}
-    # 商品ごとの枚数（MobileNet 等の分類器を学習できるだけあるかの目安）
+    named = crop_labels()  # 正解 = 商品カテゴリ（②d）
+    disp = {}
+    # カテゴリごとの枚数（MobileNet 等の分類器を学習できるだけあるかの目安）
     per = {}
     for lab in named.values():
         per[lab] = per.get(lab, 0) + 1
@@ -213,11 +212,11 @@ def main():
         results.append(evaluate(nm, S, ms, labels, test, ids, shown))
         status("classify", done=k + 1, total=len(ways))
     # 周辺カテゴリ補正（同じ写真の周りの商品の予想カテゴリで、候補を選び直す）。推論で使う埋め込みに対して比べる
-    genre_of, fine_of = read_json(WORK / "genres.json", {}), read_json(WORK / "fine.json", {})
+    genre_of, fine_of = category_levels()
     if genre_of or fine_of:
         nm, (all_ids, A) = ("MobileNetV3-small（学習, 128px）", mnv3_all(mn)) if mn else ("MobileCLIP-S0（アプリと同じ）", clip_all())
         base = next(r for r in results if r["name"] == nm)
-        results += with_context(nm, COMBOS, base, all_ids, A, ids, labels, tr, te, stem, genre_of, fine_of)
+        results += with_context(nm, COMBOS, base, all_ids, A, ids, labels, tr, te, stem, genre_of, fine_of, {c: c for c in set(labels)})
     write_json(WORK / "classify.json", {
         "method": "最近傍（コサイン類似度）", "split": "グループ単位で 1/5 をテスト・同じ写真の照合先は使わない",
         "genres": len(set(genre_of.values())), "genre_labeled": len(genre_of), "fines": len(set(fine_of.values())),

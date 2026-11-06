@@ -13,9 +13,8 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
-from common import TEST_DIR, TRAIN_DIR, WORK, config, load_image, log, read_json, run_stage, status, write_json
+from common import TEST_DIR, TRAIN_DIR, WORK, category_levels, config, crop_labels, load_image, log, read_json, run_stage, status, write_json
 from context import adjust
-from s5_classify import norm
 
 WORK_SIZE = 1280   # 処理用に縮める長辺（検出 640px・切り抜き 128px にはこれで十分）
 MATCH_SIM = 0.5     # 補正前の類似度がこれ未満なら「照合先に無い商品」として名前を付けない
@@ -37,8 +36,7 @@ class ProductRecognizer:
         self.conf, self.iou, self.lam = conf, iou, lam
         cfg = config()
         self.min_w, self.min_h = cfg["min_crop_w"], cfg["min_crop_h"]
-        names = read_json(WORK / "names.json", {})
-        good = {c: v for c, v in names.items() if (v.get("maker") or v.get("product")) and v.get("vision") != "bad"}
+        good = crop_labels()  # 照合先 = カテゴリ付きの切り抜き。当てるのは商品カテゴリ（②d）
         if (WORK / "embed_mnv3.onnx").exists() and (WORK / "emb_mnv3.npz").exists():
             from s4b_embed import square
             self.emb_name, self.size = "MobileNetV3-small 128px（学習）", 128
@@ -55,7 +53,7 @@ class ProductRecognizer:
             self.run_emb = lambda x: (lambda v: v / np.linalg.norm(v, axis=1, keepdims=True))(e.s.run(None, {e.inp: x})[0])
             ids, E = read_json(WORK / "emb_ids.json", []), np.load(WORK / "emb_all.npy")
         keep = [k for k, c in enumerate(ids) if c in good]
-        glab = [norm(good[ids[k]].get("maker", "") + good[ids[k]].get("product", "")) for k in keep]
+        glab = [good[ids[k]] for k in keep]
         # 照合先を商品ごとに並べ、「商品ごとの最大類似度」を reduceat で一度に出せるようにする
         order = np.argsort(glab, kind="stable")
         G = E[keep][order]
@@ -63,9 +61,8 @@ class ProductRecognizer:
         self.glab = [glab[i] for i in order]
         products, self.starts = np.unique(self.glab, return_index=True)
         self.products = products.tolist()  # NumPy の文字列のままだと辞書の検索が遅い
-        self.show = {norm(v.get("maker", "") + v.get("product", "")): f'{v.get("maker", "")} {v.get("product", "")}'.strip() for v in good.values()}
-        self.genre_of = read_json(WORK / "genres.json", {})
-        self.fine_of = read_json(WORK / "fine.json", {})
+        self.show = {}
+        self.genre_of, self.fine_of = category_levels()
 
     def detect(self, a: np.ndarray):
         """レターボックスで正方形に → YOLO → 信頼度とNMSで絞る。枠は 0..1 の [x0,y0,x1,y1]"""
@@ -133,7 +130,7 @@ def main():
         targets = [("x", Path(p)) for p in a.images]
     else:
         stems = set(read_json(WORK / "yolo" / "split.json", {"val": []})["val"])
-        targets = [("test", p) for p in sorted(TEST_DIR.iterdir()) if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}]
+        targets = [("test", p) for p in (sorted(TEST_DIR.iterdir()) if TEST_DIR.exists() else []) if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}]
         targets += [("val", p) for p in sorted(TRAIN_DIR.iterdir()) if p.stem in stems]
     for sub in ("infer", "view_infer"):
         (WORK / sub).mkdir(exist_ok=True)

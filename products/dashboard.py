@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from common import WORK, config, read_json, write_json
+from common import TAXONOMY, WORK, category_levels, category_of, config, read_json, write_json
 
 HERE = Path(__file__).resolve().parent
 PY = sys.executable  # venv の Python で起動すれば、ボタンから走らせるスクリプトも同じ環境で動く
@@ -18,6 +18,7 @@ SCRIPTS = {"detect_gpu": [MODAL, "run", str(HERE / "s1_gpu.py")],
            "group": [PY, str(HERE / "s2_group.py")], "group_gpu": [PY, str(HERE / "s2_group.py"), "--modal"],
            "regroup": [PY, str(HERE / "s2_group.py"), "--only-group"], "name": [PY, str(HERE / "s3_name.py")],
            "compare": [PY, str(HERE / "s3_compare.py")], "classify": [PY, str(HERE / "s5_classify.py")],
+           "category": [PY, str(HERE / "s3c_category.py")], "embed": [PY, str(HERE / "s4b_embed.py")], "infer": [PY, str(HERE / "infer.py")],
            "train_gpu": [PY, str(HERE / "s4_train.py"), "--modal", "--model", "yolo11s.pt", "--epochs", "80", "--batch", "16"]}
 CMP = WORK / "naming_compare"
 
@@ -87,6 +88,41 @@ def groups_view():
                                           "multi": len(multi), "single": len(single),
                                           "grouped": sum(len(m) for m, _ in multi)})
         return _gcache["data"]
+
+
+_ccache: dict = {"key": None, "data": None}
+
+
+def categories_view():
+    """②d 商品カテゴリごとの商品（名前・枚数・切り抜きの例・手で直したか）。カテゴリ無しの商品は "" にまとめる"""
+    from s5_classify import norm
+    files = [WORK / "names.json", WORK / "category.json", WORK / "category_override.json", TAXONOMY, WORK / "label_exclude.json"]
+    key = tuple(f.stat().st_mtime if f.exists() else 0 for f in files)
+    with _lock:
+        if _ccache["key"] != key:
+            cat, manual = category_of(), read_json(WORK / "category_override.json", {})
+            excluded = set(read_json(WORK / "label_exclude.json", []))
+            prods, every = {}, {}
+            for cid, v in read_json(WORK / "names.json", {}).items():
+                if (v.get("maker") or v.get("product")) and v.get("vision") != "bad":
+                    k = norm(v.get("maker", "") + v.get("product", ""))
+                    p = prods.setdefault(k, {"key": k, "name": f'{v.get("maker", "")} {v.get("product", "")}'.strip(), "n": 0, "crops": []})
+                    every.setdefault(k, []).append([cid, cid in excluded])
+                    if cid in excluded:
+                        continue
+                    p["n"] += 1
+                    if len(p["crops"]) < 3:
+                        p["crops"].append(cid)
+            by = {}
+            for k, p in prods.items():
+                by.setdefault(cat.get(k, ""), []).append({**p, "manual": k in manual})
+            fine = category_levels()[1]
+            out = [{"cat": c, "fine": fine.get(c, ""), "crops": sum(p["n"] for p in ps), "products": sorted(ps, key=lambda p: -p["n"])}
+                   for c, ps in by.items()]
+            _ccache.update(key=key, data={"categories": sorted(out, key=lambda x: (x["cat"] != "", x["fine"], -x["crops"])),
+                                          "keys": set(prods), "every": every,
+                                          "all": sorted({c for cs in read_json(TAXONOMY, {}).values() for c in cs} | set(cat.values()))})
+        return _ccache["data"]
 
 
 def summary(rows):
@@ -162,6 +198,36 @@ def post(path, body):
             else:
                 n.pop(cid, None)
             write_json(WORK / "names.json", n)
+    elif path == "/api/category":  # ②d 商品カテゴリを手で直す（空なら手直しを取り消して Gemini の振り分けに戻す）
+        k, c = body.get("key"), body.get("category")
+        if not isinstance(k, str) or not isinstance(c, str) or len(c) > 40 or k not in categories_view()["keys"]:
+            raise ValueError("bad category")
+        with _lock:
+            o = read_json(WORK / "category_override.json", {})
+            if c.strip():
+                o[k] = c.strip()
+            else:
+                o.pop(k, None)
+            write_json(WORK / "category_override.json", o)
+    elif path == "/api/exclude":  # 教師データの確認: この切り抜きを学習から外す / 戻す
+        cid = body.get("id")
+        if not isinstance(cid, str) or cid not in read_json(WORK / "names.json", {}):
+            raise ValueError("bad exclude")
+        with _lock:
+            s = set(read_json(WORK / "label_exclude.json", []))
+            s ^= {cid}
+            write_json(WORK / "label_exclude.json", sorted(s))
+    elif path == "/api/category_review":  # 教師データの確認: カテゴリを確認済みにする / 戻す
+        c, ok = body.get("category"), body.get("ok")
+        if not isinstance(c, str) or not isinstance(ok, bool) or c not in categories_view()["all"]:
+            raise ValueError("bad review")
+        with _lock:
+            r = read_json(WORK / "category_review.json", {})
+            if ok:
+                r[c] = time.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                r.pop(c, None)
+            write_json(WORK / "category_review.json", r)
     elif path == "/api/compare_eval":
         cid, meth, v = body.get("id"), body.get("method"), body.get("v")
         if not isinstance(cid, str) or meth not in {f.stem for f in CMP.glob("*.json")} - {"sample", "eval"} or v not in (1, 0, None):
@@ -197,6 +263,15 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, (HERE / "dashboard.html").read_bytes(), TYPES[".html"])
         if path == "/api/compare":
             return self.send(200, json.dumps(compare_view(), ensure_ascii=False).encode(), TYPES[".json"])
+        if path.startswith("/api/category_crops/"):  # 教師データの確認: そのカテゴリの全切り抜き（商品ごと、外したものも）
+            c, v = path[20:], categories_view()
+            ps = next((x["products"] for x in v["categories"] if x["cat"] == c), [])
+            out = [{"key": p["key"], "name": p["name"], "manual": p["manual"], "crops": v["every"].get(p["key"], [])} for p in ps]
+            return self.send(200, json.dumps(out, ensure_ascii=False).encode(), TYPES[".json"])
+        if path == "/api/categories":
+            v = {k: x for k, x in categories_view().items() if k not in ("keys", "every")}
+            v["review"] = read_json(WORK / "category_review.json", {})
+            return self.send(200, json.dumps(v, ensure_ascii=False).encode(), TYPES[".json"])
         if path == "/api/groups":
             return self.send(200, json.dumps(groups_view(), ensure_ascii=False).encode(), TYPES[".json"])
         if path == "/api/products":

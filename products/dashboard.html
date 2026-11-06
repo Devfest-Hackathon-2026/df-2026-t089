@@ -47,6 +47,9 @@ main button { font:inherit; padding:4px 10px; border-radius:6px; border:1px soli
 .ggrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(56px, 1fr)); gap:3px; }
 .gcell { position:relative; aspect-ratio:1; background:var(--card); border:1px solid var(--line); border-radius:4px; cursor:pointer; overflow:hidden; }
 .gcell img { width:100%; height:100%; object-fit:contain; display:block; }
+.rcell { position:relative; display:inline-block; cursor:pointer; border:2px solid transparent; border-radius:4px; }
+.rcell img { height:88px; display:block; border-radius:3px; } .rcell.x { border-color:#d33; } .rcell.x img { opacity:.3; }
+.rcell.x::after { content:"×"; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:40px; color:#d33; font-weight:700; }
 .gcell .gn { position:absolute; right:1px; bottom:1px; font-size:10px; line-height:1; padding:2px 3px; border-radius:3px; background:var(--acc); color:#fff; }
 .gthumbs { display:flex; gap:3px; overflow-x:auto; max-width:100%; } .gthumbs img { height:64px; border-radius:3px; flex:none; }
 .row { display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
@@ -58,8 +61,8 @@ main button { font:inherit; padding:4px 10px; border-radius:6px; border:1px soli
 <div id="runbar"></div>
 <main id="main"></main>
 <script>
-const TABS = { overview:"概要", detect:"① 切り出し", products:"② 商品テーブル", groups:"②b グループ", naming:"②c 命名", train:"③ YOLO境界検出の学習", classify:"③b 商品分類の学習", infer:"④ 推論・評価" };
-const STAGES = { classify:"③b 商品分類の評価", compare:"②c 命名方法の比較", detect:"① 商品枠の検出 (OWLv2)", regroup:"②b しきい値の反映", crops:"② 切り抜き＋ルール判定", judge:"② ローカルモデル判定", group:"② 同じ商品のグループ化 (DINOv2)", name:"②c 商品名付け (Gemini)", train:"③ YOLO境界検出の学習", infer:"④ 推論・評価" };
+const TABS = { overview:"概要", detect:"① 切り出し", products:"② 商品テーブル", groups:"②b グループ", naming:"②c 命名", category:"②d カテゴリ", train:"③ YOLO境界検出の学習", classify:"③b 商品分類の学習", infer:"④ 推論・評価" };
+const STAGES = { category:"②d 商品カテゴリ付け (Gemini)", embed:"③b 埋め込みの学習 (Modal GPU)", classify:"③b 商品分類の評価", compare:"②c 命名方法の比較", detect:"① 商品枠の検出 (OWLv2)", regroup:"②b しきい値の反映", crops:"② 切り抜き＋ルール判定", judge:"② ローカルモデル判定", group:"② 同じ商品のグループ化 (DINOv2)", name:"②c 商品名付け (Gemini)", train:"③ YOLO境界検出の学習", infer:"④ 推論・評価" };
 let S = null, tab = location.hash.slice(1) || "overview", selDet = null, selInf = null;
 const $ = (h) => { const t = document.createElement("template"); t.innerHTML = h.trim(); return t.content.firstChild; };
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
@@ -80,9 +83,9 @@ async function refresh() {
 // 入力中の欄や選択中の画像を壊さないよう、操作系タブは自動更新では作り直さない
 function render(force) {
   const m = document.getElementById("main");
-  if (!force && ["detect", "products", "groups", "naming", "classify", "infer"].includes(tab) && m.dataset.tab == tab) return;
+  if (!force && ["detect", "products", "groups", "naming", "category", "classify", "infer"].includes(tab) && m.dataset.tab == tab) return;
   m.dataset.tab = tab; m.innerHTML = "";
-  ({ overview, detect, products, groups, naming, train, classify, infer })[tab](m);
+  ({ overview, detect, products, groups, naming, category, train, classify, infer })[tab](m);
 }
 
 // 今動いている段階・進捗・残り時間・終了予定。残りは「今のフェーズの開始からのペース」で見積もる
@@ -347,19 +350,107 @@ async function naming(m) {
   m.append(t);
 }
 
-// ③b 商品分類: 命名済みの切り抜きで、最近傍（一番似ている学習用の切り抜きの名前）の正解率を測る
+// ②d 商品カテゴリ: 商品名を約300のカテゴリにまとめた結果を見て、間違いを手で直す（work/category_override.json）
+let catQ = "", catMode = "review", revCat = null;
+async function category(m) {
+  const run = (k) => S.running.includes(k) || S.status[k]?.state == "running";
+  const modes = $(`<div class="card row"><span class="chips"><button class="chip ${catMode == "review" ? "on" : ""}" data-m="review">教師データの確認（カテゴリごとに全切り抜き）</button>
+    <button class="chip ${catMode == "table" ? "on" : ""}" data-m="table">一覧（商品ごとにカテゴリを直す）</button></span></div>`);
+  modes.querySelectorAll("[data-m]").forEach(b => b.onclick = () => { catMode = b.dataset.m; render(true); });
+  m.append(modes);
+  if (catMode == "review") return categoryReview(m);
+  const top = $(`<div class="card row"><button data-run="category" ${run("category") ? "disabled" : ""}>まだのものにカテゴリを付ける (Gemini)</button>
+    <input id="cq" placeholder="カテゴリ・商品名で絞り込み" style="width:240px">
+    <span class="mute">学習・評価・アプリが当てるのはこのカテゴリ。直したら ③b で埋め込みを学習し直す</span></div>`);
+  top.querySelector("#cq").value = catQ;
+  top.querySelector("[data-run]").onclick = () => post("/api/run", { script: "category" }).then(() => render(true));
+  top.querySelector("#cq").onchange = (e) => { catQ = e.target.value; render(true); };
+  m.append(top);
+  const V = await (await fetch("/api/categories")).json();
+  m.append($(`<datalist id="catlist">${V.all.map(c => `<option value="${esc(c)}">`).join("")}</datalist>`));
+  const none = V.categories.find(c => !c.cat)?.products.length || 0;
+  m.append($(`<div class="card"><b>${V.categories.filter(c => c.cat).length}</b> カテゴリ · ${V.categories.reduce((a, c) => a + c.products.length, 0)} 商品 ·
+    カテゴリ無し ${none} 商品（学習に使わない）。<span class="mute">欄を書き換えると手直しとして保存（空にすると Gemini の振り分けに戻す）。「手」は手直し済み</span></div>`));
+  const t = $(`<div class="card" style="padding:0"><table><tr><th>細分類</th><th>カテゴリ</th><th class="num">枚数</th><th>商品（枚数）とカテゴリ</th></tr></table></div>`);
+  const q = catQ.toLowerCase();
+  for (const c of V.categories) {
+    const ps = q && !c.cat.toLowerCase().includes(q) ? c.products.filter(p => p.name.toLowerCase().includes(q)) : c.products;
+    if (!ps.length) continue;
+    const tr = $(`<tr><td class="mute">${esc(c.fine)}</td><td><b>${c.cat ? esc(c.cat) : '<span class="bad">（無し）</span>'}</b></td><td class="num">${c.crops}</td><td></td></tr>`);
+    for (const p of ps.slice(0, q ? 500 : 20)) {
+      const d = $(`<div class="row" style="gap:6px;margin:2px 0"><span class="crops">${p.crops.map(id => `<img loading="lazy" src="/work/crops/${id}.jpg" style="height:40px">`).join("")}</span>
+        <span style="min-width:240px">${esc(p.name)} (${p.n})${p.manual ? ' <span class="mute">手</span>' : ""}</span>
+        <input list="catlist" style="width:200px"></div>`);
+      const inp = d.querySelector("input");
+      inp.value = c.cat;
+      inp.onchange = () => post("/api/category", { key: p.key, category: inp.value }).then(() => render(true));
+      tr.lastChild.append(d);
+    }
+    if (!q && ps.length > 20) tr.lastChild.append($(`<div class="mute">ほか ${ps.length - 20} 商品（絞り込みで全部表示）</div>`));
+    t.querySelector("table").append(tr);
+  }
+  m.append(t);
+}
+
+// 教師データの確認: 左でカテゴリを選ぶと、そのカテゴリとして学習する切り抜きを全部出す。
+// 違う切り抜きはクリックで学習から外す（work/label_exclude.json）。商品ごと違うなら、その商品のカテゴリを直す（category_override.json）
+async function categoryReview(m) {
+  const V = await (await fetch("/api/categories")).json();
+  const cats = V.categories.filter(c => c.cat), done = cats.filter(c => V.review[c.cat]).length;
+  if (!revCat || !cats.some(c => c.cat == revCat)) revCat = (cats.find(c => !V.review[c.cat]) || cats[0])?.cat;
+  m.append($(`<datalist id="catlist">${V.all.map(c => `<option value="${esc(c)}">`).join("")}</datalist>`));
+  m.append($(`<div class="card"><b>確認済み ${done} / ${cats.length} カテゴリ</b> <span class="mute">· 切り抜きをクリックすると学習から外す（もう一度で戻す）。
+    商品ごと違うカテゴリなら、商品名の横の欄を書き換える。直したら ③b で埋め込みを学習し直す</span></div>`));
+  const sp = $(`<div class="split"><div class="card list" style="max-height:80vh;overflow:auto"></div><div class="card" id="rv"></div></div>`);
+  m.append(sp);
+  const list = sp.firstChild;
+  for (const c of cats) {
+    const b = $(`<div class="row" style="cursor:pointer;padding:2px 4px;${c.cat == revCat ? "background:var(--line);" : ""}">
+      <span style="width:14px">${V.review[c.cat] ? '<span class="ok">✓</span>' : ""}</span><span>${esc(c.cat)}</span>
+      <span class="mute" style="margin-left:auto">${c.crops}</span></div>`);
+    b.onclick = () => { revCat = c.cat; render(true); };
+    list.append(b);
+  }
+  const P = await (await fetch(`/api/category_crops/${encodeURIComponent(revCat)}`)).json();
+  const rv = sp.querySelector("#rv"), ok = !!V.review[revCat];
+  const head = $(`<div class="row"><b style="font-size:18px">${esc(revCat)}</b><span class="mute">${P.length} 商品 · ${P.reduce((a, p) => a + p.crops.length, 0)} 枚</span>
+    <button id="rok" style="margin-left:auto">${ok ? "確認済みを取り消す" : "✓ 確認済みにして次へ"}</button></div>`);
+  head.querySelector("#rok").onclick = () => post("/api/category_review", { category: revCat, ok: !ok }).then(() => {
+    if (!ok) revCat = (cats.find(c => c.cat != revCat && !V.review[c.cat]) || {}).cat || revCat;
+    render(true);
+  });
+  rv.append(head);
+  for (const p of P) {
+    const sec = $(`<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:6px">
+      <div class="row" style="gap:6px"><span>${esc(p.name)}${p.manual ? ' <span class="mute">手</span>' : ""}</span>
+      <span class="mute">${p.crops.filter(x => !x[1]).length} 枚</span><input list="catlist" style="width:200px;margin-left:auto"></div>
+      <div class="crops" style="margin-top:4px"></div></div>`);
+    const inp = sec.querySelector("input");
+    inp.value = revCat;
+    inp.onchange = () => post("/api/category", { key: p.key, category: inp.value }).then(() => render(true));
+    for (const [id, x] of p.crops) {
+      const c = $(`<span class="rcell ${x ? "x" : ""}" title="${esc(id)}"><img loading="lazy" src="/work/crops/${id}.jpg"></span>`);
+      c.onclick = () => { c.classList.toggle("x"); fetch("/api/exclude", { method: "POST", body: JSON.stringify({ id }) }).then(r => { if (!r.ok) r.text().then(alert); }); };
+      sec.lastElementChild.append(c);
+    }
+    rv.append(sec);
+  }
+}
+
+// ③b 商品分類: カテゴリ付きの切り抜きで埋め込みを学習し、最近傍（一番似ている学習用の切り抜きのカテゴリ）の正解率を測る
 async function classify(m) {
   const run = (k) => S.running.includes(k) || S.status[k]?.state == "running";
-  const top = $(`<div class="card row"><button data-run="classify" ${run("classify") ? "disabled" : ""}>最近傍で評価</button>
-    <span class="mute">命名済みの切り抜きをグループ単位で 学習用（照合先）4 : テスト用 1 に分け、テスト用それぞれに一番似ている学習用の名前を付ける。
+  const top = $(`<div class="card row"><button data-run="embed" ${run("embed") ? "disabled" : ""}>埋め込みを学習 (Modal GPU)</button>
+    <button data-run="classify" ${run("classify") ? "disabled" : ""}>最近傍で評価</button>
+    <span class="mute">正解は ②d の商品カテゴリ。切り抜きをグループ単位で 学習用（照合先）4 : テスト用 1 に分け、テスト用それぞれに一番似ている学習用のカテゴリを付ける。
     グループは見た目の近さで作ったので、写真単位で分けると同じグループが両側に入り正解率が甘く出る</span></div>`);
-  top.querySelector("[data-run]").onclick = () => post("/api/run", { script: "classify" }).then(() => render(true));
+  top.querySelectorAll("[data-run]").forEach(b => b.onclick = () => post("/api/run", { script: b.dataset.run }).then(() => render(true)));
   m.append(top);
   const C = await (await fetch("/work/classify.json")).json().catch(() => null);
   if (!C) return m.append($(`<div class="card mute">まだ評価していません</div>`));
-  m.append($(`<div class="card"><b>データ</b>: 命名済み ${C.labeled} 枚 / ${C.products} 商品${C.genre_labeled ? ` · ジャンル付き ${C.genre_labeled} 商品（${C.genres} ジャンル）` : ""} · 商品ごとの枚数:
-    ${Object.entries(C.per_product).map(([k, v]) => `${k}枚 <b>${v}</b> 商品`).join(" · ")}
-    <div class="mute" style="font-size:12px;margin-top:4px">多い商品: ${C.top_products.slice(0, 12).map(([k, v]) => `${esc(k)} (${v})`).join(" / ")}</div></div>`));
+  m.append($(`<div class="card"><b>データ</b>: カテゴリ付き ${C.labeled} 枚 / ${C.products} カテゴリ${C.genre_labeled ? ` · ジャンル付き ${C.genre_labeled} 商品（${C.genres} ジャンル）` : ""} · カテゴリごとの枚数:
+    ${Object.entries(C.per_product).map(([k, v]) => `${k}枚 <b>${v}</b> カテゴリ`).join(" · ")}
+    <div class="mute" style="font-size:12px;margin-top:4px">多いカテゴリ: ${C.top_products.slice(0, 12).map(([k, v]) => `${esc(k)} (${v})`).join(" / ")}</div></div>`));
   const t = $(`<div class="card"><b>結果（${esc(C.method)} · ${esc(C.split)}）</b><table style="margin-top:6px"><tr><th>埋め込み</th><th class="num">Top-1</th><th class="num">Top-5</th>
     <th class="num">テスト（既知の商品）</th><th class="num">テスト（未知の商品）</th><th class="num">照合先</th><th class="num">照合 ms/枚</th><th class="num">補正で 直った/悪化</th></tr></table></div>`);
   for (const r of C.results) t.querySelector("table").append($(`<tr><td>${esc(r.name)}</td><td class="num"><b>${(100 * r.top1).toFixed(1)}%</b></td>
