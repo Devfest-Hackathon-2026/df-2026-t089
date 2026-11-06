@@ -17,7 +17,7 @@ from common import TEST_DIR, TRAIN_DIR, WORK, category_levels, config, crop_labe
 from context import adjust
 
 WORK_SIZE = 1280   # 処理用に縮める長辺（検出 640px・切り抜き 128px にはこれで十分）
-MATCH_SIM = 0.5     # 補正前の類似度がこれ未満なら「照合先に無い商品」として名前を付けない
+MATCH_SIM = 0.8     # 補正前の類似度がこれ未満なら名前を付けない。0.8 以上は正解 77%・答えるのは 38%（0.5 だと 47%・ほぼ全部）
 LAMBDA = (0.05, 0.05, 0.1)  # 周辺カテゴリ補正の強さ（粗いジャンル, 細分類, カテゴリそのもの）。③b の評価で一番良かった組み合わせ
 
 
