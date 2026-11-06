@@ -9,6 +9,13 @@ plugins {
 val localProperties = Properties().apply {
     rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
 }
+// .env（リポジトリ直下。コミットされない）の GCP_API_KEY / GEMINI_API_KEY も使う。local.properties にあればそちらを優先する
+val dotEnv = Properties().apply {
+    rootProject.file(".env").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
+fun secret(vararg names: String): String = names.firstNotNullOfOrNull { name ->
+    (localProperties.getProperty(name) ?: dotEnv.getProperty(name))?.trim()?.trim('"', '\'')?.takeIf { it.isNotEmpty() }
+} ?: ""
 
 android {
     namespace = "jp.devfest.shelfsight"
@@ -24,14 +31,14 @@ android {
         // ARCore は実機でしか動かないので、実機（Pixel 8a など）の 64 ビット ARM だけを入れる。全 ABI だと APK が 400MB 近くになる
         ndk { abiFilters += "arm64-v8a" }
 
-        buildConfigField("String", "GEMINI_API_KEY", "\"${localProperties.getProperty("GEMINI_API_KEY", "")}\"")
+        buildConfigField("String", "GEMINI_API_KEY", "\"${secret("GEMINI_API_KEY")}\"")
         buildConfigField(
             "String",
             "GEMINI_MODELS",
             "\"${localProperties.getProperty("GEMINI_MODELS", "gemini-3.8-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite")}\"",
         )
         // 商品の OCR に使う Cloud Vision API のキー（GCP_API_KEY の名前でもよい）。なければ端末内の ML Kit で読む。
-        val visionKey = localProperties.getProperty("CLOUD_VISION_API_KEY") ?: localProperties.getProperty("GCP_API_KEY", "")
+        val visionKey = secret("CLOUD_VISION_API_KEY", "GCP_API_KEY")
         buildConfigField("String", "CLOUD_VISION_API_KEY", "\"$visionKey\"")
         // 歩行中の判別に使うモデル。app/src/main/assets/coarse/<名前>.onnx と <名前>.head.json を置く（tools/coarse_experiment.py 参照）。
         buildConfigField("String", "COARSE_MODEL", "\"${localProperties.getProperty("COARSE_MODEL", "MobileCLIP2-S0")}\"")

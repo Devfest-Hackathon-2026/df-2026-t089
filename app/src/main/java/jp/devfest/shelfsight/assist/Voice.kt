@@ -58,14 +58,20 @@ class Voice(context: Context, private val mixer: SpatialMixer) : AutoCloseable {
      */
     fun say(text: String, position: (() -> Vec3?)? = null, interrupt: Boolean = false, remember: Boolean = true, onDone: (() -> Unit)? = null) {
         if (text.isBlank()) return
+        val spoken = Reading.forSpeech(text)
         val gen = if (interrupt) generation.incrementAndGet().also { mixer.stopSpeech() } else generation.get()
         if (remember) lastSpoken = text
         worker.execute {
             if (gen != generation.get()) return@execute
-            val pcm = synth(text) ?: return@execute
+            val pcm = synth(spoken) ?: return@execute
             if (gen != generation.get()) return@execute
             mixer.speak(SpatialMixer.Sound(pcm, position, onDone = onDone))
         }
+    }
+
+    /** よく使う短い言葉を先に合成しておき、言うときにすぐ鳴るようにする。 */
+    fun prepare(texts: List<String>) {
+        worker.execute { for (t in texts) synth(Reading.forSpeech(t)) }
     }
 
     /** 話している声と、まだ話していない声をやめる。 */

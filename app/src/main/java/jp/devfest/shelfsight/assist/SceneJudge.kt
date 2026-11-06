@@ -3,6 +3,9 @@ package jp.devfest.shelfsight.assist
 /** カメラに何が主に写っているか。 */
 enum class Scene { NONE, SHELVES, ONE_SHELF, ONE_PRODUCT }
 
+/** 長押しで調べるもの。 */
+enum class Focus { PRODUCT, SHELF, STEP_BACK, NOTHING }
+
 /** 1 回の解析で分かったこと。 */
 data class SceneEvidence(
     /** 棚の境界で区切った区間のうち、8 分類のどれかになったもの。 */
@@ -49,6 +52,26 @@ class SceneJudge {
             val second = sorted.getOrNull(1)?.let { area(it) } ?: 0f
             val centered = first[0] < 0.75f && first[2] > 0.25f && first[1] < 0.75f && first[3] > 0.25f
             return first.takeIf { area(it) >= ONE_PRODUCT_AREA && area(it) >= second * ONE_PRODUCT_RATIO && centered }
+        }
+
+        /** 長押しで棚を説明するのに必要な商品の数と、商品が広がっている範囲（画面に対する幅・高さ）。 */
+        const val SHELF_MIN_PRODUCTS = 6
+        const val SHELF_MIN_WIDTH = 0.5f
+        const val SHELF_MIN_HEIGHT = 0.35f
+
+        /**
+         * 長押しのとき、何を調べるか。
+         * 商品 1 つが大きく写っていれば [Focus.PRODUCT]、棚の広い範囲に商品が並んでいれば [Focus.SHELF]、
+         * その間（商品が少し大きいが 1 つに決まらない、商品が少ない）なら [Focus.STEP_BACK]。
+         */
+        fun focus(boxes: List<FloatArray>): Focus {
+            if (boxes.isEmpty()) return Focus.NOTHING
+            if (mainProduct(boxes) != null) return Focus.PRODUCT
+            val width = boxes.maxOf { it[2] } - boxes.minOf { it[0] }
+            val height = boxes.maxOf { it[3] } - boxes.minOf { it[1] }
+            val spread = boxes.size >= SHELF_MIN_PRODUCTS && width >= SHELF_MIN_WIDTH && height >= SHELF_MIN_HEIGHT
+            val noneLarge = boxes.none { area(it) >= ONE_PRODUCT_AREA }
+            return if (spread && noneLarge) Focus.SHELF else Focus.STEP_BACK
         }
 
         fun classify(e: SceneEvidence): Scene = when {

@@ -15,9 +15,12 @@ import android.opengl.GLSurfaceView
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
+import android.view.GestureDetector
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.FrameLayout
 import android.widget.TextView
 import com.example.store3d.CameraBackground
@@ -32,6 +35,7 @@ import jp.devfest.shelfsight.ar.CapturedFrame
 import jp.devfest.shelfsight.ar.FrameCapture
 import jp.devfest.shelfsight.ar.JpegEncoder
 import jp.devfest.shelfsight.ar.Unprojector
+import jp.devfest.shelfsight.cloud.GeminiClient
 import jp.devfest.shelfsight.model.NormalizedBox
 import jp.devfest.shelfsight.model.Vec3
 import jp.devfest.shelfsight.perception.MediaPipePersonDetector
@@ -40,6 +44,7 @@ import jp.devfest.shelfsight.perception.PersonMotion
 import jp.devfest.shelfsight.perception.PersonObservation
 import jp.devfest.shelfsight.perception.PersonTracker
 import jp.devfest.shelfsight.walking.CoarseClassifier
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.microedition.khronos.egl.EGLConfig
@@ -51,11 +56,15 @@ import kotlin.math.sqrt
  *
  * ① 棚が複数写っている: 歩行中の判別（画面を 8 列に分け、列ごとに 7 分類）で、カテゴリが変わる所を棚の境界とし、
  *    それぞれの棚の方向から棚の種類を読み上げる
- * ② 棚が 1 つ写っている: 商品を認識し、段ごとに何があるかを話す（場違いな商品は言わない）
- * ③ 商品が 1 つ大きく写っている: 長押しで Cloud Vision API に聞き、社名と商品名を言う（1 回の接近で 1 回だけ呼ぶ）
+ * ② 棚が 1 つ写っている: 商品を認識し、LLM で何があるかを短く自然な文にして話す（場違いな商品は言わない）
+ * ③ 商品が 1 つ大きく写っている: Cloud Vision API に聞き、社名と商品名を言う（1 回の接近で 1 回だけ呼ぶ）
  * ④ 人が近づいてくる: その人の方向からピコピコ鳴らす
  *
- * 操作は、長押し（商品を調べる）と、タップ（話しかける）だけ。TalkBack が有効なら、ダブルタップとダブルタップ長押しになる。
+ * 操作
+ * - 1 回たたく: 目の前の棚の種類をすぐ言う（最後の解析の結果を使うので待たない）
+ * - 長押し: 「調べています」と言い、手前の商品 1 つなら ③、棚の広い範囲なら ②、その間なら「一歩下がって」と頼む
+ * - 2 回たたく: 質問する（決まった言い方はその操作、それ以外は LLM が画像を見て答える）
+ * TalkBack が有効なときは、ダブルタップが「1 回たたく」、ダブルタップ長押しが「長押し」、質問はカスタム操作になる。
  */
 class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private lateinit var gl: GLSurfaceView
@@ -78,7 +87,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private val lookupWorker = Executors.newSingleThreadExecutor()
     private val sceneBusy = AtomicBoolean(false)
     private val personBusy = AtomicBoolean(false)
-    @Volatile private var lookupRequested = false
+    /** 次のフレームを高解像度で撮って渡す先（長押し・質問）。 */
+    @Volatile private var pendingCapture: ((CapturedFrame) -> Unit)? = null
 
     /** 歩行中の判別のモデル。大きいのでリポジトリに含めておらず、入っていないビルドでは null（① だけが止まる）。 */
     private val coarse by lazy { CoarseClassifier.fromAssets(this, BuildConfig.COARSE_MODEL) }
@@ -86,6 +96,11 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private val personDetector by lazy { MediaPipePersonDetector(this) }
     private val tracker = PersonTracker()
     private val lookup = ProductLookup(BuildConfig.CLOUD_VISION_API_KEY)
+    private val narrator = Narrator(
+        BuildConfig.GEMINI_API_KEY.takeIf { it.isNotEmpty() }
+            // 話す文を作るだけなので、速い lite のモデルから試す（flash は 6〜9 秒、lite は 2 秒ほど）
+            ?.let { GeminiClient(it, BuildConfig.GEMINI_MODELS.split(",").map(String::trim).filter(String::isNotEmpty).sortedBy { m -> "lite" !in m }) },
+    )
     private val judge = SceneJudge()
     private val shelfMemory = ShelfMemory()
 
@@ -93,7 +108,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private var lastPerson = 0L
     private var greeted = false
     @Volatile private var auto = true
-    @Volatile private var describeRequested = false
     @Volatile private var shelvesRequested = false
     /** ② を話した場所。ここから離れるか、棚 1 つの場面を離れるまでは繰り返さない。 */
     private var describedAt: Vec3? = null
@@ -102,9 +116,11 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     /** 今の接近で、大きく写った商品を最後に見た時刻と、そのときの場所。 */
     private var approachSeenAt = 0L
     private var approachFrom: Vec3? = null
-    /** 最後に見えた、大きく写った商品の枠と、その時刻。 */
-    @Volatile private var mainProduct: Pair<FloatArray, Long>? = null
     @Volatile private var latestShelves: List<PlacedShelf> = emptyList()
+    @Volatile private var latestShelvesAt = 0L
+    /** 質問に答えるときに LLM に渡す、最後に話した説明と、最後に調べた商品。 */
+    @Volatile private var lastDescription = ""
+    @Volatile private var lastProduct = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -122,12 +138,33 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         // 画面全体を 1 つのボタンにする（どこを触ってもよい）
-        val touch = View(this).apply {
-            contentDescription = "タップで話しかける。長押しで商品を調べる"
+        val gestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent) = true
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean { tellShelf(); return true }
+            override fun onDoubleTap(e: MotionEvent): Boolean { startListening(); return true }
+            override fun onLongPress(e: MotionEvent) { onLongPressed() }
+        })
+        val touch = object : View(this) {
+            @android.annotation.SuppressLint("ClickableViewAccessibility")
+            override fun onTouchEvent(event: MotionEvent): Boolean = gestures.onTouchEvent(event)
+        }.apply {
+            contentDescription = "1回たたくと棚の種類。長押しで調べる。2回たたくと質問"
             isClickable = true
             isLongClickable = true
-            setOnClickListener { startListening() }
-            setOnLongClickListener { requestLookup(); true }
+            // TalkBack から: ダブルタップ＝クリック、ダブルタップ長押し＝長押し、質問はカスタム操作
+            setOnClickListener { tellShelf() }
+            setOnLongClickListener { onLongPressed(); true }
+            accessibilityDelegate = object : View.AccessibilityDelegate() {
+                override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
+                    super.onInitializeAccessibilityNodeInfo(host, info)
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction(ACTION_ASK, "質問する"))
+                }
+
+                override fun performAccessibilityAction(host: View, action: Int, args: Bundle?): Boolean {
+                    if (action == ACTION_ASK) { startListening(); return true }
+                    return super.performAccessibilityAction(host, action, args)
+                }
+            }
         }
         setContentView(FrameLayout(this).apply {
             addView(gl)
@@ -168,7 +205,12 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         if (!greeted) {
             greeted = true
             sceneWorker.execute { if (coarse == null) Log.w(TAG, "coarse/${BuildConfig.COARSE_MODEL}.onnx is missing: shelf categories are off") }
-            voice.say("準備ができました。画面をタップすると話しかけられます。長押しで、商品を調べます。")
+            voice.say("準備ができました。画面を1回たたくと棚の種類、長押しで商品や棚を調べます。2回たたくと質問できます。")
+            // 1 回たたいたときにすぐ言えるよう、棚の種類の言い方を先に合成しておく
+            sceneWorker.execute {
+                coarse?.head?.classes?.filter { it != ShelfMemory.NO_PRODUCT }?.let { cs -> voice.prepare(cs.map(::shelfSentence)) }
+            }
+            voice.prepare(listOf("調べています", NO_SHELF))
         }
     }
 
@@ -225,10 +267,10 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
 
         val now = SystemClock.elapsedRealtime()
         val rotation = sensorRotation   // 画面は縦に固定している
-        if (lookupRequested) {
+        pendingCapture?.let { target ->
             FrameCapture.capture(frame, camera, rotation, depthEnabled = false, fullResolution = true)?.let { f ->
-                lookupRequested = false
-                lookupWorker.execute { runLookup(f) }
+                pendingCapture = null
+                lookupWorker.execute { target(f) }
             }
         }
         if (now - lastPerson >= PERSON_INTERVAL_MS && personBusy.compareAndSet(false, true)) {
@@ -259,8 +301,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             val boxes = recognizer.detect(image).map { it.first }
             val switched = judge.update(SceneEvidence(shelves.size, boxes))
             val main = SceneJudge.mainProduct(boxes)
-            main?.let { mainProduct = it to now }
             latestShelves = shelves
+            latestShelvesAt = now
             val camera = cameraPosition(f)
 
             // 新しい商品に近づいたら、前に調べた結果を忘れる（次の長押しで API を 1 回呼ぶ）。
@@ -281,9 +323,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             if (leftOneShelfAt != 0L && now - leftOneShelfAt > FORGET_DESCRIPTION_MS) describedAt = null
 
             val forceShelves = shelvesRequested.also { shelvesRequested = false }
-            val forceDescribe = describeRequested.also { describeRequested = false }
             when {
-                forceDescribe -> describe(image, boxes, camera, requested = true)
                 forceShelves -> announceShelves(shelves, requested = true)
                 !auto || voice.speaking -> Unit
                 judge.scene == Scene.SHELVES -> announceShelves(shelves, requested = false)
@@ -319,57 +359,87 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         }
     }
 
-    /** ② 棚 1 つの商品を、段ごとに説明する。 */
-    private fun describe(image: Bitmap, boxes: List<FloatArray>, camera: Vec3, requested: Boolean) {
-        if (requested) voice.say("見ています", interrupt = true, remember = false)
+    /**
+     * ② 棚 1 つの商品を説明する。商品認識の結果を LLM で短い自然な文にする（使えなければ決まった言い方の文）。
+     * LLM の返事を待つので、呼んだスレッドはしばらく止まる。
+     */
+    private fun describe(image: Bitmap, boxes: List<FloatArray>, camera: Vec3?, requested: Boolean) {
         val products = recognizer.recognize(image, boxes)
-        val text = ShelfDescriber.describe(products)
+        val text = (if (narrator.available) narrator.describeShelf(products, jpeg(image, NARRATE_LONG_SIDE)) else null)
+            ?: ShelfDescriber.describe(products)
         Log.i(TAG, "describe: ${products.size} products -> $text")
         if (text != null) {
-            describedAt = camera
+            if (camera != null) describedAt = camera
+            lastDescription = text
             voice.say(text, interrupt = requested)
         } else if (requested) {
             voice.say("商品がよく分かりませんでした。棚の正面から、棚全体を写してください。")
         }
     }
 
-    // ---------------------------------------------------------------- ③ 商品を調べる
+    // ---------------------------------------------------------------- 1 回たたく: 目の前の棚
 
-    private fun requestLookup() {
+    /** 目の前（画面のまん中）の棚の種類を、最後の解析の結果ですぐに言う。 */
+    private fun tellShelf() {
         listening.cancel()
-        lookup.cachedResult?.let { cached ->
-            speakLookup(cached, interrupt = true)   // この接近ですでに調べてある
-            return
-        }
-        if (!lookup.configured) {
-            voice.say("商品を調べる設定がされていません。", interrupt = true)
-            return
-        }
-        voice.say("調べています", interrupt = true, remember = false)
-        lookupRequested = true
+        val fresh = SystemClock.elapsedRealtime() - latestShelvesAt < SHELF_FRESH_MS
+        val shelves = if (fresh) latestShelves else emptyList()
+        val front = shelves.firstOrNull { it.left <= 0.5f && it.right >= 0.5f }
+            ?: shelves.minByOrNull { kotlin.math.abs((it.left + it.right) / 2 - 0.5f) }
+        voice.say(front?.let { shelfSentence(it.category) } ?: NO_SHELF, interrupt = true)
     }
 
-    private fun runLookup(f: CapturedFrame) {
+    private fun shelfSentence(category: String) = "${category.replace("・", "と")}の棚です。"
+
+    // ---------------------------------------------------------------- 長押し: 商品か棚を調べる
+
+    private fun onLongPressed() {
+        listening.cancel()
+        voice.say("調べています", interrupt = true, remember = false)
+        pendingCapture = ::runLongPress
+    }
+
+    /** 撮った画像で、手前の商品 1 つ（③）か、棚の広い範囲（②）か、その間（一歩下がってもらう）かを決める。 */
+    private fun runLongPress(f: CapturedFrame) {
         val image = JpegEncoder.toUprightBitmap(f, LOOKUP_LONG_SIDE)
         try {
-            // 大きく写った商品だけを送る（最近見つかっていなければ、画面の真ん中）
-            val box = mainProduct?.takeIf { SystemClock.elapsedRealtime() - it.second < MAIN_PRODUCT_FRESH_MS }?.first
-                ?: floatArrayOf(0.15f, 0.15f, 0.85f, 0.85f)
-            val crop = cropWithMargin(image, box, 0.08f)
-            val result = try { lookup.lookup(crop) } finally { if (crop !== image) crop.recycle() }
-            result.exceptionOrNull()?.let { Log.w(TAG, "lookup failed", it) }
-            speakLookup(result, interrupt = false)
+            val boxes = recognizer.detect(image).map { it.first }
+            val focus = SceneJudge.focus(boxes)
+            Log.i(TAG, "long press: ${boxes.size} boxes -> $focus")
+            when (focus) {
+                Focus.PRODUCT -> lookupProduct(image, SceneJudge.mainProduct(boxes)!!)
+                Focus.SHELF -> describe(image, boxes, camera = null, requested = true)
+                Focus.STEP_BACK -> voice.say("一歩下がって、棚の全体か、商品を一つだけ写してください。")
+                Focus.NOTHING -> voice.say("商品が見えません。棚か商品の方にスマホを向けてください。")
+            }
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "long press failed", e)
+            voice.say("調べられませんでした。")
         } finally {
             image.recycle()
         }
     }
 
-    private fun speakLookup(result: Result<ProductAnswer?>, interrupt: Boolean) {
+    /** ③ 手前の商品を Cloud Vision API で調べる。この接近ですでに調べていれば、API を呼ばずにその結果を言う。 */
+    private fun lookupProduct(image: Bitmap, box: FloatArray) {
+        lookup.cachedResult?.let { speakLookup(it); return }
+        if (!lookup.configured) {
+            voice.say("商品を調べる設定がされていません。")
+            return
+        }
+        val crop = cropWithMargin(image, box, 0.08f)
+        val result = try { lookup.lookup(crop) } finally { if (crop !== image) crop.recycle() }
+        result.exceptionOrNull()?.let { Log.w(TAG, "lookup failed", it) }
+        speakLookup(result)
+    }
+
+    private fun speakLookup(result: Result<ProductAnswer?>) {
+        result.getOrNull()?.let { lastProduct = it.spoken() }
         val text = result.fold(
             onSuccess = { it?.spoken() ?: "商品が分かりませんでした。商品の正面を、カメラに向けてください。" },
             onFailure = { "調べられませんでした。通信を確認してください。" },
         )
-        voice.say(text, interrupt = interrupt)
+        voice.say(text)
     }
 
     // ---------------------------------------------------------------- ④ 人の接近
@@ -415,14 +485,44 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
 
     private fun handle(command: Command?, heard: String?) {
         when (command) {
-            Command.SHELVES -> { shelvesRequested = true; if (latestShelves.isEmpty()) voice.say("見ています", interrupt = true, remember = false) }
-            Command.DESCRIBE -> describeRequested = true
-            Command.LOOKUP -> requestLookup()
+            Command.SHELVES -> tellShelf()
+            Command.DESCRIBE, Command.LOOKUP -> onLongPressed()
             Command.PAUSE -> { auto = false; voice.say("お知らせを止めます。人が近づいたときの音は鳴ります。", interrupt = true) }
             Command.RESUME -> { auto = true; shelfMemory.clear(); describedAt = null; voice.say("お知らせを再開します。", interrupt = true) }
             Command.REPEAT -> voice.say(voice.lastSpoken.ifEmpty { "まだ何も話していません。" }, interrupt = true)
             Command.HELP -> voice.say(Commands.HELP_TEXT, interrupt = true)
-            null -> voice.say(if (heard == null) "聞き取れませんでした。" else "分かりませんでした。「何がある？」「これは何？」のように話しかけてください。", interrupt = true)
+            null -> if (heard.isNullOrBlank()) voice.say("聞き取れませんでした。", interrupt = true) else ask(heard)
+        }
+    }
+
+    /** 決まった言い方でない質問は、今のカメラの画像と分かっていることを LLM に渡して答えてもらう。 */
+    private fun ask(question: String) {
+        if (!narrator.available) {
+            voice.say("質問に答える設定がされていません。", interrupt = true)
+            return
+        }
+        voice.say("調べています", interrupt = true, remember = false)
+        pendingCapture = { f ->
+            val image = JpegEncoder.toUprightBitmap(f, QUESTION_LONG_SIDE)
+            val context = buildString {
+                val fresh = SystemClock.elapsedRealtime() - latestShelvesAt < SHELF_FRESH_MS
+                val shelves = if (fresh) latestShelves else emptyList()
+                appendLine("- 写っている棚の種類（左から）: " + shelves.joinToString("、") { it.category }.ifEmpty { "分からない" })
+                if (lastDescription.isNotEmpty()) appendLine("- 最後に伝えた棚の説明: $lastDescription")
+                if (lastProduct.isNotEmpty()) appendLine("- 最後に調べた商品: $lastProduct")
+            }
+            val answer = try { narrator.answer(question, context, jpeg(image, QUESTION_LONG_SIDE)) } finally { image.recycle() }
+            voice.say(answer ?: "答えられませんでした。通信を確認してください。")
+        }
+    }
+
+    private fun jpeg(image: Bitmap, longSide: Int): ByteArray {
+        val k = minOf(1f, longSide.toFloat() / maxOf(image.width, image.height))
+        val scaled = if (k < 1f) Bitmap.createScaledBitmap(image, (image.width * k).toInt(), (image.height * k).toInt(), true) else image
+        return ByteArrayOutputStream().use { out ->
+            scaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
+            if (scaled !== image) scaled.recycle()
+            out.toByteArray()
         }
     }
 
@@ -458,7 +558,12 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         const val PERSON_LONG_SIDE = 640
         const val LOOKUP_LONG_SIDE = 1600
         const val MAX_CAMERA_IMAGE_WIDTH = 1920
-        const val MAIN_PRODUCT_FRESH_MS = 2500L
+        const val SHELF_FRESH_MS = 2500L
+        const val NARRATE_LONG_SIDE = 768
+        const val QUESTION_LONG_SIDE = 1280
+        const val NO_SHELF = "棚が見えません。棚の方にスマホを向けてください。"
+        /** 質問のカスタム操作の ID（TalkBack 用）。 */
+        const val ACTION_ASK = 0x7f0a0001
         const val FORGET_DESCRIPTION_MS = 3000L
         const val MOVE_TO_REDESCRIBE_M = 1.5f
         const val DESCRIBE_RETRY_MS = 4000L

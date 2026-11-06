@@ -5,7 +5,10 @@ import jp.devfest.shelfsight.assist.Command
 import jp.devfest.shelfsight.assist.Commands
 import jp.devfest.shelfsight.assist.ContextAdjust
 import jp.devfest.shelfsight.assist.ContextAdjust.Candidate
+import jp.devfest.shelfsight.assist.Focus
 import jp.devfest.shelfsight.assist.Listener
+import jp.devfest.shelfsight.assist.Narrator
+import jp.devfest.shelfsight.assist.Reading
 import jp.devfest.shelfsight.assist.PlacedShelf
 import jp.devfest.shelfsight.assist.RecognizedProduct
 import jp.devfest.shelfsight.assist.Scene
@@ -249,5 +252,50 @@ class AssistLogicTest {
         assertEquals(4, pcm.size)
         assertEquals(0.5f, pcm[1], 1e-4f)
         assertNotNull(pcm)
+    }
+
+    // ---------------------------------------------------------------- 長押しで調べるもの
+
+    @Test
+    fun `long press picks the product, the shelf or asks to step back`() {
+        val small = { x: Float, y: Float -> floatArrayOf(x, y, x + 0.08f, y + 0.12f) }
+        val shelf = (0 until 4).flatMap { i -> listOf(small(0.05f + 0.22f * i, 0.1f), small(0.05f + 0.22f * i, 0.6f)) }
+        assertEquals(Focus.SHELF, SceneJudge.focus(shelf))
+        assertEquals(Focus.PRODUCT, SceneJudge.focus(listOf(floatArrayOf(0.2f, 0.15f, 0.8f, 0.85f), small(0f, 0f))))
+        // 少し大きめの商品が 2 つ並んでいる（どちらとも決まらない）
+        assertEquals(Focus.STEP_BACK, SceneJudge.focus(listOf(floatArrayOf(0.1f, 0.2f, 0.45f, 0.7f), floatArrayOf(0.5f, 0.2f, 0.85f, 0.7f))))
+        // 商品が 3 つだけ
+        assertEquals(Focus.STEP_BACK, SceneJudge.focus(listOf(small(0.1f, 0.4f), small(0.4f, 0.4f), small(0.7f, 0.4f))))
+        assertEquals(Focus.NOTHING, SceneJudge.focus(emptyList()))
+    }
+
+    // ---------------------------------------------------------------- 読み方
+
+    @Test
+    fun `position words are written so the speech engine reads them naturally`() {
+        assertEquals("うえのだんには緑茶、したのだんにはコーラがあります。", Reading.forSpeech("上段には緑茶、下段にはコーラがあります。"))
+        assertEquals("うえのほうにはお茶、まんなかあたりにはコーヒー。", Reading.forSpeech("上の方にはお茶、真ん中あたりにはコーヒー。"))
+        assertEquals("うえから2だんめと、いちばんしたのだん", Reading.forSpeech("上から2段目と、最下段"))
+        assertEquals("棚のみぎがわ、ひだりには", Reading.forSpeech("棚の右側、左には"))
+        // 漢字の言葉の一部の「上」「下」は変えない
+        assertEquals("以上のことから、地下に", Reading.forSpeech("以上のことから、地下に"))
+        assertEquals("ユニ・チャーム", Reading.forSpeech("ユニ・チャーム"))
+    }
+
+    // ---------------------------------------------------------------- LLM への依頼
+
+    @Test
+    fun `shelf prompt lists rows top to bottom with kinds and counts, and replies are parsed`() {
+        val rows = listOf(
+            listOf(p(0.1f, 0.15f, "緑茶").copy(name = "伊藤園 お〜いお茶"), p(0.3f, 0.15f, "緑茶").copy(name = "伊藤園 お〜いお茶")),
+            listOf(p(0.1f, 0.8f, "炭酸飲料").copy(name = "コカ・コーラ コカ・コーラ 500ml")),
+        )
+        val prompt = Narrator.shelfPrompt(rows)
+        assertTrue(prompt, "上の段: 伊藤園 お〜いお茶（緑茶）×2" in prompt)
+        assertTrue(prompt, "下の段: コカ・コーラ コカ・コーラ 500ml（炭酸飲料）" in prompt)
+        assertTrue(prompt.indexOf("上の段:") < prompt.indexOf("下の段:"))
+        assertEquals("上のほうにお茶があります。", Narrator.parse("""{"text":" 上のほうにお茶があります。 "}"""))
+        assertNull(Narrator.parse("""{"text":""}"""))
+        assertTrue(Narrator.questionPrompt("これはいくら？", "- 棚: 飲み物").contains("これはいくら？"))
     }
 }
