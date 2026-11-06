@@ -18,7 +18,8 @@ import java.nio.FloatBuffer
  *
  * 1. YOLO で「商品らしいもの」の枠を全部出す（[detect]。写っているものの判定にも使う）
  * 2. 各枠を切り抜いて埋め込み（MobileNetV3-small 128px）を出し、照合先（命名済みの切り抜き）と比べて名前の候補を出す
- * 3. 周りの商品のジャンル・細分類で選び直す（[ContextAdjust]）
+ * 3. その場所の棚の種類（地図に貯めた棚のラベルか、歩行中の判別）で選び直す（[MapBias]）
+ * 4. 周りの商品のジャンル・細分類で選び直す（[ContextAdjust]）
  *
  * モデルと照合先は tools/export_products.py で assets/products/ に書き出す。
  */
@@ -85,12 +86,23 @@ class ProductRecognizer(context: Context) : AutoCloseable {
         }
     }
 
-    /** 写っている商品に名前を付ける。照合先にない商品（似ていない）は外す。 */
-    fun recognize(image: Bitmap, boxes: List<FloatArray> = detect(image).map { it.first }): List<RecognizedProduct> {
+    /**
+     * 写っている商品に名前を付ける。照合先にない商品（似ていない）は外す。
+     * [boxes] は確からしさの高い順（[detect] の順）で、画像の各所から散らして [MAX_CROPS] 個ほどに名前を付ける（[spread]）。
+     * [shelfAt] は枠（正立画像の 0..1）の場所の棚の種類を返す（分からなければ null）。[groupOf] はジャンル → 7 分類。
+     */
+    fun recognize(
+        image: Bitmap,
+        boxes: List<FloatArray> = detect(image).map { it.first },
+        shelfAt: ((FloatArray) -> ShelfPrior?)? = null,
+        groupOf: (String?) -> String? = { null },
+    ): List<RecognizedProduct> {
         val minW = MIN_CROP_PX.toFloat() / image.width
         val minH = MIN_CROP_PX.toFloat() / image.height
-        val big = boxes.filter { it[2] - it[0] >= minW && it[3] - it[1] >= minH }
-            .sortedByDescending { SceneJudge.area(it) }.take(MAX_CROPS)
+        // 大きい順に選ぶと、棚の区画や商品の一部などの大きな誤検出ばかりになる（記録した 291 枚で、棚の分類に合う名前が
+        // 大きい順 10 個で 66%、確からしさの順 10 個で 78%）ので、確からしさの順に選ぶ。
+        // ただし確からしさの順だけだと一か所に固まるので、画像の区画ごとに散らして選ぶ（[spread]）
+        val big = spread(boxes.filter { it[2] - it[0] >= minW && it[3] - it[1] >= minH })
         if (big.isEmpty()) return emptyList()
         val crops = big.map { square(image, it) }
         val emb = OnnxTensor.createTensor(env, chw(crops, embSize), longArrayOf(crops.size.toLong(), 3, embSize.toLong(), embSize.toLong())).use { t ->
@@ -101,7 +113,13 @@ class ProductRecognizer(context: Context) : AutoCloseable {
         }
         crops.forEach { it.recycle() }
 
-        val cands = emb.map { e -> topProducts(normalize(e)) }
+        val embs = emb.map { normalize(it) }
+        // 照合先と比べた、そのままの類似度。名前を付けるかどうかは補正前のこれで決める
+        val raw = embs.map { e -> topProducts(e) }
+        val shelves = big.map { b -> shelfAt?.invoke(b) }
+        val rawSim = raw.map { c -> c.associate { it.key to it.sim } }
+        val cands = raw.indices.map { i -> shelves[i]?.let { MapBias.adjust(raw[i], it) { k -> groupOf(byKey[k]?.genre) } } ?: raw[i] }
+        lastShelfCount = shelves.count { it != null }
         val centers = big.map { (it[0] + it[2]) / 2 to (it[1] + it[3]) / 2 }
         val picked = ContextAdjust.adjust(
             centers, cands,
@@ -113,27 +131,33 @@ class ProductRecognizer(context: Context) : AutoCloseable {
         return big.indices.mapNotNull { i ->
             val p = picked[i]
             val prod = p.key?.let { byKey[it] }
-            if (prod == null || p.sim < matchSim) return@mapNotNull null
+            val sim = p.key?.let { rawSim[i][it] } ?: 0f
+            if (prod == null || sim < matchSim) return@mapNotNull null
             val b = big[i]
-            RecognizedProduct(b[0], b[1], b[2], b[3], prod.name, prod.genre, prod.fine, p.sim)
+            RecognizedProduct(b[0], b[1], b[2], b[3], prod.name, prod.genre, prod.fine, sim)
         }
+    }
+
+    /** 直前の [recognize] で、棚の種類で選び直した枠の数（画面の表示用）。 */
+    @Volatile var lastShelfCount = 0
+        private set
+
+    /** 1 つの商品の、照合先の切り抜きとの最大類似度。 */
+    private fun productSim(pi: Int, e: FloatArray): Float {
+        val end = if (pi + 1 < products.size) products[pi + 1].start else gallery.size / dim
+        var m = -1f
+        for (row in products[pi].start until end) {
+            var s = 0f
+            val o = row * dim
+            for (k in 0 until dim) s += gallery[o + k] * e[k]
+            if (s > m) m = s
+        }
+        return m
     }
 
     /** 商品ごとの最大類似度の上位 [TOP_K]。 */
     private fun topProducts(e: FloatArray): List<ContextAdjust.Candidate> {
-        val best = FloatArray(products.size)
-        val count = gallery.size / dim
-        for ((pi, p) in products.withIndex()) {
-            val end = if (pi + 1 < products.size) products[pi + 1].start else count
-            var m = -1f
-            for (row in p.start until end) {
-                var s = 0f
-                val o = row * dim
-                for (k in 0 until dim) s += gallery[o + k] * e[k]
-                if (s > m) m = s
-            }
-            best[pi] = m
-        }
+        val best = FloatArray(products.size) { productSim(it, e) }
         return best.indices.sortedByDescending { best[it] }.take(TOP_K).map { ContextAdjust.Candidate(products[it].key, best[it]) }
     }
 
@@ -190,8 +214,37 @@ class ProductRecognizer(context: Context) : AutoCloseable {
         private const val DIR = "products"
         private const val TOP_K = 10
         private const val MIN_CROP_PX = 14
-        /** 名前を付ける切り抜きの数の上限（大きく写ったものから）。照合が切り抜きの数に比例して遅くなるので抑える。 */
-        private const val MAX_CROPS = 20
+        /** 名前を付ける切り抜きの数の目安。照合が切り抜きの数に比例して遅くなるので抑える（区画が多く埋まっていればこれを超える）。 */
+        const val MAX_CROPS = 10
+        /** 散らして選ぶための画像の区画（横 × 縦）。名前を付ける数は多くてもこの区画の数まで。 */
+        const val SPREAD_COLS = 4
+        const val SPREAD_ROWS = 4
+
+        /**
+         * 名前を付ける枠を、画像のいろいろな場所から選ぶ。[boxes] は確からしさの高い順。
+         * 画像を [SPREAD_COLS]×[SPREAD_ROWS] の区画に分け（枠の中心で決める）、区画ごとに確からしさの高い順に 1 つずつ順番に取る。
+         * 1 巡目は枠のある区画を全部取る（[MAX_CROPS] を超えてもよい）。2 巡目からは [MAX_CROPS] 個になったら止める。
+         * 返す順は確からしさの高い順のまま。
+         */
+        fun spread(boxes: List<FloatArray>, limit: Int = MAX_CROPS): List<FloatArray> {
+            val cells = boxes.indices.groupBy { i ->
+                val b = boxes[i]
+                val cx = (((b[0] + b[2]) / 2) * SPREAD_COLS).toInt().coerceIn(0, SPREAD_COLS - 1)
+                val cy = (((b[1] + b[3]) / 2) * SPREAD_ROWS).toInt().coerceIn(0, SPREAD_ROWS - 1)
+                cy * SPREAD_COLS + cx
+            }.values.sortedBy { it.first() }   // いちばん確からしい枠のある区画から
+            val picked = mutableListOf<Int>()
+            var round = 0
+            while (true) {
+                val next = cells.mapNotNull { it.getOrNull(round) }
+                if (next.isEmpty()) break
+                if (round == 0) picked += next
+                else for (i in next) { if (picked.size >= limit) break; picked += i }
+                if (picked.size >= limit) break
+                round++
+            }
+            return picked.sorted().map { boxes[it] }
+        }
 
         private fun JSONObject.text(name: String): String? = if (isNull(name)) null else optString(name).ifEmpty { null }
 

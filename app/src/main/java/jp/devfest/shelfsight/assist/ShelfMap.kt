@@ -8,14 +8,18 @@ import kotlin.math.sqrt
 /** 壁（ARCore の縦の平面）。[normal] は単位ベクトル。 */
 data class Wall(val center: Vec3, val normal: Vec3, val radius: Float)
 
-/** 地図に置いた 1 つの商品。同じ商品を何度も見るたびに位置をならし、[seen] を増やす。 */
+/**
+ * 地図に置いた 1 つの商品。同じ商品を何度も見るたびに位置をならし、[seen] を増やす。
+ * [facing] は商品から見たカメラの向き（水平の単位ベクトル。分からなければ 0）。背中合わせの棚の裏側の商品と区別する。
+ */
 class MapItem(
     val name: String, val genre: String?, val fine: String?,
     var position: Vec3, var widthM: Float, var heightM: Float, var seen: Int, var lastSeen: Long,
+    var facing: Vec3 = Vec3(0f, 0f, 0f),
 )
 
 /**
- * 1 秒ごとの商品認識の結果を、AR 空間の壁の上に貯める（アプリを閉じると消える）。
+ * 1 秒ごとの商品認識の結果を、AR 空間の壁の上に貯める（アプリを閉じると消える）。画面には描かない。
  * 長押しで棚を説明するときは、今の画面に入る商品をここから取り出す。同じ場所で違う名前になったものは、
  * 見えた回数の多い方を使うので、1 枚ごとの読み違いに強い。
  */
@@ -27,12 +31,13 @@ class ShelfMap {
     @Synchronized
     fun snapshot(): List<MapItem> = items.toList()
 
-    /** 新しく見えた商品を足す。近くに同じ名前の商品があれば、それに重ねる。 */
+    /** 新しく見えた商品を足す。近くに同じ名前の商品があれば、それに重ねる。[camera] は見たときのカメラの位置。 */
     @Synchronized
-    fun add(name: String, genre: String?, fine: String?, position: Vec3, widthM: Float, heightM: Float, now: Long) {
+    fun add(name: String, genre: String?, fine: String?, position: Vec3, widthM: Float, heightM: Float, now: Long, camera: Vec3? = null) {
+        val facing = camera?.let { towards(position, it) } ?: Vec3(0f, 0f, 0f)
         val same = items.filter { it.name == name && it.position.distanceTo(position) < MERGE_M }.minByOrNull { it.position.distanceTo(position) }
         if (same == null) {
-            items += MapItem(name, genre, fine, position, widthM, heightM, 1, now)
+            items += MapItem(name, genre, fine, position, widthM, heightM, 1, now, facing)
             if (items.size > MAX_ITEMS) items.remove(items.minBy { it.lastSeen })
             return
         }
@@ -44,6 +49,7 @@ class ShelfMap {
         )
         same.widthM += (widthM - same.widthM) * k
         same.heightM += (heightM - same.heightM) * k
+        same.facing = horizontalUnit(same.facing.times(same.seen.toFloat()).plus(facing)) ?: same.facing
         same.seen++
         same.lastSeen = now
     }
@@ -72,6 +78,22 @@ class ShelfMap {
         const val MAX_ITEMS = 3000
         /** 深度と壁がこれ以上離れていたら、壁に寄せない（棚の手前に出ている商品など）。 */
         const val SNAP_TO_WALL_M = 0.3f
+        /** 商品の向きと今の見る向きの内積がこれ未満なら、棚の裏側（背中合わせの棚）の商品とみなす。 */
+        const val FACING_MIN_DOT = 0.3f
+
+        /** 商品から見たカメラの向き（水平）。 */
+        fun towards(item: Vec3, camera: Vec3): Vec3 = horizontalUnit(camera.minus(item)) ?: Vec3(0f, 0f, 0f)
+
+        /** どちらかの向きが分からなければ同じ向きとみなす。 */
+        fun facesSameWay(a: Vec3, b: Vec3): Boolean {
+            if (a.length() < 0.5f || b.length() < 0.5f) return true
+            return dot(a, b) >= FACING_MIN_DOT
+        }
+
+        private fun horizontalUnit(v: Vec3): Vec3? {
+            val l = sqrt(v.x * v.x + v.z * v.z)
+            return if (l < 1e-4f) null else Vec3(v.x / l, 0f, v.z / l)
+        }
 
         /** 世界座標の点を、写した画像の正立座標 (u, v) と、カメラからの奥行き (m) にする。カメラの後ろなら null。 */
         fun project(p: Vec3, g: CaptureGeometry): FloatArray? {

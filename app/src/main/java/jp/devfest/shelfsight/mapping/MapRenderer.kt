@@ -71,6 +71,36 @@ internal class MapRenderer {
         }
     }
 
+    /**
+     * 棚のラベル（7 分類）を、その場所に色の付いた短い柱と点で描く。[labels] は位置と色（ARGB）。
+     * 棚の面の手前にあることが多いので、奥行きで隠さない。
+     */
+    fun drawShelfLabels(labels: List<Pair<jp.devfest.shelfsight.model.Vec3, Int>>, viewProjection: FloatArray) {
+        if (labels.isEmpty()) return
+        GLES20.glUseProgram(program)
+        GLES20.glUniformMatrix4fv(viewProjectionHandle, 1, false, viewProjection, 0)
+        GLES20.glUniformMatrix4fv(modelHandle, 1, false, identity, 0)
+        GLES20.glUniform1f(clipYHandle, Float.MAX_VALUE)
+        GLES20.glDisable(GLES20.GL_DEPTH_TEST)
+        GLES20.glLineWidth(LABEL_WIDTH_PX)
+        GLES20.glUniform1f(fixedPointSizeHandle, LABEL_SIZE_PX)
+        GLES20.glEnableVertexAttribArray(positionHandle)
+        for ((p, color) in labels) {
+            GLES20.glVertexAttrib4f(
+                colorHandle, (color shr 16 and 0xFF) / 255f, (color shr 8 and 0xFF) / 255f, (color and 0xFF) / 255f, 1f,
+            )
+            markerBuffer.position(0)
+            markerBuffer.put(p.x).put(p.y - LABEL_HALF_HEIGHT_M).put(p.z)
+            markerBuffer.put(p.x).put(p.y + LABEL_HALF_HEIGHT_M).put(p.z)
+            markerBuffer.position(0)
+            GLES20.glVertexAttribPointer(positionHandle, 3, GLES20.GL_FLOAT, false, 0, markerBuffer)
+            GLES20.glDrawArrays(GLES20.GL_LINES, 0, 2)
+            GLES20.glDrawArrays(GLES20.GL_POINTS, 1, 1)
+        }
+        GLES20.glDisableVertexAttribArray(positionHandle)
+        GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+    }
+
     /** 人を、床から頭の高さまでの柱で描く。棚の裏にいても見えるようにする。 */
     private fun drawPeople(people: List<VisibleMarker>, mapper: StoreMapper) {
         // 床の高さは、胸につけた端末の高さから見積もる。端末の高さが分からなければ人の位置を基準にする。
@@ -193,6 +223,9 @@ internal class MapRenderer {
         const val PERSON_HEIGHT_M = 1.65f
         const val DEVICE_HEIGHT_M = 1.3f // 胸の高さ
         const val LOST_BRIGHTNESS = 0.45f
+        const val LABEL_WIDTH_PX = 8f
+        const val LABEL_SIZE_PX = 26f
+        const val LABEL_HALF_HEIGHT_M = 0.25f
 
         const val VERTEX_SHADER = """
             uniform mat4 u_ViewProjection;

@@ -10,8 +10,7 @@ import java.util.Base64
 /**
  * 手前の商品 1 つを Cloud Vision API で調べ、社名と商品名を返す。1 回の要求で Web 検索・ロゴ・文字を頼む。
  *
- * 商品に近づいている間（[SceneJudge] が商品 1 つと判定し続けている間）は、結果を覚えておき API を呼び直さない。
- * 新しい商品に近づき直したら [newApproach] で忘れる。これで、長押しを何度しても 1 回の接近につき 1 回しか課金されない。
+ * 一度調べた結果は覚えておき、[newApproach] で忘れるまで API を呼び直さない（長押しでは、押すたびに忘れて調べ直す）。
  */
 internal class ProductLookup(
     private val apiKey: String,

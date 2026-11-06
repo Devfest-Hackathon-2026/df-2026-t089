@@ -15,6 +15,7 @@ import jp.devfest.shelfsight.assist.Scene
 import jp.devfest.shelfsight.assist.SceneEvidence
 import jp.devfest.shelfsight.assist.SceneJudge
 import jp.devfest.shelfsight.assist.ShelfMap
+import jp.devfest.shelfsight.assist.ShelfPrior
 import jp.devfest.shelfsight.assist.ShelfDescriber
 import jp.devfest.shelfsight.assist.VisionProductParser
 import jp.devfest.shelfsight.assist.Wav
@@ -193,7 +194,8 @@ class AssistLogicTest {
     fun `scene is decided from shelves and product boxes and needs two agreeing frames`() {
         val big = floatArrayOf(0.2f, 0.2f, 0.8f, 0.8f)
         val small = { x: Float -> floatArrayOf(x, 0.1f, x + 0.08f, 0.2f) }
-        assertEquals(Scene.ONE_PRODUCT, SceneJudge.classify(SceneEvidence(1, listOf(big, small(0f)))))
+        // 大きな枠があっても、商品 1 つにはしない
+        assertEquals(Scene.ONE_SHELF, SceneJudge.classify(SceneEvidence(1, listOf(big, small(0f)))))
         assertEquals(Scene.SHELVES, SceneJudge.classify(SceneEvidence(3, (0 until 10).map { small(it * 0.09f) })))
         assertEquals(Scene.ONE_SHELF, SceneJudge.classify(SceneEvidence(1, (0 until 10).map { small(it * 0.09f) })))
         assertEquals(Scene.NONE, SceneJudge.classify(SceneEvidence(0, emptyList())))
@@ -260,32 +262,30 @@ class AssistLogicTest {
     // ---------------------------------------------------------------- 長押しで調べるもの
 
     @Test
+    fun `long press takes the product at the center of the screen`() {
+        val center = floatArrayOf(0.4f, 0.4f, 0.6f, 0.65f)
+        val left = floatArrayOf(0.05f, 0.4f, 0.25f, 0.6f)
+        assertTrue(SceneJudge.centerProduct(listOf(left, center))!!.contentEquals(center))
+        // 中央を含む枠がなければ、中心が近い枠
+        val near = floatArrayOf(0.52f, 0.52f, 0.66f, 0.66f)
+        assertTrue(SceneJudge.centerProduct(listOf(left, near))!!.contentEquals(near))
+        // 中央の近くに商品がない
+        assertNull(SceneJudge.centerProduct(listOf(left)))
+        assertNull(SceneJudge.centerProduct(emptyList()))
+    }
+
+    @Test
     fun `long press picks the product, the shelf or asks to step back`() {
         val small = { x: Float, y: Float -> floatArrayOf(x, y, x + 0.08f, y + 0.12f) }
         val shelf = (0 until 4).flatMap { i -> listOf(small(0.05f + 0.22f * i, 0.1f), small(0.05f + 0.22f * i, 0.6f)) }
         assertEquals(Focus.SHELF, SceneJudge.focus(shelf).first)
-        assertEquals(Focus.PRODUCT, SceneJudge.focus(listOf(floatArrayOf(0.2f, 0.15f, 0.8f, 0.85f), small(0f, 0f))).first)
+        // 大きな枠があっても、商品 1 つにはしない
+        assertEquals(Focus.STEP_BACK, SceneJudge.focus(listOf(floatArrayOf(0.2f, 0.15f, 0.8f, 0.85f), small(0f, 0f))).first)
         // 少し大きめの商品が 2 つ並んでいる（どちらとも決まらない）
         assertEquals(Focus.STEP_BACK, SceneJudge.focus(listOf(floatArrayOf(0.1f, 0.2f, 0.45f, 0.7f), floatArrayOf(0.5f, 0.2f, 0.85f, 0.7f))).first)
         // 商品が 3 つだけ
         assertEquals(Focus.STEP_BACK, SceneJudge.focus(listOf(small(0.1f, 0.4f), small(0.4f, 0.4f), small(0.7f, 0.4f))).first)
         assertEquals(Focus.NOTHING, SceneJudge.focus(emptyList()).first)
-    }
-
-    @Test
-    fun `a product filling the screen is one product even if its parts are detected too`() {
-        // 画面いっぱいの商品と、その中の絵や文字の枠
-        val whole = floatArrayOf(0.02f, 0.05f, 0.98f, 0.95f)
-        val parts = listOf(floatArrayOf(0.1f, 0.1f, 0.6f, 0.5f), floatArrayOf(0.3f, 0.55f, 0.9f, 0.9f))
-        val (f1, b1) = SceneJudge.focus(listOf(whole) + parts)
-        assertEquals(Focus.PRODUCT, f1)
-        assertTrue(b1!!.contentEquals(whole))
-        // 商品全体の枠が出ず、部分の枠だけが画面いっぱいに広がっている
-        val pieces = listOf(floatArrayOf(0.05f, 0.05f, 0.5f, 0.45f), floatArrayOf(0.5f, 0.1f, 0.95f, 0.5f), floatArrayOf(0.1f, 0.5f, 0.9f, 0.95f))
-        val (f2, b2) = SceneJudge.focus(pieces)
-        assertEquals(Focus.PRODUCT, f2)
-        assertEquals(0.05f, b2!![0], 1e-6f)
-        assertEquals(0.95f, b2[3], 1e-6f)
     }
 
     // ---------------------------------------------------------------- 自分の手を人と間違えない
@@ -375,6 +375,67 @@ class AssistLogicTest {
         assertEquals(listOf("菓子パン A"), seen.map { it.name })
         assertEquals(4f, seen[0].sim)
         assertEquals(0.5f, seen[0].cx, 0.02f)
+    }
+
+    @Test
+    fun `shelf labels gather votes at a place and are read back only from the same side`() {
+        val m = jp.devfest.shelfsight.assist.ShelfLabelMap()
+        val front = Vec3(0f, 0f, 0f)       // 棚の前（+z 側）から見る
+        repeat(4) { m.add("飲み物・お酒", Vec3(0f, 0f, -2f), front, it.toLong()) }
+        m.add("お菓子・おつまみ", Vec3(0.1f, 0f, -2f), front, 5)   // 1 枚だけの読み違い
+        // 背中合わせの棚の裏側（-z 側から見た）
+        repeat(5) { m.add("日用品・雑貨", Vec3(0f, 0f, -2.3f), Vec3(0f, 0f, -4f), it.toLong()) }
+        assertEquals(2, m.size)
+
+        val p = m.at(Vec3(0.05f, 0f, -2f), front)!!
+        assertEquals("飲み物・お酒", p.label)
+        assertEquals(5, p.votes)
+        assertEquals(0.8f, p.share, 1e-6f)
+        assertEquals("日用品・雑貨", m.at(Vec3(0f, 0f, -2.3f), Vec3(0f, 0f, -4f))!!.label)
+        assertNull(m.at(Vec3(5f, 0f, -2f), front))   // まだ見ていない場所
+    }
+
+    @Test
+    fun `products are grouped under the shelf column they stand in, most seen first`() {
+        fun at(x: Float, name: String) = RecognizedProduct(x - 0.02f, 0.4f, x + 0.02f, 0.5f, name, null, null, 0.6f)
+        val cols = jp.devfest.shelfsight.assist.ShelfColumns.productsByColumn(
+            listOf(at(0.05f, "お茶 A"), at(0.1f, "水 B"), at(0.08f, "水 B"), at(0.99f, "コーラ C")), columns = 8,
+        )
+        assertEquals(8, cols.size)
+        assertEquals(listOf("水 B", "お茶 A"), cols[0])
+        assertEquals(listOf("コーラ C"), cols[7])
+        assertTrue(cols[3].isEmpty())
+    }
+
+    @Test
+    fun `a column is corrected by the map only with enough agreeing votes`() {
+        val drinks = ShelfPrior("飲み物・お酒", 0.8f, 5, mapOf("飲み物・お酒" to 0.8f, "お菓子・おつまみ" to 0.2f))
+        val (cols, fixed) = jp.devfest.shelfsight.assist.ShelfLabelMap.correct(
+            listOf("お菓子・おつまみ", "お菓子・おつまみ", "食品", "食品"),
+            listOf(drinks, ShelfPrior("飲み物・お酒", 1f, 2, mapOf("飲み物・お酒" to 1f)), ShelfPrior("食品", 1f, 9, mapOf("食品" to 1f)), null),
+        )
+        assertEquals(listOf("飲み物・お酒", "お菓子・おつまみ", "食品", "食品"), cols)   // 2 票ではまだ直さない
+        assertEquals(listOf(true, false, false, false), fixed.toList())
+        val segs = jp.devfest.shelfsight.assist.ShelfSegment.from(cols, floatArrayOf(0.9f, 0.7f, 0.8f, 0.6f), fixed)
+        assertEquals(listOf("飲み物・お酒", "お菓子・おつまみ", "食品"), segs.map { it.category })
+        assertEquals(listOf(true, false, false), segs.map { it.fromMap })
+        assertEquals(0.5f, segs[2].left)
+        assertEquals(0.7f, segs[2].confidence, 1e-6f)
+        // 「商品なし」は棚にしない
+        assertTrue(jp.devfest.shelfsight.assist.ShelfSegment.from(listOf("商品なし"), floatArrayOf(0.9f)).isEmpty())
+    }
+
+    @Test
+    fun `the shelf type lowers names from other groups but does not overturn a clear match`() {
+        val shelf = jp.devfest.shelfsight.assist.ShelfPrior("弁当・パン", 1f, 10, mapOf("弁当・パン" to 1f))
+        val group = mapOf("choco" to "お菓子・おつまみ", "bread" to "弁当・パン")
+        val out = jp.devfest.shelfsight.assist.MapBias.adjust(c("choco" to 0.70f, "bread" to 0.66f), shelf) { group[it] }
+        assertEquals("bread", out.first().key)
+        val far = jp.devfest.shelfsight.assist.MapBias.adjust(c("choco" to 0.85f, "bread" to 0.66f), shelf) { group[it] }
+        assertEquals("choco", far.first().key)
+        // 1 枚の判別だけ（1 票）なら弱いので、差が小さくても覆さないことがある
+        val weak = shelf.copy(votes = 1)
+        assertEquals("choco", jp.devfest.shelfsight.assist.MapBias.adjust(c("choco" to 0.70f, "bread" to 0.66f), weak) { group[it] }.first().key)
     }
 
     @Test

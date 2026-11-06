@@ -24,7 +24,8 @@ class Recorder(root: File) {
     /** 商品 1 つの記録。[position] は地図に置いた位置（置けなければ null）。 */
     class Product(val p: RecognizedProduct, val position: Vec3?)
 
-    fun record(time: Long, image: Bitmap, g: CaptureGeometry, headingDeg: Float?, walls: Int, products: List<Product>) {
+    /** [shelfColumns] は最後に判別した棚の種類（8 列、地図で直した後。なければ null）。 */
+    fun record(time: Long, image: Bitmap, g: CaptureGeometry, headingDeg: Float?, walls: Int, products: List<Product>, shelfColumns: List<String>? = null) {
         val name = "frame_%05d.jpg".format(n++)
         try {
             File(dir, name).outputStream().use { image.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it) }
@@ -41,6 +42,7 @@ class Recorder(root: File) {
                     .put("sensor_width", g.imageWidth).put("sensor_height", g.imageHeight)
                     .put("upright_rotation", g.uprightRotationDegrees))
                 .put("walls", walls)
+                .put("shelf_columns", shelfColumns?.let { JSONArray(it) } ?: JSONObject.NULL)
                 .put("products", JSONArray(products.map { pr ->
                     val p = pr.p
                     JSONObject().put("name", p.name).put("genre", p.genre ?: JSONObject.NULL).put("fine", p.fine ?: JSONObject.NULL)

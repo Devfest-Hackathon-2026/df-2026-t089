@@ -31,7 +31,8 @@ object ShelfDescriber {
 
     /** 商品のジャンル（26 種類）→ 7 分類。 */
     class Groups(private val groupOf: Map<String, String>) {
-        fun of(p: RecognizedProduct): String? = p.genre?.let { groupOf[it] }
+        fun of(p: RecognizedProduct): String? = of(p.genre)
+        fun of(genre: String?): String? = genre?.let { groupOf[it] }
 
         companion object {
             /** coarse/categories.json（tools/coarse_categories.json と同じ）を読む。 */

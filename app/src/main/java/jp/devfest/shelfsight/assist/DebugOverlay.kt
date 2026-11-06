@@ -24,11 +24,25 @@ class AssistDebug {
     // ① 写っているもの
     @Volatile var scene = Scene.NONE
     @Volatile var productBoxes: List<FloatArray> = emptyList()
+    /** 最後の商品の解析で名前が付いた商品と、それを棚の種類の列ごとにまとめたもの。 */
+    @Volatile var products: List<RecognizedProduct> = emptyList()
+    @Volatile var columnProducts: List<List<String>> = emptyList()
     @Volatile var sceneMs = ""
     @Volatile var sceneAt = 0L
 
-    // 地図（壁の上に貯めた商品）
-    @Volatile var mapView: List<RecognizedProduct> = emptyList()
+    // 棚の種類（歩行中の判別、8 列 × 7 分類）と、地図に貯めた棚のラベル
+    @Volatile var columns: List<String> = emptyList()
+    @Volatile var columnConfidence = FloatArray(0)
+    @Volatile var columnFromMap = BooleanArray(0)
+    @Volatile var shelves: List<ShelfSegment> = emptyList()
+    @Volatile var shelfLabels: List<VisibleShelfLabel> = emptyList()
+    @Volatile var shelvesAt = 0L
+    /** カメラの動きの速さと、省いた処理の数。 */
+    @Volatile var motion = ""
+    @Volatile var skipInfo = ""
+    @Volatile var coarseMs = ""
+
+    // 地図（壁の上に貯めた商品と棚のラベル）
     @Volatile var mapInfo = ""
 
     // ② 棚の説明
@@ -58,7 +72,9 @@ class AssistDebug {
 
 /**
  * カメラの映像の上に、認識の状況をすべて描く。
- * 映像の上: 商品の枠（緑＝説明に使った、橙＝場違いとして外した、灰＝最後の解析の枠、青＝地図に貯めた今見えている商品と見えた回数）、
+ * 上: 歩行中の判別の 8 列の分類と確率（下線＝地図の棚のラベルで直した列）。
+ * 映像の上: 棚の種類と境界（黄の縦線）、地図に貯めた棚のラベル（色の点と票の割合）、
+ * 商品の枠（緑＝説明に使った、橙＝場違いとして外した、灰＝最後の解析の枠）、
  * 長押しで調べた範囲（水色）、人の枠（赤＝人、紫の点線＝自分の手として外した）。下: 文字の一覧。
  */
 class DebugOverlay(context: Context, private val d: AssistDebug) : View(context) {
@@ -67,7 +83,11 @@ class DebugOverlay(context: Context, private val d: AssistDebug) : View(context)
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 11 * density }
     private val small = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 9 * density }
+    private val big = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 15 * density; isFakeBoldText = true }
     private val dashed = DashPathEffect(floatArrayOf(8 * density, 6 * density), 0f)
+
+    /** 下の端の、ボタンで隠れる高さ（ピクセル）。文字の一覧はこの上に出す。 */
+    var bottomInset = 0f
 
     init {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -76,8 +96,9 @@ class DebugOverlay(context: Context, private val d: AssistDebug) : View(context)
 
     override fun onDraw(canvas: Canvas) {
         val now = SystemClock.elapsedRealtime()
+        val top = drawColumns(canvas)
         drawImageLayer(canvas, now)
-        drawPanel(canvas, 0f)
+        drawPanel(canvas, top)
         postInvalidateDelayed(REFRESH_MS)
     }
 
@@ -109,8 +130,34 @@ class DebugOverlay(context: Context, private val d: AssistDebug) : View(context)
     private fun drawImageLayer(canvas: Canvas, now: Long) {
         // 商品の枠（最後の解析）
         if (now - d.sceneAt < STALE_MS) for (b in d.productBoxes) rect(canvas, b[0], b[1], b[2], b[3], GRAY)
-        // 地図に貯めた、今見えている商品（青、数字は見えた回数）
-        if (now - d.sceneAt < STALE_MS) for (p in d.mapView) rect(canvas, p.left, p.top, p.right, p.bottom, BLUE, "${short(p.name)} ${p.sim.toInt()}")
+        // 名前が付いた商品（長押ししなくても、商品の解析のたびに出す）
+        if (now - d.sceneAt < STALE_MS) for (p in d.products) rect(canvas, p.left, p.top, p.right, p.bottom, WHITE_BOX, short(p.name))
+        if (now - d.sceneAt < STALE_MS) {
+            // 地図に貯めた棚のラベル（今の画面に入るもの）
+            for (l in d.shelfLabels) toView(l.u, l.v)?.let { (x, y) ->
+                fill.color = COLORS[l.label] ?: Color.DKGRAY
+                canvas.drawCircle(x, y, 5 * density, fill)
+                canvas.drawText("${l.label.take(2)} ${pct(l.share)}/${l.votes}", x + 7 * density, y + 4 * density, small)
+            }
+        }
+        if (now - d.shelvesAt < STALE_MS) {
+            // 最後に判別した棚の種類と境界（地図で直した棚は「地図」と付ける）
+            for (s in d.shelves) {
+                for (x in listOf(s.left, s.right)) {
+                    val a = toView(x, 0.05f) ?: continue
+                    val b = toView(x, 0.95f) ?: continue
+                    box.color = YELLOW; box.pathEffect = null
+                    canvas.drawLine(a.first, a.second, b.first, b.second, box)
+                }
+                toView((s.left + s.right) / 2, 0.45f)?.let { (x, y) ->
+                    val label = "${s.category} ${pct(s.confidence)}${if (s.fromMap) "（地図）" else ""}"
+                    fill.color = (COLORS[s.category] ?: Color.DKGRAY) and 0x00FFFFFF or 0xD0000000.toInt()
+                    val w = big.measureText(label)
+                    canvas.drawRect(x - w / 2 - 6, y - big.textSize, x + w / 2 + 6, y + 8, fill)
+                    canvas.drawText(label, x - w / 2, y, big)
+                }
+            }
+        }
         // 説明に使った商品と、外した商品
         if (now - d.productsAt < PRODUCTS_MS) {
             for (p in d.kept) rect(canvas, p.left, p.top, p.right, p.bottom, GREEN, short(p.name))
@@ -133,21 +180,24 @@ class DebugOverlay(context: Context, private val d: AssistDebug) : View(context)
         val age = { t: Long -> if (t == 0L) "-" else "${(now - t) / 1000}秒前" }
         val lines = buildList {
             add("追跡: ${d.tracking}  向き: ${d.headingDeg?.let { "%.0f°".format(it) } ?: "-"}  ${d.settings}")
-            add("場面: ${d.scene}  商品の枠: ${d.productBoxes.size}  ${d.sceneMs}（${age(d.sceneAt)}）")
+            add("場面: ${d.scene}  棚: ${d.shelves.joinToString("｜") { it.category }.ifEmpty { "なし" }}  商品の枠: ${d.productBoxes.size}  ${d.sceneMs}（${age(d.sceneAt)}）")
+            add("棚の種類: ${d.coarseMs.ifEmpty { "-" }}（${age(d.shelvesAt)}）  地図で直した列 ${d.columnFromMap.count { it }}")
             add("地図: ${d.mapInfo.ifEmpty { "-" }}")
+            add("動き: ${d.motion.ifEmpty { "-" }}  省いた: ${d.skipInfo.ifEmpty { "なし" }}")
             add("② 主な分類: ${d.mainGroup ?: "-"}  使った ${d.kept.size} / 外した ${d.removed.size} / 名前なし ${d.unnamed}  ${d.describeInfo}（${age(d.productsAt)}）")
             if (d.removed.isNotEmpty()) add("   外した: " + d.removed.groupBy { it.genre ?: "?" }.entries.joinToString("、") { "${it.key}×${it.value.size}" })
             if (d.description.isNotEmpty()) add("   説明: ${d.description}")
-            add("③ 長押し: ${d.longPress.ifEmpty { "-" }}（${age(d.focusAt)}）")
+            add("③ 長押し:${d.longPress.ifEmpty { "-" }}（${age(d.focusAt)}）")
             if (d.lookup.isNotEmpty()) add("   商品: ${d.lookup}")
             add("④ 人: ${d.peopleInfo.ifEmpty { "-" }}")
             add("声: ${d.voice}")
         }
         val lh = text.textSize * 1.25f
-        val wrapped = lines.flatMap { wrap(it, width - 16f) }
-        val panelTop = height - lh * wrapped.size - 12
+        val wrapped = lines.flatMap { it.split('\n') }.flatMap { wrap(it, width - 16f) }
+        val bottom = height - bottomInset
+        val panelTop = bottom - lh * wrapped.size - 12
         fill.color = 0xB0000000.toInt()
-        canvas.drawRect(0f, maxOf(top, panelTop), width.toFloat(), height.toFloat(), fill)
+        canvas.drawRect(0f, maxOf(top, panelTop), width.toFloat(), bottom, fill)
         wrapped.forEachIndexed { i, l -> canvas.drawText(l, 8f, panelTop + lh * (i + 1), text) }
     }
 
@@ -160,6 +210,35 @@ class DebugOverlay(context: Context, private val d: AssistDebug) : View(context)
             rest = rest.drop(n)
         }
         return out
+    }
+
+    /** 画面の上に、8 列の分類と確率を並べる。下端の y を返す。 */
+    private fun drawColumns(canvas: Canvas): Float {
+        val cols = d.columns
+        if (cols.isEmpty()) return 0f
+        // ステータスバーの下から。上段に棚の種類と確率、その下に列ごとの商品（分かった分だけ）
+        val top = 36 * density
+        val h = 34 * density
+        val products = d.columnProducts.takeIf { it.size == cols.size && SystemClock.elapsedRealtime() - d.sceneAt < STALE_MS }
+        val rows = products?.maxOfOrNull { it.size } ?: 0
+        val ph = rows * 12 * density
+        val w = width.toFloat() / cols.size
+        for ((i, c) in cols.withIndex()) {
+            fill.color = (COLORS[c] ?: Color.DKGRAY) and 0x00FFFFFF or 0xC0000000.toInt()
+            canvas.drawRect(i * w, top, (i + 1) * w - 1, top + h + ph, fill)
+            canvas.drawText(c.take(4), i * w + 2, top + 13 * density, small)
+            canvas.drawText(pct(d.columnConfidence.getOrElse(i) { 0f }), i * w + 2, top + 27 * density, small)
+            if (d.columnFromMap.getOrElse(i) { false }) {
+                fill.color = YELLOW
+                canvas.drawRect(i * w, top + h - 3 * density, (i + 1) * w - 1, top + h, fill)
+            }
+            products?.getOrNull(i)?.forEachIndexed { k, name ->
+                val label = short(name)
+                val n = small.breakText(label, true, w - 4, null)
+                canvas.drawText(label.take(n), i * w + 2, top + h + (k + 1) * 12 * density - 2 * density, small)
+            }
+        }
+        return top + h + ph
     }
 
     private fun short(name: String) = name.substringAfter(' ').take(10)
@@ -176,5 +255,8 @@ class DebugOverlay(context: Context, private val d: AssistDebug) : View(context)
         const val CYAN = 0xFF00E5FF.toInt()
         const val RED = 0xFFF44336.toInt()
         const val PURPLE = 0xFFE040FB.toInt()
+        const val YELLOW = 0xFFFFEB3B.toInt()
+        const val WHITE_BOX = 0xFFFFFFFF.toInt()
+        val COLORS = SHELF_COLORS
     }
 }
