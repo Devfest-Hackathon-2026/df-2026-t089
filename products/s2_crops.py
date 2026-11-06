@@ -23,6 +23,11 @@ MIN_SHARP = 4       # ラプラシアンの分散がこれ未満 = 強いぼけ�
 
 class Embedder:
     def __init__(self):
+        if not CLIP_ONNX.exists():
+            import shutil
+            from huggingface_hub import hf_hub_download
+            CLIP_ONNX.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(hf_hub_download("Xenova/mobileclip_s0", "onnx/vision_model.onnx"), CLIP_ONNX)
         cuda = "CUDAExecutionProvider" in ort.get_available_providers()  # Modal の GPU 上 (gpu_clip.py) なら CUDA
         self.s = ort.InferenceSession(str(CLIP_ONNX), providers=["CUDAExecutionProvider", "CPUExecutionProvider"] if cuda
                                       else ["CPUExecutionProvider"])

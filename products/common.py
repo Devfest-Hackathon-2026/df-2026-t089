@@ -9,7 +9,8 @@ ROOT = Path(__file__).resolve().parent.parent
 TRAIN_DIR = ROOT / "training_images"
 TEST_DIR = ROOT / "test_images"
 WORK = ROOT / "products" / "work"
-CLIP_ONNX = ROOT / "app/src/main/assets/mobileclip_s0_vision.onnx"
+# MobileCLIP-S0 の画像側。Apple の研究用ライセンスなので git に入れず、アプリにも同梱しない（無ければ s2_crops.Embedder が取ってくる）
+CLIP_ONNX = WORK / "models" / "mobileclip_s0_vision.onnx"
 IMG_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 WORK.mkdir(parents=True, exist_ok=True)
 

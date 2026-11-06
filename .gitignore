@@ -76,5 +76,3 @@ products/work/embed_runs/**/*.npz
 products/work/yolo/**/*.jpg
 tools/.venv-clip/
 
-# MobileCLIP-S0 の画像側（Apple の研究用ライセンス。products/ の②で使う。Xenova/mobileclip_s0 の onnx/vision_model.onnx）
-app/src/main/assets/mobileclip_s0_vision.onnx
