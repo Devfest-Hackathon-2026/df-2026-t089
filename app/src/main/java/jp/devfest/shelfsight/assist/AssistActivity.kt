@@ -42,7 +42,6 @@ import jp.devfest.shelfsight.perception.PersonDistance
 import jp.devfest.shelfsight.perception.PersonMotion
 import jp.devfest.shelfsight.perception.PersonObservation
 import jp.devfest.shelfsight.perception.PersonTracker
-import jp.devfest.shelfsight.walking.CoarseClassifier
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -53,8 +52,7 @@ import kotlin.math.sqrt
 /**
  * 視覚障害のある人のための、コンビニの棚と商品の案内。胸の前にスマホを立てて持ち、イヤホンで聞く。
  *
- * ① 棚が複数写っている: 歩行中の判別（画面を 8 列に分け、列ごとに 7 分類）で、カテゴリが変わる所を棚の境界とし、
- *    それぞれの棚の方向から棚の種類を読み上げる
+ * （① 棚の種類の読み上げ（歩行中の判別、8 列 × 7 分類）は、遅いので止めている）
  * ② 棚が 1 つ写っている: 商品を認識し、LLM で何があるかを短く自然な文にして話す（場違いな商品は言わない）
  * ③ 商品が 1 つ大きく写っている: Cloud Vision API に聞き、社名と商品名を言う（1 回の接近で 1 回だけ呼ぶ）
  * ④ 人が近づいてくる: その人の方向からピコピコ鳴らす
@@ -89,8 +87,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     /** 次のフレームを高解像度で撮って渡す先（長押し・質問）。 */
     @Volatile private var pendingCapture: ((CapturedFrame) -> Unit)? = null
 
-    /** 歩行中の判別のモデル。大きいのでリポジトリに含めておらず、入っていないビルドでは null（① だけが止まる）。 */
-    private val coarse by lazy { CoarseClassifier.fromAssets(this, BuildConfig.COARSE_MODEL) }
     private val recognizer by lazy { ProductRecognizer(this) }
     private val personDetector by lazy { MediaPipePersonDetector(this) }
     private val tracker = PersonTracker()
@@ -101,7 +97,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             ?.let { GeminiClient(it, BuildConfig.GEMINI_MODELS.split(",").map(String::trim).filter(String::isNotEmpty).sortedBy { m -> "lite" !in m }) },
     )
     private val judge = SceneJudge()
-    private val shelfMemory = ShelfMemory()
     /** 商品のジャンル（26 種類）→ 歩行中の判別と同じ 7 分類。場違いな商品を外すのに使う。 */
     private val groups by lazy { ShelfDescriber.Groups.parse(assets.open("coarse/categories.json").bufferedReader().readText()) }
 
@@ -109,7 +104,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private var lastPerson = 0L
     private var greeted = false
     @Volatile private var auto = true
-    @Volatile private var shelvesRequested = false
     /** ② を話した場所。ここから離れるか、棚 1 つの場面を離れるまでは繰り返さない。 */
     private var describedAt: Vec3? = null
     private var leftOneShelfAt = 0L
@@ -117,8 +111,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     /** 今の接近で、大きく写った商品を最後に見た時刻と、そのときの場所。 */
     private var approachSeenAt = 0L
     private var approachFrom: Vec3? = null
-    @Volatile private var latestShelves: List<PlacedShelf> = emptyList()
-    @Volatile private var latestShelvesAt = 0L
     /** 質問に答えるときに LLM に渡す、最後に話した説明と、最後に調べた商品。 */
     @Volatile private var lastDescription = ""
     @Volatile private var lastProduct = ""
@@ -189,7 +181,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         gl.onResume()
         if (!greeted) {
             greeted = true
-            sceneWorker.execute { if (coarse == null) Log.w(TAG, "coarse/${BuildConfig.COARSE_MODEL}.onnx is missing: shelf categories are off") }
             voice.say("準備ができました。長押しで、商品や棚を調べます。2回たたくと、質問できます。")
             voice.prepare(listOf("調べています"))
         }
@@ -289,24 +280,14 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val image = JpegEncoder.toUprightBitmap(f, SCENE_LONG_SIDE)
         try {
             val now = SystemClock.elapsedRealtime()
-            val coarseResult = coarse?.classify(image)
-            val coarseMs = SystemClock.elapsedRealtime() - now
-            val shelves = coarseResult?.let { r -> ShelfMemory.shelves(r.columns, r.confidence) }.orEmpty().map { s ->
-                s.copy(position = Unprojector.unproject(NormalizedBox(s.left, 0.3f, s.right, 0.7f), f.geometry).position)
-            }
             val boxes = recognizer.detect(image).map { it.first }
-            val detectMs = SystemClock.elapsedRealtime() - now - coarseMs
-            val switched = judge.update(SceneEvidence(shelves.size, boxes))
-            debug.columns = coarseResult?.columns.orEmpty()
-            debug.columnConfidence = coarseResult?.confidence ?: FloatArray(0)
-            debug.shelves = shelves
+            val detectMs = SystemClock.elapsedRealtime() - now
+            val switched = judge.update(SceneEvidence(0, boxes))
             debug.productBoxes = boxes
             debug.scene = judge.scene
-            debug.sceneMs = "棚の判別 ${if (coarse == null) "モデルなし" else "${coarseMs}ms"} / 商品の枠 ${detectMs}ms"
+            debug.sceneMs = "商品の枠 ${detectMs}ms"
             debug.sceneAt = now
             val main = SceneJudge.mainProduct(boxes)
-            latestShelves = shelves
-            latestShelvesAt = now
             val camera = cameraPosition(f)
 
             // 新しい商品に近づいたら、前に調べた結果を忘れる（次の長押しで API を 1 回呼ぶ）。
@@ -326,11 +307,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             if (judge.scene == Scene.ONE_SHELF) leftOneShelfAt = 0L
             if (leftOneShelfAt != 0L && now - leftOneShelfAt > FORGET_DESCRIPTION_MS) describedAt = null
 
-            val forceShelves = shelvesRequested.also { shelvesRequested = false }
             when {
-                forceShelves -> announceShelves(shelves, requested = true)
                 !auto || voice.speaking -> Unit
-                judge.scene == Scene.SHELVES -> announceShelves(shelves, requested = false)
                 judge.scene == Scene.ONE_SHELF && now - lastDescribeTry > DESCRIBE_RETRY_MS &&
                     (describedAt?.distanceTo(camera) ?: Float.MAX_VALUE) > MOVE_TO_REDESCRIBE_M -> {
                     lastDescribeTry = now
@@ -344,22 +322,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         }
     }
 
-    /** ① 棚の種類を、それぞれの棚の方向から言う。最近同じ場所で言った棚は言わない。 */
-    private fun announceShelves(shelves: List<PlacedShelf>, requested: Boolean) {
-        val now = SystemClock.elapsedRealtime()
-        val toSay = if (requested) shelves else shelves.filter { shelfMemory.isNew(it, now) }
-        if (toSay.isEmpty()) {
-            if (requested) voice.say("棚が見つかりません。棚の方にスマホを向けてください。", interrupt = true)
-            return
-        }
-        // 左から順に、その位置から聞こえるように
-        toSay.sortedBy { it.left }.forEachIndexed { i, s ->
-            shelfMemory.remember(s, now)
-            val pos = s.position
-            voice.say(s.spoken, position = { pos }, interrupt = requested && i == 0)
-        }
-    }
-
     /**
      * ② 棚 1 つの商品を説明する。商品認識の結果を LLM で短い自然な文にする（使えなければ決まった言い方の文）。
      * LLM の返事を待つので、呼んだスレッドはしばらく止まる。
@@ -368,11 +330,11 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val t0 = SystemClock.elapsedRealtime()
         val products = recognizer.recognize(image, boxes)
         val t1 = SystemClock.elapsedRealtime()
-        val split = ShelfDescriber.split(products, groups, shelfInFront()?.category)
+        val split = ShelfDescriber.split(products, groups)
         debug.kept = split.kept
         debug.removed = split.removed
         debug.unnamed = boxes.size - products.size
-        debug.mainGroup = split.mainGroup
+        debug.mainGroup = "${split.mainGroup}（${split.mainKinds.joinToString("・")}）"
         debug.productsAt = t1
         val llm = if (narrator.available) narrator.describeShelf(split.kept, jpeg(image, NARRATE_LONG_SIDE)) else null
         val text = llm ?: ShelfDescriber.describe(split.kept)
@@ -388,24 +350,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             voice.say("商品がよく分かりませんでした。棚の正面から、棚全体を写してください。")
         }
     }
-
-    // ---------------------------------------------------------------- 声で「何の棚？」と聞かれたとき
-
-    /** 目の前（画面のまん中）の棚の種類を、最後の解析の結果ですぐに言う。 */
-    private fun tellShelf() {
-        listening.cancel()
-        voice.say(shelfInFront()?.let { shelfSentence(it.category) } ?: NO_SHELF, interrupt = true)
-    }
-
-    /** 画面のまん中（なければいちばん近い）の棚。最後の解析が古ければ null。 */
-    private fun shelfInFront(): PlacedShelf? {
-        val fresh = SystemClock.elapsedRealtime() - latestShelvesAt < SHELF_FRESH_MS
-        val shelves = if (fresh) latestShelves else emptyList()
-        return shelves.firstOrNull { it.left <= 0.5f && it.right >= 0.5f }
-            ?: shelves.minByOrNull { kotlin.math.abs((it.left + it.right) / 2 - 0.5f) }
-    }
-
-    private fun shelfSentence(category: String) = "${category.replace("・", "と")}の棚です。"
 
     // ---------------------------------------------------------------- 長押し: 商品か棚を調べる
 
@@ -526,10 +470,10 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
 
     private fun handle(command: Command?, heard: String?) {
         when (command) {
-            Command.SHELVES -> tellShelf()
+            Command.SHELVES -> ask(heard!!)   // 棚の種類の判定は止めているので、画像を見て LLM が答える
             Command.DESCRIBE, Command.LOOKUP -> onLongPressed()
             Command.PAUSE -> { auto = false; updateSettings(); voice.say("お知らせを止めます。人が近づいたときの音は鳴ります。", interrupt = true) }
-            Command.RESUME -> { auto = true; updateSettings(); shelfMemory.clear(); describedAt = null; voice.say("お知らせを再開します。", interrupt = true) }
+            Command.RESUME -> { auto = true; updateSettings(); describedAt = null; voice.say("お知らせを再開します。", interrupt = true) }
             Command.REPEAT -> voice.say(voice.lastSpoken.ifEmpty { "まだ何も話していません。" }, interrupt = true)
             Command.HELP -> voice.say(Commands.HELP_TEXT, interrupt = true)
             null -> if (heard.isNullOrBlank()) voice.say("聞き取れませんでした。", interrupt = true) else ask(heard)
@@ -546,9 +490,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         pendingCapture = { f ->
             val image = JpegEncoder.toUprightBitmap(f, QUESTION_LONG_SIDE)
             val context = buildString {
-                val fresh = SystemClock.elapsedRealtime() - latestShelvesAt < SHELF_FRESH_MS
-                val shelves = if (fresh) latestShelves else emptyList()
-                appendLine("- 写っている棚の種類（左から）: " + shelves.joinToString("、") { it.category }.ifEmpty { "分からない" })
                 if (lastDescription.isNotEmpty()) appendLine("- 最後に伝えた棚の説明: $lastDescription")
                 if (lastProduct.isNotEmpty()) appendLine("- 最後に調べた商品: $lastProduct")
             }
@@ -573,8 +514,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
 
     private fun updateSettings() {
         val ok = { b: Boolean -> if (b) "○" else "×" }
-        val coarseFile = runCatching { "${BuildConfig.COARSE_MODEL}.onnx" in assets.list("coarse").orEmpty() }.getOrDefault(false)
-        debug.settings = "棚モデル${ok(coarseFile)} Gemini${ok(narrator.available)} Vision${ok(lookup.configured)} 自動のお知らせ${ok(auto)}"
+        debug.settings = "Gemini${ok(narrator.available)} Vision${ok(lookup.configured)} 自動のお知らせ${ok(auto)}"
     }
 
     private fun useHighResolutionCameraImage(s: Session) {
@@ -607,10 +547,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         const val PERSON_LONG_SIDE = 640
         const val LOOKUP_LONG_SIDE = 1600
         const val MAX_CAMERA_IMAGE_WIDTH = 1920
-        const val SHELF_FRESH_MS = 2500L
         const val NARRATE_LONG_SIDE = 768
         const val QUESTION_LONG_SIDE = 1280
-        const val NO_SHELF = "棚が見えません。棚の方にスマホを向けてください。"
         const val FORGET_DESCRIPTION_MS = 3000L
         const val MOVE_TO_REDESCRIBE_M = 1.5f
         const val DESCRIBE_RETRY_MS = 4000L

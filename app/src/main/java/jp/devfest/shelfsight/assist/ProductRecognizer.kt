@@ -190,7 +190,8 @@ class ProductRecognizer(context: Context) : AutoCloseable {
         private const val DIR = "products"
         private const val TOP_K = 10
         private const val MIN_CROP_PX = 14
-        private const val MAX_CROPS = 120
+        /** 名前を付ける切り抜きの数の上限（大きく写ったものから）。照合が切り抜きの数に比例して遅くなるので抑える。 */
+        private const val MAX_CROPS = 40
 
         private fun JSONObject.text(name: String): String? = if (isNull(name)) null else optString(name).ifEmpty { null }
 

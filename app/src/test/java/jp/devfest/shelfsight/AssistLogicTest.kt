@@ -10,13 +10,11 @@ import jp.devfest.shelfsight.assist.Listener
 import jp.devfest.shelfsight.assist.Narrator
 import jp.devfest.shelfsight.assist.PersonFilter
 import jp.devfest.shelfsight.assist.Reading
-import jp.devfest.shelfsight.assist.PlacedShelf
 import jp.devfest.shelfsight.assist.RecognizedProduct
 import jp.devfest.shelfsight.assist.Scene
 import jp.devfest.shelfsight.assist.SceneEvidence
 import jp.devfest.shelfsight.assist.SceneJudge
 import jp.devfest.shelfsight.assist.ShelfDescriber
-import jp.devfest.shelfsight.assist.ShelfMemory
 import jp.devfest.shelfsight.assist.VisionProductParser
 import jp.devfest.shelfsight.assist.Wav
 import jp.devfest.shelfsight.model.NormalizedBox
@@ -33,45 +31,6 @@ import java.nio.ByteOrder
 import kotlin.math.PI
 
 class AssistLogicTest {
-    // ---------------------------------------------------------------- ① 列ごとのカテゴリ → 棚
-
-    @Test
-    fun `runs of the same column category become shelves and no-product columns are dropped`() {
-        val cols = listOf("飲み物・お酒", "飲み物・お酒", "商品なし", "日用品・雑貨", "日用品・雑貨", "日用品・雑貨", "お菓子・おつまみ", "お菓子・おつまみ")
-        val conf = floatArrayOf(0.9f, 0.7f, 0.8f, 0.6f, 0.6f, 0.9f, 0.5f, 0.7f)
-        val shelves = ShelfMemory.shelves(cols, conf)
-        assertEquals(listOf("飲み物・お酒", "日用品・雑貨", "お菓子・おつまみ"), shelves.map { it.category })
-        assertEquals(0f, shelves[0].left, 1e-6f)
-        assertEquals(0.25f, shelves[0].right, 1e-6f)
-        assertEquals(0.375f, shelves[1].left, 1e-6f)
-        assertEquals(0.75f, shelves[1].right, 1e-6f)
-        assertEquals(0.8f, shelves[0].confidence, 1e-6f)
-        assertEquals("飲み物とお酒", shelves[0].spoken)
-        assertTrue(ShelfMemory.shelves(List(8) { ShelfMemory.NO_PRODUCT }, FloatArray(8) { 1f }).isEmpty())
-    }
-
-    @Test
-    fun `the walking classifier head has the 7 categories over 8 columns`() {
-        val dir = listOf("src/main/assets/coarse", "app/src/main/assets/coarse").map(::File).first { it.exists() }
-        for (f in dir.listFiles { x -> x.name.endsWith(".head.json") }!!) {
-            val head = jp.devfest.shelfsight.walking.CoarseHead.parse(f.readText())
-            assertEquals(f.name, 7, head.classes.size)
-            assertEquals(f.name, 8, head.columns)
-            assertTrue(ShelfMemory.NO_PRODUCT in head.classes)
-        }
-    }
-
-    @Test
-    fun `the same shelf at the same place is announced once`() {
-        val m = ShelfMemory()
-        val s = PlacedShelf("冷凍・アイス", 0.6f, 0f, 1f, Vec3(0f, 0f, -2f))
-        assertTrue(m.isNew(s, 0))
-        m.remember(s, 0)
-        assertFalse(m.isNew(s.copy(position = Vec3(0.5f, 0f, -2f)), 1000))
-        assertTrue(m.isNew(s.copy(position = Vec3(5f, 0f, -2f)), 1000))       // 別の場所の同じ種類
-        assertTrue(m.isNew(s, ShelfMemory.REMEMBER_MS + 1))                    // しばらく経った
-    }
-
     // ---------------------------------------------------------------- ② 周りの商品による補正（products/context.py の自己チェックと同じ）
 
     private val centers = listOf(0.1f to 0.1f, 0.2f to 0.1f, 0.3f to 0.1f, 0.4f to 0.1f, 0.25f to 0.11f, 0.25f to 0.6f)
@@ -146,6 +105,16 @@ class AssistLogicTest {
         assertEquals("お菓子・おつまみ", split.mainGroup)
         assertEquals(12, split.kept.size)
         assertEquals(listOf("カップ麺"), split.removed.map { it.genre })
+    }
+
+    @Test
+    fun `gummies on the potato chip shelf are removed although both are snacks`() {
+        val chips = (0 until 9).map { p(0.05f + 0.1f * it, if (it < 5) 0.2f else 0.6f, "ポテトチップス・スナック", "スナック菓子") }
+        val gummies = (0 until 2).map { p(0.4f + 0.1f * it, 0.6f, "グミ", "グミ・キャンディ") }
+        val split = ShelfDescriber.split(chips + gummies, groups)
+        assertEquals(listOf("ポテトチップス・スナック"), split.mainKinds)
+        assertEquals(9, split.kept.size)
+        assertEquals(listOf("グミ", "グミ"), split.removed.map { it.fine })
     }
 
     @Test
