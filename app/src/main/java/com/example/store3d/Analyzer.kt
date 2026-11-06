@@ -56,7 +56,7 @@ fun yuvToArgb(img: Image): IntArray {
 /** Camera frame snapshot taken on the GL thread so the ARCore Image can be closed immediately. */
 class FrameShot(val argb: IntArray, val w: Int, val h: Int, val rot: Int, val pose: Pose, val fx: Float, val fy: Float, val cx: Float, val cy: Float)
 
-class Analyzer(ctx: Context) {
+class Analyzer(ctx: Context) : AutoCloseable {
     val labels: List<String> = ctx.assets.open("labels.txt").bufferedReader().readLines().filter { it.isNotBlank() }
     private val opts = Interpreter.Options().setNumThreads(4)
     private val cls = Interpreter(map(ctx, "shelf_classifier.tflite"), opts)
@@ -64,25 +64,37 @@ class Analyzer(ctx: Context) {
 
     class Result(val labelRays: List<LabelRay>, val boundaryRays: List<Ray>, val summary: String)
 
-    fun analyze(f: FrameShot): Result {
-        val src = Bitmap.createBitmap(f.argb, f.w, f.h, Bitmap.Config.ARGB_8888)
-        val up = Bitmap.createBitmap(src, 0, 0, f.w, f.h, Matrix().apply { postRotate(f.rot.toFloat()) }, true)
+    /** 棚の境界で区切った 1 区間。[left]..[right] は正立画像の横位置（0..1）、[probs] は棚の種類ごとの確率。 */
+    class Segment(val left: Float, val right: Float, val probs: FloatArray)
+
+    /** 正立画像を、棚の境界で区切って区間ごとに棚の種類を判定する。 */
+    fun segments(up: Bitmap): List<Segment> = cutAndClassify(up).second
+
+    /** 境界の位置と、境界で区切った区間。 */
+    private fun cutAndClassify(up: Bitmap): Pair<List<Float>, List<Segment>> {
         val bOut = Array(1) { FloatArray(BND_COLS) }
         bnd.run(input(up, BND_SIZE), bOut)
         val cuts = decodePeaks(bOut[0], BOUNDARY_THR)
         val edges = listOf(0f) + cuts + listOf(1f)
-        val labelRays = mutableListOf<LabelRay>()
-        val names = mutableListOf<String>()
+        val out = mutableListOf<Segment>()
         for (i in 0 until edges.size - 1) {
             val a = edges[i]; val b = edges[i + 1]
-            if (b - a < 0.12f) continue
+            if (b - a < MIN_SEGMENT) continue
             val crop = Bitmap.createBitmap(up, (a * up.width).toInt(), (0.15f * up.height).toInt(),
                 ((b - a) * up.width).toInt().coerceAtLeast(1), (0.7f * up.height).toInt())
-            val out = Array(1) { FloatArray(labels.size) }
-            cls.run(input(crop, CLS_SIZE), out)
-            labelRays += LabelRay(ray(f, (a + b) / 2, 0.5f), out[0])
-            names += labels[out[0].indices.maxBy { out[0][it] }]
+            val o = Array(1) { FloatArray(labels.size) }
+            cls.run(input(crop, CLS_SIZE), o)
+            out += Segment(a, b, o[0])
         }
+        return cuts to out
+    }
+
+    fun analyze(f: FrameShot): Result {
+        val src = Bitmap.createBitmap(f.argb, f.w, f.h, Bitmap.Config.ARGB_8888)
+        val up = Bitmap.createBitmap(src, 0, 0, f.w, f.h, Matrix().apply { postRotate(f.rot.toFloat()) }, true)
+        val (cuts, segs) = cutAndClassify(up)
+        val labelRays = segs.map { LabelRay(ray(f, (it.left + it.right) / 2, 0.5f), it.probs) }
+        val names = segs.map { s -> labels[s.probs.indices.maxBy { s.probs[it] }] }
         return Result(labelRays, cuts.map { ray(f, it, 0.5f) }, names.joinToString(" | "))
     }
 
@@ -106,10 +118,16 @@ class Analyzer(ctx: Context) {
         FileInputStream(fd.fileDescriptor).channel.map(FileChannel.MapMode.READ_ONLY, fd.startOffset, fd.declaredLength)
     }
 
+    override fun close() {
+        cls.close()
+        bnd.close()
+    }
+
     companion object {
         const val CLS_SIZE = 224
         const val BND_SIZE = 384
         const val BND_COLS = 24
+        const val MIN_SEGMENT = 0.12f
         const val BOUNDARY_THR = 0.1f // tuned on boundaries.csv sweep; 3D voting (MIN_SUPPORT) removes one-frame false positives
     }
 }

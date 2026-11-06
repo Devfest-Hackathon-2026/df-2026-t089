@@ -59,3 +59,6 @@ dashboard/.cache/
 
 # 歩行中の判別モデル（数十 MB あるうえ、MobileCLIP の重みは Apple の研究用ライセンスなので公開リポジトリに載せない）
 app/src/main/assets/coarse/*.onnx
+
+# 商品認識の作業データ（店内写真の切り抜き・API の生の結果を含むので公開しない）
+products/work/

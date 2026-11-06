@@ -21,6 +21,8 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // ARCore は実機でしか動かないので、実機（Pixel 8a など）の 64 ビット ARM だけを入れる。全 ABI だと APK が 400MB 近くになる
+        ndk { abiFilters += "arm64-v8a" }
 
         buildConfigField("String", "GEMINI_API_KEY", "\"${localProperties.getProperty("GEMINI_API_KEY", "")}\"")
         buildConfigField(

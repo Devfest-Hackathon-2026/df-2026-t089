@@ -4,8 +4,19 @@
 
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-feature android:name="android.hardware.camera.ar" android:required="true" />
     <uses-feature android:glEsVersion="0x00020000" android:required="true" />
+
+    <!-- 端末の音声認識と音声合成を使う（Android 11 以降は宣言しないと見つからない） -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
 
     <application
         android:label="@string/app_name"
@@ -25,8 +36,9 @@
         <uses-native-library android:name="libvndksupport.so" android:required="false" />
         <uses-native-library android:name="libOpenCL.so" android:required="false" />
 
+        <!-- 買い物の案内（このアプリの画面）。棚・商品・人を音で伝える -->
         <activity
-            android:name=".MainActivity"
+            android:name=".assist.AssistActivity"
             android:exported="true"
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|keyboardHidden">
@@ -36,18 +48,22 @@
             </intent-filter>
         </activity>
 
+        <!-- 開発用（地図づくりと Store3D のスキャン）。ランチャーには出さない -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+        </activity>
+
         <!-- Store3D（ランチャーのアイコンが ShelfSight と別に表示される） -->
         <activity
             android:name="com.example.store3d.MainActivity"
             android:label="Store3D"
             android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
-            android:exported="true"
+            android:exported="false"
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|keyboardHidden">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
         <activity
             android:name="com.example.store3d.ViewerActivity"

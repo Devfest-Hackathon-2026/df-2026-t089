@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>商品認識ダッシュボード</title>
+<style>
+:root { --bg:#f6f7f9; --card:#fff; --fg:#1d2330; --mute:#6b7280; --line:#e3e6ea; --acc:#2563eb; --ok:#15803d; --bad:#b91c1c; --warn:#b45309; }
+@media (prefers-color-scheme: dark) { :root { --bg:#14171c; --card:#1d2128; --fg:#e6e8eb; --mute:#9aa3ad; --line:#2d333c; --acc:#60a5fa; --ok:#4ade80; --bad:#f87171; --warn:#fbbf24; } }
+* { box-sizing:border-box; }
+body { margin:0; font:14px/1.5 system-ui, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif; background:var(--bg); color:var(--fg); }
+header { display:flex; gap:4px; align-items:center; padding:8px 16px; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0; z-index:5; flex-wrap:wrap; }
+header h1 { font-size:15px; margin:0 16px 0 0; }
+nav button { border:0; background:none; color:var(--mute); padding:6px 10px; border-radius:6px; cursor:pointer; font:inherit; }
+nav button.on { background:var(--bg); color:var(--fg); font-weight:600; }
+main { padding:16px; max-width:1500px; margin:auto; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:12px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:12px; }
+.mute { color:var(--mute); } .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+.bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin-top:6px; } .bar i { display:block; height:100%; background:var(--acc); }
+table { border-collapse:collapse; width:100%; } td, th { padding:4px 8px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+th { color:var(--mute); font-weight:500; } .num { text-align:right; font-variant-numeric:tabular-nums; }
+.log { font:12px/1.45 ui-monospace, Consolas, monospace; max-height:420px; overflow:auto; white-space:pre-wrap; }
+.split { display:grid; grid-template-columns:260px 1fr; gap:12px; } @media (max-width:800px) { .split { grid-template-columns:1fr; } }
+.list { max-height:75vh; overflow:auto; } .list div { padding:3px 6px; cursor:pointer; border-radius:4px; display:flex; justify-content:space-between; } .list div.on { background:var(--bg); font-weight:600; }
+canvas { max-width:100%; height:auto; display:block; cursor:crosshair; }
+.crops { display:flex; flex-wrap:wrap; gap:3px; } .crops img { height:56px; border-radius:3px; background:var(--bg); }
+.pcard img.rep { width:100%; height:150px; object-fit:contain; background:var(--bg); border-radius:4px; }
+input[type=text] { width:100%; font:inherit; padding:4px 6px; border:1px solid var(--line); border-radius:4px; background:var(--bg); color:var(--fg); }
+svg text { fill:var(--mute); font-size:11px; }
+.tiles { display:grid; grid-template-columns:repeat(auto-fill, minmax(104px, 1fr)); gap:6px; }
+.tile { border:1px solid var(--line); border-radius:6px; padding:4px; cursor:pointer; background:var(--card); }
+.tile img { width:100%; height:90px; object-fit:contain; display:block; }
+.tname { font-size:11px; line-height:1.3; height:2.6em; overflow:hidden; margin-top:2px; }
+.st-rule { background:#111 !important; color:#eee; border-color:#000; }
+.st-model { background:#bfdbfe !important; } .st-pass { background:#bbf7d0 !important; } .st-bad { background:#fed7aa !important; }
+@media (prefers-color-scheme: dark) { .st-model { background:#1e3a8a !important; } .st-pass { background:#14532d !important; } .st-bad { background:#7c2d12 !important; } }
+.chip { border:1px solid var(--line); border-radius:999px; padding:3px 10px; background:var(--card); color:inherit; cursor:pointer; font:inherit; }
+.chip.on { outline:2px solid var(--acc); }
+main button { font:inherit; padding:4px 10px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--fg); cursor:pointer; }
+#runbar { padding:6px 16px; background:var(--card); border-bottom:1px solid var(--line); font-size:13px; }
+#runbar:empty { display:none; }
+#runbar .job { display:inline-block; margin-right:18px; }
+.cmp td { vertical-align:top; font-size:13px; } .ev { cursor:pointer; } .ev:hover { outline:1px solid var(--acc); }
+.ev-ok { background:#bbf7d0; } .ev-ng { background:#fecaca; }
+@media (prefers-color-scheme: dark) { .ev-ok { background:#14532d; } .ev-ng { background:#7f1d1d; } }
+.ggrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(56px, 1fr)); gap:3px; }
+.gcell { position:relative; aspect-ratio:1; background:var(--card); border:1px solid var(--line); border-radius:4px; cursor:pointer; overflow:hidden; }
+.gcell img { width:100%; height:100%; object-fit:contain; display:block; }
+.gcell .gn { position:absolute; right:1px; bottom:1px; font-size:10px; line-height:1; padding:2px 3px; border-radius:3px; background:var(--acc); color:#fff; }
+.gthumbs { display:flex; gap:3px; overflow-x:auto; max-width:100%; } .gthumbs img { height:64px; border-radius:3px; flex:none; }
+.row { display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+</style>
+</head>
+<body>
+<header><h1>商品認識パイプライン</h1>
+<nav id="tabs"></nav><span class="mute" id="upd" style="margin-left:auto"></span></header>
+<div id="runbar"></div>
+<main id="main"></main>
+<script>
+const TABS = { overview:"概要", detect:"① 切り出し", products:"② 商品テーブル", groups:"②b グループ", naming:"②c 命名", train:"③ YOLO境界検出の学習", classify:"③b 商品分類の学習", infer:"④ 推論・評価" };
+const STAGES = { classify:"③b 商品分類の評価", compare:"②c 命名方法の比較", detect:"① 商品枠の検出 (OWLv2)", regroup:"②b しきい値の反映", crops:"② 切り抜き＋ルール判定", judge:"② ローカルモデル判定", group:"② 同じ商品のグループ化 (DINOv2)", name:"②c 商品名付け (Gemini)", train:"③ YOLO境界検出の学習", infer:"④ 推論・評価" };
+let S = null, tab = location.hash.slice(1) || "overview", selDet = null, selInf = null;
+const $ = (h) => { const t = document.createElement("template"); t.innerHTML = h.trim(); return t.content.firstChild; };
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+const post = (u, b) => fetch(u, { method:"POST", body:JSON.stringify(b) }).then(r => { if (!r.ok) r.text().then(alert); return refresh(); });
+
+function nav() {
+  const n = document.getElementById("tabs"); n.innerHTML = "";
+  for (const [k, v] of Object.entries(TABS)) { const b = $(`<button class="${k == tab ? "on" : ""}">${v}</button>`); b.onclick = () => { tab = k; location.hash = k; nav(); render(true); }; n.append(b); }
+}
+async function refresh() {
+  const before = S ? S.running.join() : "";
+  S = await (await fetch("/api/state")).json();
+  document.getElementById("upd").textContent = "更新 " + new Date().toLocaleTimeString();
+  runbar();
+  // ボタンで起動した処理が終わったら、操作系タブも結果を読み直す
+  render(before != S.running.join() && document.activeElement?.tagName != "INPUT");
+}
+// 入力中の欄や選択中の画像を壊さないよう、操作系タブは自動更新では作り直さない
+function render(force) {
+  const m = document.getElementById("main");
+  if (!force && ["detect", "products", "groups", "naming", "classify", "infer"].includes(tab) && m.dataset.tab == tab) return;
+  m.dataset.tab = tab; m.innerHTML = "";
+  ({ overview, detect, products, groups, naming, train, classify, infer })[tab](m);
+}
+
+// 今動いている段階・進捗・残り時間・終了予定。残りは「今のフェーズの開始からのペース」で見積もる
+function runbar() {
+  const bar = document.getElementById("runbar"), jobs = [];
+  for (const [k, s] of Object.entries(S.status)) {
+    if (s.state != "running") continue;
+    const name = STAGES[k] || k, upd = new Date(s.updated.replace(" ", "T")).getTime() / 1000;
+    let txt = `<b>${esc(name)}</b>${s.phase ? " · " + esc(s.phase) : ""}`;
+    if (s.total) txt += ` · ${s.done}/${s.total}`;
+    if (S.now - upd > 600) txt += ` · <span class="bad">10分以上更新なし（止まっているかも）</span>`;
+    else if (s.total && s.t0 && s.done > s.done0) {
+      const rem = (S.now - s.t0) / (s.done - s.done0) * (s.total - s.done);
+      txt += ` · 残り約 ${rem < 60 ? Math.ceil(rem) + " 秒" : Math.ceil(rem / 60) + " 分"} · 終了予定 <b>${new Date((S.now + rem) * 1000).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}</b>`;
+    } else txt += ` · <span class="mute">準備中（終了予定は進み始めてから）</span>`;
+    jobs.push(`<span class="job">⏳ ${txt}</span>`);
+  }
+  bar.innerHTML = jobs.length ? jobs.join("") : "";
+}
+
+function overview(m) {
+  const g = $(`<div class="grid"></div>`);
+  for (const [k, name] of Object.entries(STAGES)) {
+    const s = S.status[k] || {}, st = s.state || "未実行";
+    const cls = st == "done" ? "ok" : st == "error" ? "bad" : st == "running" ? "warn" : "mute";
+    const pct = s.total ? Math.round(100 * s.done / s.total) : (st == "done" ? 100 : 0);
+    g.append($(`<div class="card"><b>${name}</b><div class="${cls}">${{done:"完了",running:"実行中",error:"エラー"}[st] || st}${s.total ? ` ${s.done}/${s.total}` : ""}</div>
+      ${s.total ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}
+      <div class="mute" style="font-size:12px">${esc(s.updated || "")}${s.sec_per_image ? ` · ${s.sec_per_image}s/枚` : ""}</div>
+      ${s.error ? `<div class="bad" style="font-size:12px">${esc(s.error)}</div>` : ""}</div>`));
+  }
+  m.append(g);
+  const thr = S.config.det_threshold, n = S.det.reduce((a, d) => a + d.scores.filter(x => x >= thr).length, 0);
+  const sm = S.summary;
+  m.append($(`<div class="card row"><div><b>${S.det.length}</b> 枚処理済み</div><div><b>${n}</b> 個の商品枠 (しきい値 ${thr})</div>
+    <div>切り抜き <b>${sm.all}</b> (合格 <b>${sm.pass}</b>)</div><div><b>${sm.named}</b> 個に名前 / <b>${sm.products}</b> 商品</div>
+    ${S.eval ? `<div>推論 平均 <b>${S.eval.ms_total_mean ?? "-"}</b> ms</div>` : ""}</div>`));
+  const log = $(`<div class="card"><b>ログ</b><div class="log"></div></div>`);
+  log.querySelector(".log").textContent = S.log.slice().reverse().map(l => `${l.t} [${l.stage}] ${l.msg}${Object.keys(l).length > 3 ? "  " + JSON.stringify(Object.fromEntries(Object.entries(l).filter(([k]) => !["t","stage","msg"].includes(k)))) : ""}`).join("\n");
+  m.append(log);
+  if (S.experiments.length) {
+    m.append($(`<h3>実験（手法の比較）</h3>`));
+    const ex = $(`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))"></div>`);
+    for (const e of S.experiments) ex.append($(`<div class="card"><b>${esc(e.title)}</b><div class="mute" style="font-size:12px">${esc(e.note)}</div>
+      ${e.img ? `<a href="/work/${e.img}" target="_blank"><img src="/work/${e.img}" style="width:100%;margin-top:6px;border-radius:4px"></a>` : ""}</div>`));
+    m.append(ex);
+  }
+}
+
+function drawBoxes(cv, img, boxes, opt = {}) {
+  cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+  const c = cv.getContext("2d"); c.drawImage(img, 0, 0);
+  const W = cv.width, H = cv.height; c.lineWidth = Math.max(2, W / 500); c.font = `${Math.max(12, W / 80)}px sans-serif`;
+  boxes.forEach(b => {
+    const [x0, y0, x1, y1] = b.box;
+    c.strokeStyle = b.color; c.setLineDash(b.dash ? [6, 4] : []);
+    c.strokeRect(x0 * W, y0 * H, (x1 - x0) * W, (y1 - y0) * H);
+    if (b.label) { const tw = c.measureText(b.label).width; c.fillStyle = b.color; c.fillRect(x0 * W, y0 * H - 16, tw + 6, 16); c.fillStyle = "#fff"; c.fillText(b.label, x0 * W + 3, y0 * H - 3); }
+  });
+}
+
+function detect(m) {
+  const thr = S.config.det_threshold;
+  const mw = S.config.min_crop_w, mh = S.config.min_crop_h;
+  const top = $(`<div class="card row"><label>採用しきい値 <input type="range" min="0.05" max="0.6" step="0.01" value="${thr}" style="vertical-align:middle"> <b>${thr}</b></label>
+    <label>最小サイズ 幅 <input type="number" id="mw" min="0" max="2000" value="${mw}" style="width:64px"> × 高さ <input type="number" id="mh" min="0" max="2000" value="${mh}" style="width:64px"> px 未満は切り抜かない（灰色）</label>
+    <span class="mute">枠をクリックで「誤検出」に切替（赤の点線）。この採否が ② と ③ の学習データになります。</span>
+    <button id="gpu1" ${S.running.includes("detect_gpu") || S.status.detect?.state == "running" ? "disabled" : ""}>未処理の画像を Modal GPU で検出</button></div>`);
+  top.querySelector("#gpu1").onclick = () => post("/api/run", { script: "detect_gpu" }).then(() => render(true));
+  const r = top.querySelector("input"); r.oninput = () => top.querySelector("b").textContent = r.value; r.onchange = () => post("/api/config", { det_threshold: +r.value }).then(() => render(true));
+  for (const id of ["mw", "mh"]) top.querySelector("#" + id).onchange = (e) => post("/api/config", { [id == "mw" ? "min_crop_w" : "min_crop_h"]: +e.target.value }).then(() => render(true));
+  m.append(top);
+  if (!S.det.length) return m.append($(`<div class="card mute">まだ検出結果がありません（products/s1_detect.py を実行）</div>`));
+  const sp = $(`<div class="split"><div class="card list"></div><div class="card"><div class="row mute" id="dinfo"></div><canvas></canvas></div></div>`);
+  m.append(sp);
+  selDet = selDet || S.det[0].stem;
+  const L = sp.querySelector(".list");
+  for (const d of S.det) {
+    const rej = (S.rejects[d.stem] || []).length, n = d.scores.filter(x => x >= thr).length;
+    const e = $(`<div class="${d.stem == selDet ? "on" : ""}"><span>${esc(d.image)}</span><span class="mute">${n}${rej ? ` <span class="bad">-${rej}</span>` : ""}</span></div>`);
+    e.onclick = () => { selDet = d.stem; render(true); }; L.append(e);
+  }
+  L.querySelector(".on")?.scrollIntoView({ block:"nearest" });
+  const cv = sp.querySelector("canvas"), img = new Image();
+  fetch(`/work/det/${encodeURIComponent(selDet)}.json`).then(r => r.json()).then(d => {
+    img.onload = () => {
+      const rej = new Set(S.rejects[selDet] || []);
+      const vis = d.boxes.map((b, i) => ({ box:b, i, s:d.scores[i], small: (b[2] - b[0]) * d.w < mw || (b[3] - b[1]) * d.h < mh })).filter(b => b.s >= thr);
+      drawBoxes(cv, img, vis.map(b => ({ box:b.box, color: rej.has(b.i) ? "#dc2626" : b.small ? "#9ca3af" : b.s > 0.4 ? "#16a34a" : "#2563eb", dash: rej.has(b.i) || b.small, label: b.s.toFixed(2) })));
+      const nsmall = vis.filter(b => b.small && !rej.has(b.i)).length, nok = vis.filter(b => !b.small && !rej.has(b.i)).length;
+      sp.querySelector("#dinfo").textContent = `${d.image}  ${d.w}×${d.h}  切り抜き ${nok} 個 / 小さすぎ ${nsmall} 個 / 誤検出 ${rej.size} 個 / 候補 ${d.boxes.length} 個  処理 ${d.sec}s`;
+      cv.onclick = (ev) => {
+        const rc = cv.getBoundingClientRect(), x = (ev.clientX - rc.left) / rc.width, y = (ev.clientY - rc.top) / rc.height;
+        const hit = vis.filter(b => b.box[0] <= x && x <= b.box[2] && b.box[1] <= y && y <= b.box[3])
+          .sort((a, b) => (a.box[2] - a.box[0]) * (a.box[3] - a.box[1]) - (b.box[2] - b.box[0]) * (b.box[3] - b.box[1]))[0];
+        if (hit) post("/api/reject", { stem: selDet, idx: hit.i }).then(() => render(true));
+      };
+    };
+    img.src = `/work/view/${encodeURIComponent(selDet)}.jpg`;
+  });
+}
+
+// 商品テーブル: 切り抜き1枚ずつ。色 = 判定段階（未判定=既定 / ルール除外=黒 / ローカルモデル除外=青 / 合格=緑 / Vision 結果が悪い=オレンジ）
+const ST = { none:["未判定",""], rule:["ルールで除外","st-rule"], model:["ローカルモデルで除外","st-model"], pass:["合格","st-pass"], bad:["Vision 結果が悪い","st-bad"] };
+let P = null, pFilter = "all", pPage = 0;
+const PAGE = 300;
+async function products(m) {
+  const sm = S.summary, run = (k) => S.running.includes(k) || S.status[k]?.state == "running";
+  const top = $(`<div class="card">
+    <div class="row" style="margin-bottom:8px">
+      <span>1. 切り抜き＋ルール判定: <button data-run="crops" ${run("crops") || run("crops_gpu") ? "disabled" : ""}>ローカル CPU</button> <button data-run="crops_gpu" ${run("crops") || run("crops_gpu") ? "disabled" : ""}>Modal GPU</button></span>
+      <button data-run="judge" ${run("judge") ? "disabled" : ""}>2. ローカルモデルで判定</button>
+      <span class="mute">命名は「②c 命名」タブ</span>
+    </div>
+    <div class="row" id="chips"></div></div>`);
+  top.querySelectorAll("[data-run]").forEach(b => b.onclick = () => post("/api/run", { script: b.dataset.run }).then(() => render(true)));
+  const chips = top.querySelector("#chips");
+  for (const [k, label] of [["all", "全部"], ...Object.entries(ST).map(([k, v]) => [k, v[0]]), ["named", "命名済み"]]) {
+    const c = $(`<button class="chip ${k == pFilter ? "on" : ""} ${ST[k]?.[1] || ""}">${label} <b>${sm[k] ?? 0}</b></button>`);
+    c.onclick = () => { pFilter = k; pPage = 0; render(true); }; chips.append(c);
+  }
+  chips.append($(`<span class="mute">商品 ${sm.products} 種類（同じ社名・商品名をまとめた数）</span>`));
+  m.append(top);
+  if (!sm.all) return m.append($(`<div class="card mute">まだ切り抜きがありません（1. を実行）</div>`));
+  P = await (await fetch("/api/products")).json();  // [id, image, score, w, h, state, why, maker, product]
+  // 商品一覧: 社名・商品名が同じものをまとめる
+  const groups = {};
+  for (const r of P) if (r[7] || r[8]) (groups[r[7] + "\u0000" + r[8]] ||= []).push(r);
+  const gs = Object.values(groups).sort((a, b) => b.length - a.length);
+  if (gs.length) {
+    const t = $(`<div class="card"><b>商品一覧（${gs.length} 種類）</b><table><tr><th>社名</th><th>商品名</th><th class="num">枚数</th><th>切り抜き</th></tr></table></div>`);
+    for (const g of gs.slice(0, 200)) t.querySelector("table").append($(`<tr><td>${esc(g[0][7]) || '<span class="mute">不明</span>'}</td><td>${esc(g[0][8])}</td><td class="num">${g.length}</td>
+      <td><div class="crops">${g.slice(0, 8).map(r => `<img loading="lazy" src="/work/crops/${r[0]}.jpg" title="${esc(r[1])}">`).join("")}</div></td></tr>`));
+    m.append(t);
+  }
+  const rows = P.filter(r => pFilter == "all" || (pFilter == "named" ? (r[7] || r[8]) : (r[5] || "none") == pFilter));
+  const pages = Math.max(1, Math.ceil(rows.length / PAGE)); pPage = Math.min(pPage, pages - 1);
+  const pager = $(`<div class="row" style="margin:8px 0"><button ${pPage ? "" : "disabled"}>←</button><span>${pPage + 1} / ${pages} ページ（${rows.length} 個）</span><button ${pPage < pages - 1 ? "" : "disabled"}>→</button></div>`);
+  const [prev, next] = pager.querySelectorAll("button"); prev.onclick = () => { pPage--; render(true); }; next.onclick = () => { pPage++; render(true); };
+  m.append(pager);
+  const edit = $(`<div class="card" id="edit" style="display:none"></div>`); m.append(edit);
+  const g = $(`<div class="tiles"></div>`);
+  for (const r of rows.slice(pPage * PAGE, (pPage + 1) * PAGE)) {
+    const e = $(`<div class="tile ${ST[r[5] || "none"][1]}" title="${esc(r[1])} score ${r[2]} ${r[3]}×${r[4]}px ${esc(r[6])}">
+      <img loading="lazy" src="/work/crops/${r[0]}.jpg"><div class="tname">${r[7] || r[8] ? esc([r[7], r[8]].filter(Boolean).join(" ")) : esc(r[6]) || "&nbsp;"}</div></div>`);
+    e.onclick = () => openEdit(edit, r); g.append(e);
+  }
+  m.append(g);
+}
+async function openEdit(box, r) {
+  const d = await (await fetch(`/api/crop/${encodeURIComponent(r[0])}`)).json(), n = d.name || {};
+  box.style.display = ""; box.scrollIntoView({ block: "nearest" });
+  box.innerHTML = `<div class="row" style="align-items:flex-start"><img src="/work/crops/${r[0]}.jpg" style="max-height:160px;border-radius:4px">
+    <div style="flex:1;min-width:260px"><div><b>${esc(r[0])}</b> <span class="mute">${esc(r[1])} · score ${r[2]} · ${r[3]}×${r[4]}px · ${ST[r[5] || "none"][0]}</span></div>
+    <div class="mute" style="font-size:12px">${esc(r[6])}</div>
+    <div class="row" style="margin:6px 0"><label>社名 <input type="text" id="mk" value="${esc(n.maker || "")}" style="width:160px"></label>
+      <label>商品名 <input type="text" id="pd" value="${esc(n.product || "")}" style="width:280px"></label><button id="sv">保存</button><button id="cl">閉じる</button></div>
+    ${n.source ? `<div class="mute" style="font-size:12px">出典: ${esc(n.source)}${n.vision ? " / Vision: " + esc(n.vision) : ""}${n.best ? " / best guess: " + esc(n.best) : ""}
+      ${n.entities?.length ? "<br>entities: " + n.entities.map(e => esc(e[0]) + " " + (+e[1]).toFixed(2)).join(" / ") : ""}
+      ${n.pages?.length ? "<br>pages: " + n.pages.map(esc).join(" / ") : ""}${n.matches != null ? "<br>一致画像 " + n.matches + " 件" : ""}</div>` : ""}</div></div>`;
+  box.querySelector("#sv").onclick = () => post("/api/name", { id: r[0], maker: box.querySelector("#mk").value, product: box.querySelector("#pd").value }).then(() => render(true));
+  box.querySelector("#cl").onclick = () => box.style.display = "none";
+}
+
+let gPage = 0, gMode = "table", GV = null;
+const GPAGE = 100, GGRID = 1000;  // テーブルは1ページ100グループ、グリッドは1000グループ
+async function groups(m) {
+  const run = (k) => S.running.includes(k) || S.status[k]?.state == "running";
+  const busy = run("group") || run("group_gpu") || run("regroup");
+  const top = $(`<div class="card"><div class="row">
+    <span>同じ商品をグループ化 (DINOv2): <button data-run="group" ${busy ? "disabled" : ""}>ローカル CPU</button> <button data-run="group_gpu" ${busy ? "disabled" : ""}>Modal GPU</button></span>
+    <span>類似度 ≥ <input type="number" id="gs" value="${S.config.group_sim}" min="0.3" max="0.99" step="0.01" style="width:64px">
+      色の類似度 ≥ <input type="number" id="gc" value="${S.config.group_color}" min="0" max="0.99" step="0.01" style="width:64px" title="色ヒストグラムの共通部分。上げると色違い・味違いが分かれる（0 で色を見ない）">
+      <button id="regroup" ${busy ? "disabled" : ""} title="計算済みの埋め込みでつなぎ直すだけ（再計算なし・数秒）">しきい値を反映</button></span>
+    <span class="mute">② の合格（緑）の切り抜きを、互いに似ているもの同士でまとめる（全員どうしが類似度以上）。どこにも入らなかったものは1枚グループ。</span></div></div>`);
+  top.querySelectorAll("[data-run]").forEach(b => b.onclick = () => post("/api/run", { script: b.dataset.run }).then(() => render(true)));
+  // 「しきい値を反映」: 計算済みの埋め込みでつなぎ直すだけ（再計算しない）
+  top.querySelector("#regroup").onclick = () => post("/api/config", { group_sim: +top.querySelector("#gs").value, group_color: +top.querySelector("#gc").value })
+    .then(() => post("/api/run", { script: "regroup" })).then(() => render(true));
+  m.append(top);
+  // グループ一覧は大きい（数万件）ので、グループ化・判定・命名が更新されたときだけ取り直す
+  const key = ["group", "judge", "name", "crops"].map(k => S.status[k]?.updated).join();
+  if (!GV || GV.key != key) GV = { key, data: await (await fetch("/api/groups")).json() };
+  const G = GV.data;
+  if (!G.groups.length) return m.append($(`<div class="card mute">まだグループがありません（上のボタンで実行）</div>`));
+  const per = gMode == "grid" ? GGRID : GPAGE;
+  const pages = Math.ceil(G.groups.length / per); gPage = Math.min(gPage, pages - 1);
+  const info = $(`<div class="row" style="margin:8px 0">
+    <span class="chips"><button class="chip ${gMode == "table" ? "on" : ""}" data-m="table">テーブル（1グループ1行・全部）</button><button class="chip ${gMode == "grid" ? "on" : ""}" data-m="grid">グリッド（代表1枚・大量表示）</button></span>
+    <span><b>${G.groups.length}</b> グループ（2枚以上 ${G.multi} / 1枚 ${G.single}）· 類似度 ${G.sim} · 色 ${G.color ?? "なし"} · ${esc(G.model)}</span>
+    <button ${gPage ? "" : "disabled"}>←</button><span>${gPage + 1} / ${pages} ページ</span><button ${gPage < pages - 1 ? "" : "disabled"}>→</button></div>`);
+  info.querySelectorAll("[data-m]").forEach(b => b.onclick = () => { const first = gPage * per; gMode = b.dataset.m; gPage = Math.floor(first / (gMode == "grid" ? GGRID : GPAGE)); render(true); });
+  const [prev, next] = info.querySelectorAll("button:not([data-m])"); prev.onclick = () => { gPage--; render(true); }; next.onclick = () => { gPage++; render(true); };
+  m.append(info);
+  const page = G.groups.slice(gPage * per, (gPage + 1) * per);
+  const names = (g) => g.names.length ? g.names.map(([k, v]) => `${esc(k)}: ${v}`).join("<br>") + (g.names.length > 1 ? `<br><span class="warn">名前が ${g.names.length} 種類</span>` : "") : '<span class="mute">未命名</span>';
+  if (gMode == "grid") {
+    // 代表1枚だけを小さいセルで並べる。クリックでそのグループの全部を上に出す
+    const detail = $(`<div class="card" style="display:none"></div>`); m.append(detail);
+    const grid = $(`<div class="ggrid"></div>`);
+    for (const g of page) {
+      const c = $(`<div class="gcell" title="#${g.id} ${g.size}枚 ${esc(g.names[0]?.[0] || "")}"><img loading="lazy" src="/work/crops/${g.rep}.jpg">${g.size > 1 ? `<span class="gn">${g.size}</span>` : ""}</div>`);
+      c.onclick = () => {
+        detail.style.display = ""; detail.innerHTML = `<div class="row" style="justify-content:space-between"><span><b>#${g.id}</b> ${g.size} 枚 / ${g.images} 画像</span><button>閉じる</button></div>
+          <div style="font-size:12px;margin:4px 0">${names(g)}</div><div class="crops">${g.members.map(([id, img]) => `<img loading="lazy" src="/work/crops/${id}.jpg" title="${esc(id)} ${esc(img)}" style="height:96px">`).join("")}</div>`;
+        detail.querySelector("button").onclick = () => detail.style.display = "none";
+        detail.scrollIntoView({ block: "nearest" });
+      };
+      grid.append(c);
+    }
+    m.append(grid);
+    return;
+  }
+  const t = $(`<div class="card" style="padding:0"><table><tr><th>#</th><th class="num">枚数</th><th class="num">画像数</th><th>名前（社名 商品名: 枚数）</th><th>切り抜き（全部）</th></tr></table></div>`);
+  for (const g of page) {
+    t.querySelector("table").append($(`<tr><td>${g.id}</td><td class="num">${g.size}</td><td class="num">${g.images}</td><td style="min-width:160px;font-size:12px">${names(g)}</td>
+      <td style="max-width:0;width:70%"><div class="gthumbs">${g.members.map(([id, img]) => `<img loading="lazy" src="/work/crops/${id}.jpg" title="${esc(id)} ${esc(img)}">`).join("")}</div></td></tr>`));
+  }
+  m.append(t);
+}
+
+// ②c 命名: 方法の比較（同じ切り抜きを複数の方法で命名し、人が正誤を付ける）と、本番の命名
+const MLABEL = { "vision_web": "Cloud Vision Web検出（逆画像検索）", "vision_text_logo": "Cloud Vision 文字認識＋ロゴ", "gemini-3-flash-preview+search": "Gemini 3 Flash＋Google検索" };
+async function naming(m) {
+  const run = (k) => S.running.includes(k) || S.status[k]?.state == "running";
+  const top = $(`<div class="card"><b>本番の命名</b><div class="row" style="margin-top:6px">
+      <span><button data-run="name" ${run("name") ? "disabled" : ""}>gemini-3-flash-preview で命名</button> 未命名のグループ（2枚以上）を大きい順に <input type="number" id="vn" value="1000" min="1" max="100000" style="width:80px"> 個</span>
+      <span class="mute">各グループの代表1枚を命名し、同じグループの全員に写す（約 $0.0007/グループ）。確信度 0.5 未満・空は命名せず ② でオレンジ。手で直した名前は上書きしない${S.status.name?.cost_usd != null ? ` · 直近の費用 約 $${S.status.name.cost_usd}` : ""}</span></div></div>`);
+  top.querySelector("[data-run]").onclick = () => post("/api/run", { script: "name", n: +top.querySelector("#vn").value }).then(() => render(true));
+  m.append(top);
+  const C = await (await fetch("/api/compare")).json();
+  const meths = Object.keys(C.methods);
+  const head = $(`<div class="card"><div class="row" style="justify-content:space-between"><b>命名方法の比較（同じ ${C.sample.length} 枚）</b>
+      <button data-run="compare" ${run("compare") ? "disabled" : ""}>比較を実行（未実行・失敗した方法だけ）</button></div>
+      <div class="mute" style="font-size:12px">セルをクリックで 正解 ✓ → 不正解 ✗ → 未判定 を切り替え。正解率 = ✓ / 判定済み。費用は有料枠の単価で計算（無料枠内なら実際は 0）</div>
+      <table id="msum" style="margin-top:6px"><tr><th>方法</th><th class="num">命名できた</th><th class="num">正解率</th><th class="num">エラー</th><th class="num">平均秒/枚</th><th class="num">費用/20枚</th><th class="num">1万枚あたり</th></tr></table></div>`);
+  head.querySelector("[data-run]").onclick = () => post("/api/run", { script: "compare" }).then(() => render(true));
+  m.append(head);
+  if (!C.sample.length) return;
+  for (const k of meths) {
+    const M = C.methods[k], rs = Object.values(M.results), named = rs.filter(r => r.maker || r.product).length;
+    const ev = C.sample.map(s => C.eval[s.id]?.[k]).filter(v => v != null), ok = ev.filter(v => v == 1).length;
+    head.querySelector("#msum").append($(`<tr><td>${esc(MLABEL[k] || k)}</td><td class="num">${named}/${rs.length}</td>
+      <td class="num">${ev.length ? `<b>${Math.round(100 * ok / ev.length)}%</b> (${ok}/${ev.length})` : '<span class="mute">未判定</span>'}</td>
+      <td class="num ${M.errors ? "bad" : ""}">${M.errors}</td><td class="num">${M.sec_mean}</td><td class="num">$${M.cost_total.toFixed(4)}</td>
+      <td class="num">$${(M.cost_total / rs.length * 10000).toFixed(1)}</td></tr>`));
+  }
+  const t = $(`<div class="card" style="padding:0;overflow-x:auto"><table class="cmp"><tr><th>切り抜き</th>${meths.map(k => `<th style="min-width:150px">${esc(MLABEL[k] || k)}</th>`).join("")}</tr></table></div>`);
+  for (const s of C.sample) {
+    const tr = $(`<tr><td><img src="/work/crops/${s.id}.jpg" style="height:110px;max-width:130px;object-fit:contain" title="${esc(s.id)} ${esc(s.image)}"></td></tr>`);
+    for (const k of meths) {
+      const r = C.methods[k].results[s.id] || {}, v = C.eval[s.id]?.[k];
+      const td = $(`<td class="ev ${v == 1 ? "ev-ok" : v == 0 ? "ev-ng" : ""}" title="${esc(r.note || "")}">
+        ${r.error ? `<span class="bad" style="font-size:11px">${esc(r.error)}</span>` : r.maker || r.product
+          ? `<div class="mute" style="font-size:11px">${esc(r.maker) || "（社名なし）"}</div><div>${esc(r.product)}</div>` : '<span class="mute">（命名なし）</span>'}
+        <div class="mute" style="font-size:10px">${r.sec ?? ""}s ${v == 1 ? "✓" : v == 0 ? "✗" : ""}</div></td>`);
+      if (!r.error) td.onclick = () => post("/api/compare_eval", { id: s.id, method: k, v: v == null ? 1 : v == 1 ? 0 : null }).then(() => render(true));
+      tr.append(td);
+    }
+    t.querySelector("table").append(tr);
+  }
+  m.append(t);
+}
+
+// ③b 商品分類: 命名済みの切り抜きで、最近傍（一番似ている学習用の切り抜きの名前）の正解率を測る
+async function classify(m) {
+  const run = (k) => S.running.includes(k) || S.status[k]?.state == "running";
+  const top = $(`<div class="card row"><button data-run="classify" ${run("classify") ? "disabled" : ""}>最近傍で評価</button>
+    <span class="mute">命名済みの切り抜きをグループ単位で 学習用（照合先）4 : テスト用 1 に分け、テスト用それぞれに一番似ている学習用の名前を付ける。
+    グループは見た目の近さで作ったので、写真単位で分けると同じグループが両側に入り正解率が甘く出る</span></div>`);
+  top.querySelector("[data-run]").onclick = () => post("/api/run", { script: "classify" }).then(() => render(true));
+  m.append(top);
+  const C = await (await fetch("/work/classify.json")).json().catch(() => null);
+  if (!C) return m.append($(`<div class="card mute">まだ評価していません</div>`));
+  m.append($(`<div class="card"><b>データ</b>: 命名済み ${C.labeled} 枚 / ${C.products} 商品${C.genre_labeled ? ` · ジャンル付き ${C.genre_labeled} 商品（${C.genres} ジャンル）` : ""} · 商品ごとの枚数:
+    ${Object.entries(C.per_product).map(([k, v]) => `${k}枚 <b>${v}</b> 商品`).join(" · ")}
+    <div class="mute" style="font-size:12px;margin-top:4px">多い商品: ${C.top_products.slice(0, 12).map(([k, v]) => `${esc(k)} (${v})`).join(" / ")}</div></div>`));
+  const t = $(`<div class="card"><b>結果（${esc(C.method)} · ${esc(C.split)}）</b><table style="margin-top:6px"><tr><th>埋め込み</th><th class="num">Top-1</th><th class="num">Top-5</th>
+    <th class="num">テスト（既知の商品）</th><th class="num">テスト（未知の商品）</th><th class="num">照合先</th><th class="num">照合 ms/枚</th><th class="num">補正で 直った/悪化</th></tr></table></div>`);
+  for (const r of C.results) t.querySelector("table").append($(`<tr><td>${esc(r.name)}</td><td class="num"><b>${(100 * r.top1).toFixed(1)}%</b></td>
+    <td class="num">${r.top5 == null ? "-" : (100 * r.top5).toFixed(1) + "%"}</td><td class="num">${r.known}</td><td class="num">${r.unknown}</td><td class="num">${r.gallery}</td><td class="num">${r.ms_per_query}</td>
+    <td class="num">${r.fixed == null ? "" : `<span class="ok">+${r.fixed}</span> / <span class="bad">-${r.broken}</span>`}</td></tr>`));
+  const R = C.results.filter(r => r.sweep.length);  // 補正ありの行はしきい値表・実例なし
+  m.append(t);
+  const sw = $(`<div class="card"><b>類似度のしきい値と「不明」判定</b> <span class="mute">しきい値未満は「不明」と答える。答えた割合・答えたときの正解率（既知の商品）、未知の商品を正しく「不明」にできた割合</span>
+    <table style="margin-top:6px"><tr><th>しきい値</th>${R.map(r => `<th colspan="3">${esc(r.name)}</th>`).join("")}</tr>
+    <tr><th></th>${R.map(() => `<th class="num">答えた</th><th class="num">正解率</th><th class="num">未知を不明に</th>`).join("")}</tr></table></div>`);
+  R[0].sweep.forEach((_, i) => sw.querySelector("table").append($(`<tr><td>${R[0].sweep[i].t}</td>${R.map(r => { const x = r.sweep[i];
+    return `<td class="num">${(100 * x.answered).toFixed(0)}%</td><td class="num">${(100 * x.acc).toFixed(1)}%</td><td class="num">${(100 * x.unknown_rejected).toFixed(0)}%</td>`; }).join("")}</tr>`)));
+  m.append(sw);
+  for (const r of R) {
+    const ex = $(`<div class="card"><b>実例: ${esc(r.name)}</b> <span class="mute">左 = テスト用の切り抜き、右 = 一番似ていた学習用の切り抜き。緑 = 正解、赤 = 不正解</span><div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr));margin-top:6px"></div></div>`);
+    for (const e of r.examples) ex.querySelector(".grid").append($(`<div class="card ${e.ok ? "ev-ok" : "ev-ng"}" style="margin:0;font-size:12px">
+      <div class="row" style="gap:6px;flex-wrap:nowrap"><img src="/work/crops/${e.q}.jpg" style="height:80px;max-width:90px;object-fit:contain"><img src="/work/crops/${e.top[0][2]}.jpg" style="height:80px;max-width:90px;object-fit:contain">
+      <div>正解: ${esc(r.shown[e.true] || e.true)}<br>予測: <b>${esc(r.shown[e.top[0][0]] || e.top[0][0])}</b> (${e.top[0][1].toFixed(2)})</div></div></div>`));
+    m.append(ex);
+  }
+}
+
+function chart(rows, keys, title) {
+  const W = 460, H = 200, pad = 34, cols = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed"];
+  const series = keys.map(k => rows.map(r => +r[k]).filter(Number.isFinite));
+  const all = series.flat(); if (!all.length) return "";
+  const lo = Math.min(...all), hi = Math.max(...all), n = Math.max(...series.map(s => s.length));
+  const X = i => pad + (W - pad - 8) * (n > 1 ? i / (n - 1) : 0), Y = v => H - 20 - (H - 34) * (hi > lo ? (v - lo) / (hi - lo) : 0.5);
+  return `<div class="card"><b>${title}</b><svg viewBox="0 0 ${W} ${H}" width="100%">
+    <text x="2" y="16">${hi.toFixed(3)}</text><text x="2" y="${H - 20}">${lo.toFixed(3)}</text><text x="${W - 60}" y="${H - 4}">epoch ${n}</text>
+    ${series.map((s, j) => `<polyline fill="none" stroke="${cols[j]}" stroke-width="2" points="${s.map((v, i) => `${X(i)},${Y(v)}`).join(" ")}"/>`).join("")}</svg>
+    <div style="font-size:12px">${keys.map((k, j) => `<span style="color:${cols[j]}">■</span> ${k} ${series[j].length ? series[j].at(-1).toFixed(3) : ""}`).join("　")}</div></div>`;
+}
+function train(m) {
+  const s = S.status.train || {};
+  m.append($(`<div class="card mute">商品の種類を区別しない「商品らしいもの」1クラスの YOLO を、① で採用した枠を正解として学習します。${s.note ? "<br>" + esc(s.note) : ""}</div>`));
+  if (!S.train.length) return m.append($(`<div class="card mute">まだ学習していません（products/s4_train.py を実行）</div>`));
+  for (const t of S.train) {
+    m.append($(`<h3>${esc(t.run)}</h3>`));
+    const g = $(`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(420px,1fr))"></div>`);
+    g.innerHTML = chart(t.rows, ["metrics/mAP50(B)", "metrics/mAP50-95(B)", "metrics/precision(B)", "metrics/recall(B)"], "検証精度")
+      + chart(t.rows, ["train/box_loss", "val/box_loss", "train/dfl_loss", "val/dfl_loss"], "損失");
+    m.append(g);
+  }
+}
+
+function infer(m) {
+  if (S.eval) m.append($(`<div class="card"><b>評価</b><table>${Object.entries(S.eval).map(([k, v]) => `<tr><th>${esc(k)}</th><td class="num">${esc(typeof v == "object" ? JSON.stringify(v) : v)}</td></tr>`).join("")}</table></div>`));
+  if (!S.infer.length) return m.append($(`<div class="card mute">まだ推論結果がありません（products/infer.py を実行）</div>`));
+  const sp = $(`<div class="split"><div class="card list"></div><div class="card"><div id="iinfo" class="mute"></div><canvas></canvas><table id="itab"></table></div></div>`);
+  m.append(sp);
+  selInf = selInf || S.infer[0].stem;
+  for (const d of S.infer) {
+    const e = $(`<div class="${d.stem == selInf ? "on" : ""}"><span>${esc(d.image)}</span><span class="mute">${d.dets.length} · ${d.ms.total}ms</span></div>`);
+    e.onclick = () => { selInf = d.stem; render(true); }; sp.querySelector(".list").append(e);
+  }
+  const d = S.infer.find(x => x.stem == selInf), img = new Image();
+  img.onload = () => drawBoxes(sp.querySelector("canvas"), img, d.dets.map(x => ({ box:x.box, color: x.name ? "#16a34a" : "#9ca3af", label: x.name ? `${x.name} ${x.sim.toFixed(2)}` : "" })));
+  img.src = `/work/${d.view}`;
+  sp.querySelector("#iinfo").textContent = `${d.image}  検出 ${d.dets.length} 個 / 名前付き ${d.dets.filter(x => x.name).length} 個  ` + Object.entries(d.ms).map(([k, v]) => `${k} ${v}ms`).join(" · ");
+  const cnt = {}; d.dets.filter(x => x.name).forEach(x => cnt[x.name] = (cnt[x.name] || 0) + 1);
+  sp.querySelector("#itab").innerHTML = `<tr><th>商品</th><th class="num">個数</th></tr>` + Object.entries(cnt).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${v}</td></tr>`).join("");
+}
+
+nav(); refresh().then(() => render(true)); setInterval(refresh, 4000);
+</script>
+</body>
+</html>
