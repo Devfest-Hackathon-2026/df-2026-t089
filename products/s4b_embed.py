@@ -16,7 +16,6 @@ from common import WORK, crop_labels, log, read_json, run_stage, status, write_j
 
 SIZE = 128
 PAD_COLOR = (124, 116, 104)
-MAX_P_BAD = 0.2  # 学習に使う切り抜きの「特定不能」確率の上限（s2_judge.py）
 
 
 def square(arr: np.ndarray, size=SIZE) -> np.ndarray:
@@ -58,9 +57,8 @@ def main():
     from s5_classify import is_test
     lab = labeled()
     of = read_json(WORK / "groups.json", {}).get("of", {})
-    judge = read_json(WORK / "judge.json", {})
-    # 特定不能っぽい切り抜き（ぼけ・一部だけ・棚ごと）を学習から外す。丸暗記の原因になる。照合先・評価には残す
-    tr = [c for c in lab if not is_test(c, of) and judge.get(c, {}).get("p_bad", 0) < MAX_P_BAD]
+    # 特定不能っぽい切り抜き（p_bad>=0.2）を外すと Top-1 が 0.468→0.449 に下がったので、全部使う（products/runs/r3_no_doubtful_15ep）
+    tr = [c for c in lab if not is_test(c, of)]
     cnt = {}
     for c in tr:
         cnt[lab[c]] = cnt.get(lab[c], 0) + 1
