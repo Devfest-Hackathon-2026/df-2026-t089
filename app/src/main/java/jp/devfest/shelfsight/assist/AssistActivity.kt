@@ -20,7 +20,6 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
-import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.FrameLayout
 import android.widget.TextView
 import com.example.store3d.CameraBackground
@@ -61,10 +60,9 @@ import kotlin.math.sqrt
  * ④ 人が近づいてくる: その人の方向からピコピコ鳴らす
  *
  * 操作
- * - 1 回たたく: 目の前の棚の種類をすぐ言う（最後の解析の結果を使うので待たない）
  * - 長押し: 「調べています」と言い、手前の商品 1 つなら ③、棚の広い範囲なら ②、その間なら「一歩下がって」と頼む
  * - 2 回たたく: 質問する（決まった言い方はその操作、それ以外は LLM が画像を見て答える）
- * TalkBack が有効なときは、ダブルタップが「1 回たたく」、ダブルタップ長押しが「長押し」、質問はカスタム操作になる。
+ * TalkBack が有効なときは、ダブルタップが質問、ダブルタップ長押しが長押しになる。
  */
 class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private lateinit var gl: GLSurfaceView
@@ -140,7 +138,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         // 画面全体を 1 つのボタンにする（どこを触ってもよい）
         val gestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent) = true
-            override fun onSingleTapConfirmed(e: MotionEvent): Boolean { tellShelf(); return true }
             override fun onDoubleTap(e: MotionEvent): Boolean { startListening(); return true }
             override fun onLongPress(e: MotionEvent) { onLongPressed() }
         })
@@ -148,23 +145,12 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             @android.annotation.SuppressLint("ClickableViewAccessibility")
             override fun onTouchEvent(event: MotionEvent): Boolean = gestures.onTouchEvent(event)
         }.apply {
-            contentDescription = "1回たたくと棚の種類。長押しで調べる。2回たたくと質問"
+            contentDescription = "長押しで調べる。2回たたくと質問"
             isClickable = true
             isLongClickable = true
-            // TalkBack から: ダブルタップ＝クリック、ダブルタップ長押し＝長押し、質問はカスタム操作
-            setOnClickListener { tellShelf() }
+            // TalkBack から: ダブルタップ＝クリック（質問）、ダブルタップ長押し＝長押し
+            setOnClickListener { startListening() }
             setOnLongClickListener { onLongPressed(); true }
-            accessibilityDelegate = object : View.AccessibilityDelegate() {
-                override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
-                    super.onInitializeAccessibilityNodeInfo(host, info)
-                    info.addAction(AccessibilityNodeInfo.AccessibilityAction(ACTION_ASK, "質問する"))
-                }
-
-                override fun performAccessibilityAction(host: View, action: Int, args: Bundle?): Boolean {
-                    if (action == ACTION_ASK) { startListening(); return true }
-                    return super.performAccessibilityAction(host, action, args)
-                }
-            }
         }
         setContentView(FrameLayout(this).apply {
             addView(gl)
@@ -205,12 +191,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         if (!greeted) {
             greeted = true
             sceneWorker.execute { if (coarse == null) Log.w(TAG, "coarse/${BuildConfig.COARSE_MODEL}.onnx is missing: shelf categories are off") }
-            voice.say("準備ができました。画面を1回たたくと棚の種類、長押しで商品や棚を調べます。2回たたくと質問できます。")
-            // 1 回たたいたときにすぐ言えるよう、棚の種類の言い方を先に合成しておく
-            sceneWorker.execute {
-                coarse?.head?.classes?.filter { it != ShelfMemory.NO_PRODUCT }?.let { cs -> voice.prepare(cs.map(::shelfSentence)) }
-            }
-            voice.prepare(listOf("調べています", NO_SHELF))
+            voice.say("準備ができました。長押しで、商品や棚を調べます。2回たたくと、質問できます。")
+            voice.prepare(listOf("調べています"))
         }
     }
 
@@ -377,7 +359,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         }
     }
 
-    // ---------------------------------------------------------------- 1 回たたく: 目の前の棚
+    // ---------------------------------------------------------------- 声で「何の棚？」と聞かれたとき
 
     /** 目の前（画面のまん中）の棚の種類を、最後の解析の結果ですぐに言う。 */
     private fun tellShelf() {
@@ -404,10 +386,10 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val image = JpegEncoder.toUprightBitmap(f, LOOKUP_LONG_SIDE)
         try {
             val boxes = recognizer.detect(image).map { it.first }
-            val focus = SceneJudge.focus(boxes)
-            Log.i(TAG, "long press: ${boxes.size} boxes -> $focus")
+            val (focus, productBox) = SceneJudge.focus(boxes)
+            Log.i(TAG, "long press: ${boxes.size} boxes, largest ${boxes.maxOfOrNull { SceneJudge.area(it) }} -> $focus")
             when (focus) {
-                Focus.PRODUCT -> lookupProduct(image, SceneJudge.mainProduct(boxes)!!)
+                Focus.PRODUCT -> lookupProduct(image, productBox!!)
                 Focus.SHELF -> describe(image, boxes, camera = null, requested = true)
                 Focus.STEP_BACK -> voice.say("一歩下がって、棚の全体か、商品を一つだけ写してください。")
                 Focus.NOTHING -> voice.say("商品が見えません。棚か商品の方にスマホを向けてください。")
@@ -446,9 +428,17 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
 
     private fun runPeople(f: CapturedFrame) {
         val image = JpegEncoder.toUprightBitmap(f, PERSON_LONG_SIDE)
-        val boxes = try { personDetector.detect(image) } catch (e: RuntimeException) {
+        val w = image.width.toFloat()
+        val h = image.height.toFloat()
+        val detected = try { personDetector.detect(image) } catch (e: RuntimeException) {
             Log.e(TAG, "person detection failed", e); emptyList()
         } finally { image.recycle() }
+        // 自分の手や、持っている商品を人と間違えたものを外す
+        val boxes = detected.filterNot { box ->
+            val aspect = (box.bottom - box.top) * h / ((box.right - box.left) * w).coerceAtLeast(1f)
+            PersonFilter.isOwnHand(box, aspect, Unprojector.medianDepthMeters(box, f.geometry))
+        }
+        if (boxes.size != detected.size) Log.d(TAG, "ignored ${detected.size - boxes.size} person boxes as own hand")
         val t = SystemClock.elapsedRealtime() / 1000.0
         val camera = cameraPosition(f)
         val observations = boxes.map { box ->
@@ -562,8 +552,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         const val NARRATE_LONG_SIDE = 768
         const val QUESTION_LONG_SIDE = 1280
         const val NO_SHELF = "棚が見えません。棚の方にスマホを向けてください。"
-        /** 質問のカスタム操作の ID（TalkBack 用）。 */
-        const val ACTION_ASK = 0x7f0a0001
         const val FORGET_DESCRIPTION_MS = 3000L
         const val MOVE_TO_REDESCRIBE_M = 1.5f
         const val DESCRIBE_RETRY_MS = 4000L

@@ -59,19 +59,31 @@ class SceneJudge {
         const val SHELF_MIN_WIDTH = 0.5f
         const val SHELF_MIN_HEIGHT = 0.35f
 
+        /** 画面のこれ以上を占める枠は、他の枠があっても手前の商品 1 つ（近づくと商品の中の文字や絵も枠になる）。 */
+        const val CLOSE_PRODUCT_AREA = 0.25f
+        /** 枠が少なく、合わせて画面のこれ以上を占めるときも、商品 1 つを近くで写している（横に並んだ 2 つの商品は、ここまで広がらない）。 */
+        const val CLOSE_UNION_AREA = 0.6f
+        const val CLOSE_MAX_BOXES = 4
+
         /**
-         * 長押しのとき、何を調べるか。
-         * 商品 1 つが大きく写っていれば [Focus.PRODUCT]、棚の広い範囲に商品が並んでいれば [Focus.SHELF]、
-         * その間（商品が少し大きいが 1 つに決まらない、商品が少ない）なら [Focus.STEP_BACK]。
+         * 長押しのとき、何を調べるか。商品 1 つなら調べる範囲（正立画像の 0..1）も返す。
+         * - 商品 1 つが大きく写っている、または画面いっぱいに写っている → [Focus.PRODUCT]
+         * - 棚の広い範囲に小さな商品が並んでいる → [Focus.SHELF]
+         * - その間（中くらいの商品がいくつか、または商品が少ない） → [Focus.STEP_BACK]
          */
-        fun focus(boxes: List<FloatArray>): Focus {
-            if (boxes.isEmpty()) return Focus.NOTHING
-            if (mainProduct(boxes) != null) return Focus.PRODUCT
-            val width = boxes.maxOf { it[2] } - boxes.minOf { it[0] }
-            val height = boxes.maxOf { it[3] } - boxes.minOf { it[1] }
-            val spread = boxes.size >= SHELF_MIN_PRODUCTS && width >= SHELF_MIN_WIDTH && height >= SHELF_MIN_HEIGHT
+        fun focus(boxes: List<FloatArray>): Pair<Focus, FloatArray?> {
+            if (boxes.isEmpty()) return Focus.NOTHING to null
+            mainProduct(boxes)?.let { return Focus.PRODUCT to it }
+            val largest = boxes.maxBy { area(it) }
+            val union = floatArrayOf(boxes.minOf { it[0] }, boxes.minOf { it[1] }, boxes.maxOf { it[2] }, boxes.maxOf { it[3] })
+            // 調べる範囲は、枠が少なければ全部を合わせた範囲（商品の部分ごとに枠が出ることがある）
+            if (area(largest) >= CLOSE_PRODUCT_AREA) return Focus.PRODUCT to if (boxes.size <= CLOSE_MAX_BOXES) union else largest
+            if (boxes.size <= CLOSE_MAX_BOXES && area(union) >= CLOSE_UNION_AREA && area(largest) >= ONE_PRODUCT_AREA / 2) {
+                return Focus.PRODUCT to union
+            }
+            val spread = boxes.size >= SHELF_MIN_PRODUCTS && union[2] - union[0] >= SHELF_MIN_WIDTH && union[3] - union[1] >= SHELF_MIN_HEIGHT
             val noneLarge = boxes.none { area(it) >= ONE_PRODUCT_AREA }
-            return if (spread && noneLarge) Focus.SHELF else Focus.STEP_BACK
+            return (if (spread && noneLarge) Focus.SHELF else Focus.STEP_BACK) to null
         }
 
         fun classify(e: SceneEvidence): Scene = when {
