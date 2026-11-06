@@ -1,0 +1,67 @@
+[
+ {
+  "img": "experiments/owlv2.jpg",
+  "title": "OWLv2 base（全体+2×2タイル）IMG_8179",
+  "note": "143 個 (≥0.2) / 43秒/枚（CPU）。棚の商品はほぼ囲めている。複数商品をまとめた枠・ポスター枠が少し混ざる。→ 採用候補"
+ },
+ {
+  "img": "experiments/yw_s_1280.jpg",
+  "title": "YOLO-World v2 s, 1280px",
+  "note": "53 個 (≥0.1) / 0.98秒/枚。取りこぼし多数（化粧品・吊り下げ商品・靴下など）→ 不採用"
+ },
+ {
+  "img": "experiments/yw_s_1600.jpg",
+  "title": "YOLO-World v2 s, 1600px",
+  "note": "50 個 (≥0.1) / 1.37秒/枚 → 不採用"
+ },
+ {
+  "img": "experiments/yw_x_1280.jpg",
+  "title": "YOLO-World v2 x, 1280px",
+  "note": "25 個 (≥0.1) / 5.8秒/枚 → 不採用"
+ },
+ {
+  "img": "experiments/yw_x_1600.jpg",
+  "title": "YOLO-World v2 x, 1600px",
+  "note": "29 個 (≥0.1) / 11.1秒/枚 → 不採用"
+ },
+ {
+  "img": "experiments/gem_gemini-3.1-flash-lite.jpg",
+  "title": "Gemini gemini-3.1-flash-lite",
+  "note": "49 個 / 7.0秒/枚 / 入力 1144 tok・出力 1670 tok → $0.0028/枚, 666枚で $1.86 / 名前例: cosmetic display、bottle、bottle、bottle、bottle、bottle"
+ },
+ {
+  "img": null,
+  "title": "Gemini gemini-2.5-flash-lite",
+  "note": "HTTP 404: This model models/gemini-2.5-flash-lite is no longer available to new users. Please update your code to use models/gemini-3.5-flash-lite for the latest features"
+ },
+ {
+  "img": "experiments/gem_gemini-2.5-flash.jpg",
+  "title": "Gemini gemini-2.5-flash",
+  "note": "13 個 / 5.4秒/枚 / 入力 338 tok・出力 541 tok → $0.0015/枚, 666枚で $0.97 / 名前例: short product name as printed on the package、short product name as printed on the package、short product name as printed on the package、short product name as printed on the package、short product name as printed on the package、short product name as printed on the package"
+ },
+ {
+  "img": "experiments/gem_gemini-3-flash-preview.jpg",
+  "title": "Gemini gemini-3-flash-preview",
+  "note": "52 個 / 9.8秒/枚 / 入力 1144 tok・出力 1965 tok → $0.0065/枚, 666枚で $4.31 / 名前例: Hana by Hince Cosmetics Display、Biore Skin Care Facial Foam、Melano CC Essence、Melano CC Lotion、Melano CC Lotion、Gillette Razors"
+ },
+ {
+  "img": null,
+  "title": "Gemini gemini-3.8-flash",
+  "note": "HTTP 429: You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/"
+ },
+ {
+  "img": null,
+  "title": "Gemini gemini-3.5-flash-lite",
+  "note": "HTTP 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later."
+ },
+ {
+  "img": null,
+  "title": "Gemini gemini-3.6-flash",
+  "note": "HTTP 503: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later."
+ },
+ {
+  "img": "experiments/groups_dino_086.jpg",
+  "title": "② グループ化 DINOv2-small, 類似度 0.86, 相互10近傍＋完全連結法（全666画像）",
+  "note": "74,938個中 19,259個が 8,609グループ（最大10枚）/ 55,679個は1枚だけ。同一商品はまとまるが、味違い（カレー/トマト、SAVAS の色違い）や姉妹品（きのこの山/たけのこの里）が混ざる一方、同じ商品が多数の小グループに割れる（まとめ過ぎと割れ過ぎが同時に起きている）"
+ }
+]

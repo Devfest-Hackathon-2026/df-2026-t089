@@ -1,0 +1,13 @@
+[embed] 開始 {'argv': []}
+[embed] 学習データ 11542 枚 / 277 カテゴリ（学習用グループ側・2枚以上のカテゴリ） 
+✓ Initialized. View run at 
+https://modal.com/apps/kfuhon/main/ap-nLHv6VfGMbvIL32mZgYwHx
+✓ Created objects.
+├── ✓ Uploaded C:\Users\kfuho\a\repos\df-2026-t089\products\gpu_embed_train.py
+├── ✓ Created Function _download.
+└── ✓ Created Function train.
+Stopping app - local entrypoint completed.
+✓ App completed. View run at 
+https://modal.com/apps/kfuhon/main/ap-nLHv6VfGMbvIL32mZgYwHx
+[embed] 埋め込みモデルを書き出し、99017 枚を埋め込み 
+[embed] 完了 

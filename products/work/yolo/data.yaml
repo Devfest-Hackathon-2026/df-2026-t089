@@ -1,0 +1,5 @@
+path: C:/Users/kfuho/a/repos/df-2026-t089/products/work/yolo
+train: images/train
+val: images/val
+names:
+  0: product

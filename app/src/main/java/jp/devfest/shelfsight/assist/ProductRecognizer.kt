@@ -18,7 +18,7 @@ import java.nio.FloatBuffer
  *
  * 1. YOLO で「商品らしいもの」の枠を全部出す（[detect]。写っているものの判定にも使う）
  * 2. 各枠を切り抜いて埋め込み（MobileNetV3-small 128px）を出し、照合先（命名済みの切り抜き）と比べて名前の候補を出す
- * 3. 周りの商品のジャンル・細分類で選び直す（[ContextAdjust]）
+ * 3. 周りの商品のジャンル・細分類・カテゴリで選び直す（[ContextAdjust]）
  *
  * モデルと照合先は tools/export_products.py で assets/products/ に書き出す。
  */
@@ -35,7 +35,8 @@ class ProductRecognizer(context: Context) : AutoCloseable {
     private val detThreshold = meta.optDouble("det_threshold", 0.25).toFloat()
     private val nmsIou = meta.optDouble("nms_iou", 0.5).toFloat()
     private val matchSim = meta.optDouble("match_sim", 0.5).toFloat()
-    private val lambdas = meta.getJSONArray("context_lambda").let { it.getDouble(0) to it.getDouble(1) }
+    // (ジャンル, 細分類, カテゴリそのもの)。古い gallery.json は 2 つだけなので足りない分は 0
+    private val lambdas = meta.getJSONArray("context_lambda").let { a -> DoubleArray(3) { if (it < a.length()) a.getDouble(it) else 0.0 } }
     private val pad = meta.getJSONArray("pad_color").let { android.graphics.Color.rgb(it.getInt(0), it.getInt(1), it.getInt(2)) }
 
     private class Product(val key: String, val name: String, val genre: String?, val fine: String?, val start: Int)
@@ -106,8 +107,9 @@ class ProductRecognizer(context: Context) : AutoCloseable {
         val picked = ContextAdjust.adjust(
             centers, cands,
             listOf(
-                ContextAdjust.Level({ byKey[it]?.genre }, lambdas.first),
-                ContextAdjust.Level({ byKey[it]?.fine }, lambdas.second),
+                ContextAdjust.Level({ byKey[it]?.genre }, lambdas[0]),
+                ContextAdjust.Level({ byKey[it]?.fine }, lambdas[1]),
+                ContextAdjust.Level({ it }, lambdas[2]),  // キーがカテゴリそのもの
             ),
         )
         return big.indices.mapNotNull { i ->

@@ -18,7 +18,7 @@ from context import adjust
 
 WORK_SIZE = 1280   # 処理用に縮める長辺（検出 640px・切り抜き 128px にはこれで十分）
 MATCH_SIM = 0.5     # 補正前の類似度がこれ未満なら「照合先に無い商品」として名前を付けない
-LAMBDA = (0.05, 0.05)  # 周辺カテゴリ補正の強さ（粗いジャンル, 細分類）。③b の評価で一番良かった組み合わせ
+LAMBDA = (0.05, 0.05, 0.1)  # 周辺カテゴリ補正の強さ（粗いジャンル, 細分類, カテゴリそのもの）。③b の評価で一番良かった組み合わせ
 
 
 def session(path):
@@ -63,6 +63,7 @@ class ProductRecognizer:
         self.products = products.tolist()  # NumPy の文字列のままだと辞書の検索が遅い
         self.show = {}
         self.genre_of, self.fine_of = category_levels()
+        self.cat_of = {p: p for p in self.products}  # 照合先のキーがカテゴリそのもの
 
     def detect(self, a: np.ndarray):
         """レターボックスで正方形に → YOLO → 信頼度とNMSで絞る。枠は 0..1 の [x0,y0,x1,y1]"""
@@ -105,7 +106,7 @@ class ProductRecognizer:
                 t = top[r][np.argsort(-P[r, top[r]])]
                 cands[i] = [(self.products[j], float(P[r, j])) for j in t]
         centers = np.stack([(boxes[:, 0] + boxes[:, 2]) / 2, (boxes[:, 1] + boxes[:, 3]) / 2], 1) if len(boxes) else np.zeros((0, 2))
-        picked = adjust(centers, cands, [(self.genre_of, self.lam[0]), (self.fine_of, self.lam[1])])
+        picked = adjust(centers, cands, [(self.genre_of, self.lam[0]), (self.fine_of, self.lam[1]), (self.cat_of, self.lam[2])])
         t4 = time.perf_counter()
         dets = []
         for i, b in enumerate(boxes):
@@ -125,7 +126,7 @@ def main():
     ap.add_argument("images", nargs="*")
     a = ap.parse_args()
     rec = ProductRecognizer()
-    log("infer", f"検出 {rec.det_name}（{rec.imgsz}px）· 埋め込み {rec.emb_name} · 照合先 {len(rec.glab)} 枚 / {len(set(rec.glab))} 商品 · 周辺カテゴリ補正 λ(ジャンル, 細分類)={rec.lam}")
+    log("infer", f"検出 {rec.det_name}（{rec.imgsz}px）· 埋め込み {rec.emb_name} · 照合先 {len(rec.glab)} 枚 / {len(set(rec.glab))} 商品 · 周辺カテゴリ補正 λ(ジャンル, 細分類, カテゴリ)={rec.lam}")
     if a.images:
         targets = [("x", Path(p)) for p in a.images]
     else:

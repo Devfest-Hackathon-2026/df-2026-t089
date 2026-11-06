@@ -1,0 +1,83 @@
+[crops] 開始 {'argv': ['--modal']}
+[crops] 切り抜き 99548 個（666 画像）/ ルールで除外 531 個 / 埋め込みが必要 55295 個 {'threshold': 0.18, 'reasons': {'小さすぎ': 377, '手動で誤検出': 1, '極端に細長い': 134, 'ほぼ無地': 19}}
+✓ Initialized. View run at 
+https://modal.com/apps/kfuhon/main/ap-iQJNczIwc1vuB1wQVDS3rE
+Building image im-85NZQI2ZJirHPAxViVs7Fh
+
+=> Step 0: FROM base
+
+=> Step 1: RUN python -m pip install numpy 'onnxruntime-gpu[cuda,cudnn]' pillow
+Looking in indexes: http://pypi-mirror.modal.local:5555/simple
+Collecting numpy
+  Downloading numpy-2.5.4-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (6.6 kB)
+Collecting pillow
+  Downloading pillow-13.0.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (9.1 kB)
+Collecting onnxruntime-gpu[cuda,cudnn]
+  Downloading onnxruntime_gpu-1.31.1-cp312-cp312-manylinux_2_28_x86_64.whl.metadata (6.2 kB)
+Collecting flatbuffers (from onnxruntime-gpu[cuda,cudnn])
+  Downloading flatbuffers-25.12.19-py2.py3-none-any.whl.metadata (1.0 kB)
+Requirement already satisfied: packaging in ./usr/local/lib/python3.12/site-packages (from onnxruntime-gpu[cuda,cudnn]) (26.3)
+Collecting protobuf>=4.25.8 (from onnxruntime-gpu[cuda,cudnn])
+  Downloading protobuf-7.36.2-cp310-abi3-manylinux2014_x86_64.whl.metadata (595 bytes)
+Collecting nvidia-cuda-nvrtc~=13.0 (from onnxruntime-gpu[cuda,cudnn])
+  Downloading nvidia_cuda_nvrtc-13.5.37-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl.metadata (1.8 kB)
+Collecting nvidia-cuda-runtime~=13.0 (from onnxruntime-gpu[cuda,cudnn])
+  Downloading nvidia_cuda_runtime-13.5.37-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (1.8 kB)
+Collecting nvidia-cufft~=12.0 (from onnxruntime-gpu[cuda,cudnn])
+  Downloading nvidia_cufft-12.5.0.14-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (1.8 kB)
+Collecting nvidia-curand~=10.0 (from onnxruntime-gpu[cuda,cudnn])
+  Downloading nvidia_curand-10.4.5.25-py3-none-manylinux_2_27_x86_64.whl.metadata (1.8 kB)
+Collecting nvidia-cudnn-cu13~=9.0 (from onnxruntime-gpu[cuda,cudnn])
+  Downloading nvidia_cudnn_cu13-9.28.0.42-py3-none-manylinux_2_27_x86_64.whl.metadata (1.9 kB)
+Collecting nvidia-cublas (from nvidia-cudnn-cu13~=9.0->onnxruntime-gpu[cuda,cudnn])
+  Downloading nvidia_cublas-13.10.0.20-py3-none-manylinux1_x86_64.manylinux_2_5_x86_64.whl.metadata (1.8 kB)
+Collecting nvidia-nvjitlink (from nvidia-cufft~=12.0->onnxruntime-gpu[cuda,cudnn])
+  Downloading nvidia_nvjitlink-13.5.37-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl.metadata (1.8 kB)
+Downloading numpy-2.5.4-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (16.7 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 16.7/16.7 MB 903.4 MB/s  0:00:00
+Downloading onnxruntime_gpu-1.31.1-cp312-cp312-manylinux_2_28_x86_64.whl (255.6 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 255.6/255.6 MB 153.5 MB/s  0:00:01
+Downloading nvidia_cuda_nvrtc-13.5.37-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl (58.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 58.2/58.2 MB 302.0 MB/s  0:00:00
+Downloading nvidia_cuda_runtime-13.5.37-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (2.5 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.5/2.5 MB 108.7 MB/s  0:00:00
+Downloading nvidia_cudnn_cu13-9.28.0.42-py3-none-manylinux_2_27_x86_64.whl (516.8 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 516.8/516.8 MB 286.9 MB/s  0:00:01
+Downloading nvidia_cufft-12.5.0.14-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (165.1 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 165.1/165.1 MB 165.2 MB/s  0:00:00
+Downloading nvidia_curand-10.4.5.25-py3-none-manylinux_2_27_x86_64.whl (77.1 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 77.1/77.1 MB 146.5 MB/s  0:00:00
+Downloading pillow-13.0.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (7.1 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 7.1/7.1 MB 815.4 MB/s  0:00:00
+Downloading protobuf-7.36.2-cp310-abi3-manylinux2014_x86_64.whl (343 kB)
+Downloading flatbuffers-25.12.19-py2.py3-none-any.whl (26 kB)
+Downloading nvidia_cublas-13.10.0.20-py3-none-manylinux1_x86_64.manylinux_2_5_x86_64.whl (444.3 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 444.3/444.3 MB 218.6 MB/s  0:00:02
+Downloading nvidia_nvjitlink-13.5.37-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl (46.6 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 46.6/46.6 MB 755.8 MB/s  0:00:00
+Installing collected packages: flatbuffers, protobuf, pillow, nvidia-nvjitlink, nvidia-curand, nvidia-cuda-runtime, nvidia-cuda-nvrtc, numpy, onnxruntime-gpu, nvidia-cufft, nvidia-cublas, nvidia-cudnn-cu13
+
+Successfully installed flatbuffers-25.12.19 numpy-2.5.4 nvidia-cublas-13.10.0.20 nvidia-cuda-nvrtc-13.5.37 nvidia-cuda-runtime-13.5.37 nvidia-cudnn-cu13-9.28.0.42 nvidia-cufft-12.5.0.14 nvidia-curand-10.4.5.25 nvidia-nvjitlink-13.5.37 onnxruntime-gpu-1.31.1 pillow-13.0.0 protobuf-7.36.2
+
+[notice] A new release of pip is available: 26.2.2 -> 26.3
+[notice] To update, run: pip install --upgrade pip
+Saving image...
+Image saved, took 1.69s
+
+Built image im-85NZQI2ZJirHPAxViVs7Fh in 20.03s
+
+
+✓ Created objects.
+├── ✓ Uploaded C:\Users\kfuho\a\repos\df-2026-t089\products\gpu_clip.py
+├── ✓ Uploaded C:\Users\kfuho\a\repos\df-2026-t089\products\s2_crops.py
+├── ✓ Uploaded C:\Users\kfuho\a\repos\df-2026-t089\products\common.py
+├── ✓ Uploaded 
+│   C:\Users\kfuho\a\repos\df-2026-t089\app\src\main\assets\mobileclip_s0_visio
+│   n.onnx
+└── ✓ Created Function Clip.*.
+Stopping app - local entrypoint completed.
+✓ App completed. View run at 
+https://modal.com/apps/kfuhon/main/ap-iQJNczIwc1vuB1wQVDS3rE
+[crops] Modal で 373/373 画像を埋め込み {'providers': ['CUDAExecutionProvider']}
+[crops] 埋め込み済み 99017 個 
+[crops] 完了 

@@ -1,0 +1,1 @@
+{"imgsz": 640, "run": "yolo11n_640_gpu", "onnx": "train/yolo11n_640_gpu/model.onnx"}

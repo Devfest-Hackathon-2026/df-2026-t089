@@ -58,6 +58,13 @@ class AssistLogicTest {
         assertEquals("coffee", ContextAdjust.adjust(centers, cands, listOf(f))[5].key)
     }
 
+    @Test
+    fun `drinking yogurt among gummies is corrected to gummy by the category itself`() {
+        val cands = List(4) { c("グミ" to 0.9f) } + listOf(c("飲むヨーグルト" to 0.80f, "グミ" to 0.77f), c("飲むヨーグルト" to 0.9f))
+        assertEquals("飲むヨーグルト", ContextAdjust.adjust(centers, cands, emptyList())[4].key)
+        assertEquals("グミ", ContextAdjust.adjust(centers, cands, listOf(ContextAdjust.Level({ it }, 0.1)))[4].key)
+    }
+
     // ---------------------------------------------------------------- ② 段ごとの説明
 
     private fun p(x: Float, y: Float, fine: String, genre: String = "ソフトドリンク") =

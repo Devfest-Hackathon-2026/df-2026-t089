@@ -1,0 +1,14 @@
+[classify] 開始 {'argv': []}
+[classify] MobileCLIP-S0（アプリと同じ）: Top-1 0.452 / Top-5 0.670（既知 2764 枚, 未知 4 枚, 照合先 11542 枚） 
+[classify] DINOv2-small: Top-1 0.462 / Top-5 0.679（既知 2764 枚, 未知 4 枚, 照合先 11542 枚） 
+[classify] MobileCLIP 上位10件 → DINOv2 で再順位: Top-1 0.458 / Top-5 0.667（既知 2764 枚, 未知 4 枚, 照合先 11542 枚） 
+[classify] MobileCLIP と DINOv2 の平均: Top-1 0.484 / Top-5 0.710（既知 2764 枚, 未知 4 枚, 照合先 11542 枚） 
+[classify] MobileNetV3-small（学習, 128px）: Top-1 0.448 / Top-5 0.641（既知 2764 枚, 未知 4 枚, 照合先 11542 枚） 
+[classify] MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.0: Top-1 0.482（直った 124 / 悪化 32） 
+[classify] MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.05: Top-1 0.486（直った 130 / 悪化 27） 
+[classify] MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.1: Top-1 0.493（直った 166 / 悪化 42） 
+[classify] MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.05: Top-1 0.494（直った 161 / 悪化 35） 
+[classify] MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.05: Top-1 0.494（直った 172 / 悪化 45） 
+[classify] MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.1: Top-1 0.497（直った 191 / 悪化 55） 
+[classify] MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.1: Top-1 0.495（直った 180 / 悪化 50） 
+[classify] 完了 

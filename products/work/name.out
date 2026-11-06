@@ -1,0 +1,5 @@
+[name] 開始 {'argv': ['--n', '100000']}
+[name] gemini-3-flash-preview で 7091 グループ中 未命名 401 グループを命名（今回の上限 100000） 
+[name] グループ #5298: エラー {'error': "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Read timed out. (read timeout=120)"}
+[name] 命名 375 グループ / 結果が悪い 25 グループ / 費用 約 $0.289 {'error': None}
+[name] 完了 
