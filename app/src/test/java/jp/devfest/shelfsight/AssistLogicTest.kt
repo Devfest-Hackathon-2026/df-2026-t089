@@ -14,6 +14,7 @@ import jp.devfest.shelfsight.assist.RecognizedProduct
 import jp.devfest.shelfsight.assist.Scene
 import jp.devfest.shelfsight.assist.SceneEvidence
 import jp.devfest.shelfsight.assist.SceneJudge
+import jp.devfest.shelfsight.assist.ShelfMap
 import jp.devfest.shelfsight.assist.ShelfDescriber
 import jp.devfest.shelfsight.assist.VisionProductParser
 import jp.devfest.shelfsight.assist.Wav
@@ -335,5 +336,59 @@ class AssistLogicTest {
         assertEquals("上のほうにお茶があります。", Narrator.parse("""{"text":" 上のほうにお茶があります。 "}"""))
         assertNull(Narrator.parse("""{"text":""}"""))
         assertTrue(Narrator.questionPrompt("これはいくら？", "- 棚: 飲み物").contains("これはいくら？"))
+    }
+
+    // ---------------------------------------------------------------- 地図（壁の上に貯めた商品）
+
+    /** 原点で -z を向いたカメラ（センサー 640x480、正立させるには 90° 回す）。 */
+    private val geom = jp.devfest.shelfsight.ar.CaptureGeometry(
+        imageWidth = 640, imageHeight = 480, focalX = 500f, focalY = 500f, principalX = 320f, principalY = 240f,
+        cameraToWorld = floatArrayOf(1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f),
+        uprightRotationDegrees = 90, depth = null, depthU0 = 0f, depthUPerPixel = 0f, depthV0 = 0f, depthVPerPixel = 0f,
+    )
+
+    @Test
+    fun `a point unprojected from the image projects back to the same place`() {
+        for ((u, v) in listOf(0.5f to 0.5f, 0.2f to 0.7f, 0.9f to 0.1f)) {
+            val world = jp.devfest.shelfsight.ar.Unprojector.worldAt(u, v, 2f, geom)
+            val back = ShelfMap.project(world, geom)!!
+            assertEquals(u, back[0], 1e-4f)
+            assertEquals(v, back[1], 1e-4f)
+            assertEquals(2f, back[2], 1e-4f)
+        }
+        assertNull(ShelfMap.project(Vec3(0f, 0f, 2f), geom))   // カメラの後ろ
+        val (w, h) = ShelfMap.sizeInMeters(0.1f, 0.2f, 2f, geom)
+        val (wi, hi) = ShelfMap.sizeInImage(w, h, 2f, geom)
+        assertEquals(0.1f, wi, 1e-5f)
+        assertEquals(0.2f, hi, 1e-5f)
+    }
+
+    @Test
+    fun `repeated sightings merge and the most seen name wins at one spot`() {
+        val m = ShelfMap()
+        val at = Vec3(0f, 0f, -2f)
+        repeat(3) { m.add("菓子パン A", "パン", "菓子パン", at, 0.1f, 0.1f, it.toLong()) }
+        m.add("チョコ B", "チョコ・ビスケット", "チョコレート", Vec3(0.05f, 0f, -2f), 0.1f, 0.1f, 5)   // 同じ場所の読み違い
+        m.add("菓子パン A", "パン", "菓子パン", Vec3(0.1f, 0f, -2f), 0.1f, 0.1f, 6)
+        assertEquals(2, m.size)
+        val seen = m.visible(geom)
+        assertEquals(listOf("菓子パン A"), seen.map { it.name })
+        assertEquals(4f, seen[0].sim)
+        assertEquals(0.5f, seen[0].cx, 0.02f)
+    }
+
+    @Test
+    fun `products are placed on the wall`() {
+        val wall = jp.devfest.shelfsight.assist.Wall(Vec3(0f, 0f, -2f), Vec3(0f, 0f, 1f), 1.5f)
+        // 深度の点が壁の少し手前 → 壁の上に寄せる
+        val snapped = ShelfMap.place(Vec3(0f, 0f, 0f), Vec3(0f, 0f, -1f), Vec3(0.3f, 0.1f, -1.85f), listOf(wall))!!
+        assertEquals(-2f, snapped.z, 1e-5f)
+        assertEquals(0.3f, snapped.x, 1e-5f)
+        // 深度がない → カメラからの向きと壁が交わる所
+        val hit = ShelfMap.place(Vec3(0f, 0f, 0f), Vec3(0.25f, 0f, -1f), null, listOf(wall))!!
+        assertEquals(-2f, hit.z, 1e-5f)
+        assertEquals(0.5f, hit.x, 1e-5f)
+        // 深度も壁もない → 置けない
+        assertNull(ShelfMap.place(Vec3(0f, 0f, 0f), Vec3(0f, 0f, -1f), null, emptyList()))
     }
 }

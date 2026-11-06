@@ -26,6 +26,7 @@ import com.google.ar.core.ArCoreApk
 import com.google.ar.core.CameraConfigFilter
 import com.google.ar.core.Config
 import com.google.ar.core.Coordinates2d
+import com.google.ar.core.Plane
 import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
 import com.google.ar.core.exceptions.UnavailableException
@@ -97,6 +98,9 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             ?.let { GeminiClient(it, BuildConfig.GEMINI_MODELS.split(",").map(String::trim).filter(String::isNotEmpty).sortedBy { m -> "lite" !in m }) },
     )
     private val judge = SceneJudge()
+    /** 1 秒ごとの商品認識の結果を、AR 空間の壁の上に貯めたもの（アプリを閉じると消える）。 */
+    private val shelfMap = ShelfMap()
+    private val recorder by lazy { Recorder(java.io.File(getExternalFilesDir(null), "records")) }
     /** 商品のジャンル（26 種類）→ 歩行中の判別と同じ 7 分類。場違いな商品を外すのに使う。 */
     private val groups by lazy { ShelfDescriber.Groups.parse(assets.open("coarse/categories.json").bufferedReader().readText()) }
 
@@ -166,7 +170,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             }
             session = Session(this).also { s ->
                 useHighResolutionCameraImage(s)
-                val config = Config(s).setFocusMode(Config.FocusMode.AUTO).setPlaneFindingMode(Config.PlaneFindingMode.DISABLED)
+                val config = Config(s).setFocusMode(Config.FocusMode.AUTO).setPlaneFindingMode(Config.PlaneFindingMode.VERTICAL)
                 if (s.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) config.depthMode = Config.DepthMode.AUTOMATIC
                 s.configure(config)
                 val cm = getSystemService(CameraManager::class.java)
@@ -269,24 +273,41 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             val f = FrameCapture.capture(frame, camera, rotation, depthEnabled = true, usualLongSide = SCENE_LONG_SIDE)
             if (f == null) sceneBusy.set(false) else {
                 lastScene = now
-                sceneWorker.execute { try { runScene(f) } finally { sceneBusy.set(false) } }
+                val walls = s.getAllTrackables(Plane::class.java)
+                    .filter { it.type == Plane.Type.VERTICAL && it.trackingState == TrackingState.TRACKING && it.subsumedBy == null }
+                    .map { pl ->
+                        val c = pl.centerPose
+                        val n = c.yAxis
+                        Wall(Vec3(c.tx(), c.ty(), c.tz()), Vec3(n[0], n[1], n[2]), maxOf(pl.extentX, pl.extentZ) / 2)
+                    }
+                val heading = debug.headingDeg
+                sceneWorker.execute { try { runScene(f, walls, heading) } finally { sceneBusy.set(false) } }
             }
         }
     }
 
     // ---------------------------------------------------------------- ①② 写っているものの判定
 
-    private fun runScene(f: CapturedFrame) {
+    /**
+     * 1 秒ごと: 商品の枠を出して写っているものを判定し、商品に名前を付けて地図（壁の上）に置き、画像と姿勢と結果を記録する。
+     */
+    private fun runScene(f: CapturedFrame, walls: List<Wall>, heading: Float?) {
         val image = JpegEncoder.toUprightBitmap(f, SCENE_LONG_SIDE)
         try {
             val now = SystemClock.elapsedRealtime()
             val boxes = recognizer.detect(image).map { it.first }
             val detectMs = SystemClock.elapsedRealtime() - now
             val switched = judge.update(SceneEvidence(0, boxes))
+            val products = recognizer.recognize(image, boxes)
+            val recognizeMs = SystemClock.elapsedRealtime() - now - detectMs
+            val placed = products.map { p -> Recorder.Product(p, placeOnMap(p, f, walls, now)) }
+            recorder.record(System.currentTimeMillis(), image, f.geometry, heading, walls.size, placed)
             debug.productBoxes = boxes
             debug.scene = judge.scene
-            debug.sceneMs = "商品の枠 ${detectMs}ms"
+            debug.sceneMs = "枠 ${detectMs}ms / 名前 ${recognizeMs}ms / 壁 ${walls.size}"
             debug.sceneAt = now
+            debug.mapView = shelfMap.visible(f.geometry)
+            debug.mapInfo = "${shelfMap.size} 個（今見えている ${debug.mapView.size}、この 1 枚で置いた ${placed.count { it.position != null }}/${products.size}）"
             val main = SceneJudge.mainProduct(boxes)
             val camera = cameraPosition(f)
 
@@ -312,7 +333,10 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                 judge.scene == Scene.ONE_SHELF && now - lastDescribeTry > DESCRIBE_RETRY_MS &&
                     (describedAt?.distanceTo(camera) ?: Float.MAX_VALUE) > MOVE_TO_REDESCRIBE_M -> {
                     lastDescribeTry = now
-                    describe(image, boxes, camera, requested = false)
+                    // LLM を待つ間も 1 秒ごとの記録を止めないよう、別のスレッドで話す
+                    val jpg = jpeg(image, NARRATE_LONG_SIDE)
+                    val inView = debug.mapView
+                    lookupWorker.execute { describe(inView, jpg, boxes.size, camera, requested = false) }
                 }
             }
         } catch (e: RuntimeException) {
@@ -323,24 +347,22 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     }
 
     /**
-     * ② 棚 1 つの商品を説明する。商品認識の結果を LLM で短い自然な文にする（使えなければ決まった言い方の文）。
-     * LLM の返事を待つので、呼んだスレッドはしばらく止まる。
+     * ② 棚 1 つの商品を説明する。[products] は地図から取り出した今見えている商品（なければその場で認識したもの）。
+     * LLM で短い自然な文にする（使えなければ決まった言い方の文）。LLM を待つので、呼んだスレッドはしばらく止まる。
      */
-    private fun describe(image: Bitmap, boxes: List<FloatArray>, camera: Vec3?, requested: Boolean) {
-        val t0 = SystemClock.elapsedRealtime()
-        val products = recognizer.recognize(image, boxes)
+    private fun describe(products: List<RecognizedProduct>, jpg: ByteArray, boxCount: Int, camera: Vec3?, requested: Boolean) {
         val t1 = SystemClock.elapsedRealtime()
         val split = ShelfDescriber.split(products, groups)
         debug.kept = split.kept
         debug.removed = split.removed
-        debug.unnamed = boxes.size - products.size
+        debug.unnamed = (boxCount - products.size).coerceAtLeast(0)
         debug.mainGroup = "${split.mainGroup}（${split.mainKinds.joinToString("・")}）"
         debug.productsAt = t1
-        val llm = if (narrator.available) narrator.describeShelf(split.kept, jpeg(image, NARRATE_LONG_SIDE)) else null
+        val llm = if (narrator.available) narrator.describeShelf(split.kept, jpg) else null
         val text = llm ?: ShelfDescriber.describe(split.kept)
         val t2 = SystemClock.elapsedRealtime()
         debug.description = text ?: "（商品が少なく説明なし）"
-        debug.describeInfo = "認識 ${t1 - t0}ms / 文 ${if (llm != null) "LLM" else "定型"} ${t2 - t1}ms"
+        debug.describeInfo = "文 ${if (llm != null) "LLM" else "定型"} ${t2 - t1}ms"
         Log.i(TAG, "describe: ${products.size} products, kept ${split.kept.size}, removed ${split.removed.size} (${split.mainGroup}) -> $text")
         if (text != null) {
             if (camera != null) describedAt = camera
@@ -374,7 +396,13 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             debug.sceneAt = debug.focusAt
             when (focus) {
                 Focus.PRODUCT -> lookupProduct(image, productBox!!)
-                Focus.SHELF -> describe(image, boxes, camera = null, requested = true)
+                Focus.SHELF -> {
+                    // 地図に貯めた、今見えている商品を使う（何枚も見た結果の多数決）。足りなければ、この 1 枚で認識する
+                    val fromMap = shelfMap.visible(f.geometry)
+                    debug.longPress += "、地図から ${fromMap.size} 個"
+                    val products = if (fromMap.size >= ShelfDescriber.MIN_PRODUCTS) fromMap else recognizer.recognize(image, boxes)
+                    describe(products, jpeg(image, NARRATE_LONG_SIDE), boxes.size, camera = null, requested = true)
+                }
                 Focus.STEP_BACK -> voice.say("一歩下がって、棚の全体か、商品を一つだけ写してください。")
                 Focus.NOTHING -> voice.say("商品が見えません。棚か商品の方にスマホを向けてください。")
             }
@@ -512,6 +540,19 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
 
     // ---------------------------------------------------------------- 補助
 
+    /** 名前の付いた商品を地図の上に置く。深度か壁から位置が決まらなければ置かない。 */
+    private fun placeOnMap(p: RecognizedProduct, f: CapturedFrame, walls: List<Wall>, now: Long): Vec3? {
+        val g = f.geometry
+        val box = NormalizedBox(p.left, p.top, p.right, p.bottom)
+        val depth = Unprojector.medianDepthMeters(box, g)
+        val along = Unprojector.worldAt(p.cx, p.cy, 1f, g)
+        val pos = ShelfMap.place(cameraPosition(f), along, depth?.let { Unprojector.worldAt(p.cx, p.cy, it, g) }, walls) ?: return null
+        val dist = pos.distanceTo(cameraPosition(f))
+        val (w, h) = ShelfMap.sizeInMeters(p.right - p.left, p.bottom - p.top, dist, g)
+        shelfMap.add(p.name, p.genre, p.fine, pos, w, h, now)
+        return pos
+    }
+
     private fun updateSettings() {
         val ok = { b: Boolean -> if (b) "○" else "×" }
         debug.settings = "Gemini${ok(narrator.available)} Vision${ok(lookup.configured)} 自動のお知らせ${ok(auto)}"
@@ -541,7 +582,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
 
     private companion object {
         const val TAG = "Assist"
-        const val SCENE_INTERVAL_MS = 900L
+        const val SCENE_INTERVAL_MS = 1000L
         const val PERSON_INTERVAL_MS = 200L
         const val SCENE_LONG_SIDE = 1280
         const val PERSON_LONG_SIDE = 640
