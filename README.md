@@ -17,6 +17,10 @@ TalkBack が有効なときは、ダブルタップが質問、ダブルタッ�
 
 人の検出では、自分の手や持っている商品を人と間違えないよう、画面の下からだけ入ってくる枠、手の届く距離なのに画面の上まで写っていない枠、全身に見えるのに縦に長くない枠を外します（`PersonFilter`、手の検出は使わない）。
 
+### iOS 版
+
+`ios/` に、買い物の案内（下の `assist`）を同じ構成で Swift に移した iOS 版があります（ARKit・Vision・AVFoundation・ONNX Runtime）。モデルと照合先は Android 版と同じファイルを使います。ビルドは GitHub Actions（`.github/workflows/ios-testflight.yml`）から TestFlight に上げます。準備は [ios/README.md](ios/README.md) を見てください。iOS 版と Android 版は、いつも機能を同じにします（片方を変えたら、もう片方も同じように変える）。
+
 ### 買い物の案内（`assist` パッケージ、起動すると開く画面）
 
 | 場面 | すること | 使うもの |

@@ -1,0 +1,73 @@
+# XcodeGen の設定。`xcodegen generate` で ShelfSight.xcodeproj を作る（.xcodeproj はコミットしない）。
+name: ShelfSight
+options:
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config.xcconfig
+  Release: Config.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+packages:
+  OnnxRuntime:
+    url: https://github.com/microsoft/onnxruntime-swift-package-manager
+    from: "1.20.0"
+targets:
+  ShelfSight:
+    type: application
+    platform: iOS
+    scheme: {}
+    sources:
+      - path: ShelfSight
+      # モデルと照合先は Android 版と同じもの（app/src/main/assets）を、そのまま入れる
+      - path: ../app/src/main/assets/products
+        type: folder
+        buildPhase: resources
+      # 商品のジャンル → 7 つのまとまり（場違いな商品を外すのに使う）。歩行中の判別のモデルは入れない
+      - path: ../app/src/main/assets/coarse/categories.json
+        buildPhase: resources
+    dependencies:
+      - package: OnnxRuntime
+        product: onnxruntime
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: ShelfSight
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIRequiredDeviceCapabilities: [arkit]
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).SceneDelegate
+        NSCameraUsageDescription: 棚と商品、近づいてくる人を見分けるためにカメラを使います。
+        NSMicrophoneUsageDescription: 2回たたいたあとの質問を聞き取るためにマイクを使います。
+        NSSpeechRecognitionUsageDescription: 質問を文字にするために音声認識を使います。
+        # 記録（records/）を「ファイル」アプリから取り出せるようにする
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        # 標準の HTTPS しか使わない（TestFlight へ上げるときの輸出規制の質問を省く）
+        ITSAppUsesNonExemptEncryption: false
+        # ビルドのときに Config.xcconfig / Secrets.xcconfig から入る設定
+        GEMINI_API_KEY: $(GEMINI_API_KEY)
+        GEMINI_MODELS: $(GEMINI_MODELS)
+        CLOUD_VISION_API_KEY: $(CLOUD_VISION_API_KEY)
+        GCP_API_KEY: $(GCP_API_KEY)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(SHELFSIGHT_BUNDLE_ID)
+        DEVELOPMENT_TEAM: $(SHELFSIGHT_TEAM_ID)
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ENABLE_BITCODE: false

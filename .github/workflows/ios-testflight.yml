@@ -1,0 +1,131 @@
+# iOS 版をビルドして TestFlight に上げる。手動（Actions の画面の「Run workflow」）か、main に ios/ の変更を push したときに動く。
+# 必要なシークレットと準備は ios/README.md を参照。
+name: iOS TestFlight
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - "app/src/main/assets/products/**"
+      - "app/src/main/assets/coarse/categories.json"
+      - ".github/workflows/ios-testflight.yml"
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    # App Store Connect へ上げるには最新の iOS SDK（Xcode 26 以降）でビルドする必要がある
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      ASC_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'jp.devfest.shelfsight' }}
+      BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode を選ぶ
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: シークレットを確かめる
+        env:
+          ASC_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: |
+          missing=""
+          for name in ASC_KEY_ID ASC_ISSUER_ID TEAM_ID ASC_PRIVATE_KEY; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::次のシークレットがありません:$missing（ios/README.md を参照）"
+            exit 1
+          fi
+
+      - name: 設定とキーを書き出す
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GCP_API_KEY: ${{ secrets.GCP_API_KEY }}
+          ASC_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: |
+          {
+            echo "SHELFSIGHT_TEAM_ID = $TEAM_ID"
+            echo "SHELFSIGHT_BUNDLE_ID = $BUNDLE_ID"
+            echo "GEMINI_API_KEY = $GEMINI_API_KEY"
+            echo "GCP_API_KEY = $GCP_API_KEY"
+          } > ios/Secrets.xcconfig
+          mkdir -p "$RUNNER_TEMP/keys"
+          printf '%s\n' "$ASC_PRIVATE_KEY" > "$RUNNER_TEMP/keys/AuthKey.p8"
+          echo "ASC_KEY_PATH=$RUNNER_TEMP/keys/AuthKey.p8" >> "$GITHUB_ENV"
+
+      - name: Xcode のプロジェクトを作る
+        working-directory: ios
+        run: |
+          brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+          xcodegen generate
+
+      - name: アーカイブする
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project ShelfSight.xcodeproj \
+            -scheme ShelfSight \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/ShelfSight.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            | tee "$RUNNER_TEMP/archive.log" | grep -E "error:|warning: .*ShelfSight/|BUILD|ARCHIVE" || true
+          test -d "$RUNNER_TEMP/ShelfSight.xcarchive" || { tail -200 "$RUNNER_TEMP/archive.log"; exit 1; }
+
+      - name: TestFlight に上げる
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>uploadSymbols</key><true/>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>testFlightInternalTestingOnly</key><true/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/ShelfSight.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          echo "ビルド $BUILD_NUMBER を App Store Connect に上げました。処理が終わると TestFlight に出ます。" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: ビルドのログを残す
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-logs
+          path: ${{ runner.temp }}/archive.log
+          if-no-files-found: ignore
+
+      - name: キーを消す
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/keys" ios/Secrets.xcconfig
