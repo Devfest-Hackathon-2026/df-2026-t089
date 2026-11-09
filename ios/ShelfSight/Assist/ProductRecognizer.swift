@@ -30,8 +30,6 @@ final class ProductRecognizer {
 
     private let detector: Onnx.Model
     private let embedder: Onnx.Model
-    /// 計算をどこでしているか（画面の表示用）。
-    var backend: String { "枠 \(detector.usesCoreML ? "Core ML" : "CPU")・名前 \(embedder.usesCoreML ? "Core ML" : "CPU")" }
     private let detSize: Int
     private let embSize: Int
     private let dim: Int

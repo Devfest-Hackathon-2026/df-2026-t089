@@ -208,11 +208,6 @@ final class DebugOverlay: UIView {
         if !d.lookup.isEmpty { lines.append("   商品: \(d.lookup)") }
         lines.append("④ 人: \(d.peopleInfo.isEmpty ? "-" : d.peopleInfo)")
         lines.append("声: \(d.voice)")
-        // 落ちる原因の調査用（iOS だけ）
-        lines.append("診断: \(Diagnostics.shared.line)")
-        lines.append("  商品認識の\(recognizerSummary())")
-        let previous = Diagnostics.shared.previous
-        if !previous.isEmpty { lines.append(previous) }
 
         let body = lines.joined(separator: "\n") as NSString
         let attrs: [NSAttributedString.Key: Any] = [.font: textFont, .foregroundColor: UIColor.white]
@@ -224,9 +219,6 @@ final class DebugOverlay: UIView {
         ctx.fill(CGRect(x: 0, y: panelTop, width: bounds.width, height: bounds.height - panelTop))
         body.draw(with: CGRect(x: 8, y: panelTop + 6, width: maxWidth, height: bounds.height - panelTop), options: .usesLineFragmentOrigin, attributes: attrs, context: nil)
     }
-
-    /// 商品認識の作り直しの状況（Assist から渡す）。
-    var recognizerSummary: () -> String = { "-" }
 
     private func short(_ name: String) -> String {
         let after = name.firstIndex(of: " ").map { String(name[name.index(after: $0)...]) } ?? name

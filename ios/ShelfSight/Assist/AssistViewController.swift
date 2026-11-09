@@ -123,7 +123,6 @@ final class Assist: NSObject, ARSessionDelegate {
     init(session: ARSession) {
         self.session = session
         super.init()
-        Diagnostics.shared.start()
         // 声は A2DP（ステレオ）のまま鳴らしたいので、HFP は使わない（マイクは本体のもの）
         let audio = AVAudioSession.sharedInstance()
         try? audio.setCategory(.playAndRecord, mode: .default, options: [.allowBluetoothA2DP, .defaultToSpeaker])
@@ -167,9 +166,6 @@ final class Assist: NSObject, ARSessionDelegate {
         }
     }
 
-    /// 商品認識の作り直しの状況（画面の表示用）。
-    var recognizerSummary: String { recognizer.summary }
-
     func pause() {
         listening.cancel()
         session.pause()
@@ -183,7 +179,6 @@ final class Assist: NSObject, ARSessionDelegate {
     }
 
     private func onFrame(_ frame: ARFrame) {
-        Diagnostics.shared.frame()
         let size = viewSize
         if size.width > 0 {
             // 画面の表示用: センサー画像の正規化座標が、画面のどこに来るか
@@ -219,16 +214,15 @@ final class Assist: NSObject, ARSessionDelegate {
         if Self.productOnly {
             // 商品の解析だけを、前の解析が終わったらすぐ次を回す（人の検出と記録は止める）。
             // 残りのメモリが少ないときは休む（増え続ける原因がほかにあっても、OS に止められないように）
-            let available = Diagnostics.availableMB()
+            let available = Memory.availableMB()
             if available < Self.minAvailableMB {
                 if sceneBusy.tryAcquire() {
                     debug.sceneMs = String(format: "メモリが少ないので解析を休み中（残り %.0fMB）", available)
-                    Diagnostics.shared.stage = "メモリが少ないので休み中"
                     sceneBusy.release()
                 }
             } else if sceneBusy.tryAcquire() {
                 let t0 = nowMs()
-                if let f = Diagnostics.shared.measure("撮る", { FrameCapture.capture(frame, depthEnabled: true, usualLongSide: Self.sceneLongSide) }) {
+                if let f = FrameCapture.capture(frame, depthEnabled: true, usualLongSide: Self.sceneLongSide) {
                     let captureMs = nowMs() - t0
                     let heading = debug.headingDeg
                     sceneWorker.async { [self] in runScene(f, 0, heading, captureMs: captureMs); sceneBusy.release() }
@@ -275,11 +269,11 @@ final class Assist: NSObject, ARSessionDelegate {
     private func runScene(_ f: CapturedFrame, _ walls: Int, _ heading: Float?, captureMs: Int64 = 0) {
         guard let recognizer = recognizer.get else { debug.sceneMs = "商品認識のモデルを読み込めません"; return }
         let t0 = nowMs()
-        let image = Diagnostics.shared.measure("変換") { ImageUtil.scaled(f.image, longSide: Self.sceneLongSide) }
+        let image = ImageUtil.scaled(f.image, longSide: Self.sceneLongSide)
         let convertMs = nowMs() - t0
         do {
             let now = nowMs()
-            let boxes = try Diagnostics.shared.measure("枠") { try recognizer.detect(image).map(\.0) }
+            let boxes = try recognizer.detect(image).map(\.0)
             let detectMs = nowMs() - now
             // 1 つだけ特に近い商品（スマホからの距離で決める）
             let (near, distances) = NearProduct.measure(boxes) { b in
@@ -297,11 +291,9 @@ final class Assist: NSObject, ARSessionDelegate {
             if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {   // LiDAR がなければ、深度が取れないという表示のまま
                 debug.near = near?.describe() ?? "なし（距離が分かった枠 \(distances.compactMap { $0 }.count)/\(boxes.count)）"
             }
-            let products = try Diagnostics.shared.measure("名前") { try recognizer.recognize(image, boxes) }
-            Diagnostics.shared.stage = "解析の後"
+            let products = try recognizer.recognize(image, boxes)
             // ONNX Runtime が中に取っておいたメモリが増えていれば、裏で作り直して返させる
             self.recognizer.reloadIfNeeded()
-            Diagnostics.shared.scene()
             let recognizeMs = nowMs() - now - detectMs
             if Self.productOnly {
                 timing.add(captureMs: captureMs, convertMs: convertMs, detectMs: detectMs, nameMs: recognizeMs, boxes: boxes.count, named: products.count)
@@ -615,9 +607,7 @@ final class AssistViewController: UIViewController {
     private let sceneView = ARSCNView()
     private lazy var assist = Assist(session: sceneView.session)
     private lazy var overlay: DebugOverlay = {
-        let o = DebugOverlay(debug: assist.debug)
-        o.recognizerSummary = { [weak self] in self?.assist.recognizerSummary ?? "-" }
-        return o
+        DebugOverlay(debug: assist.debug)
     }()
     private let touch = TouchSurface()
 

@@ -66,8 +66,6 @@ final class Voice: NSObject, AVSpeechSynthesizerDelegate {
     /// 合成した音（ミキサーの周波数のモノラル）。worker のキューで呼ぶ。
     private func synth(_ text: String) -> [Float]? {
         if let c = cache[text] { return c }
-        Diagnostics.shared.stage = "音声合成「\(text.prefix(10))」"
-        defer { Diagnostics.shared.stage = "音声合成の後" }
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = voice
         utterance.rate = min(AVSpeechUtteranceMaximumSpeechRate, AVSpeechUtteranceDefaultSpeechRate * Self.speechRate)

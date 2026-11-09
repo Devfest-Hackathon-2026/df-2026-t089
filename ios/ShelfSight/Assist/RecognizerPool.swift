@@ -39,11 +39,11 @@ final class RecognizerPool {
     /// メモリが増えていれば、裏で作り直す。解析のたびに呼んでよい（必要なときだけ動く）。
     func reloadIfNeeded() {
         guard current != nil, !reloading, nowMs() - lastReloadAt >= Self.minIntervalMs else { return }
-        let heap = Diagnostics.mallocMB()
-        guard heap > Self.reloadMallocMB || Diagnostics.availableMB() < Self.reloadAvailableMB else { return }
+        let heap = Memory.mallocMB()
+        guard heap > Self.reloadMallocMB || Memory.availableMB() < Self.reloadAvailableMB else { return }
         reloading = true
         queue.async { [self] in
-            logInfo("Recognizer", String(format: "reload: malloc %.0fMB, available %.0fMB", heap, Diagnostics.availableMB()))
+            logInfo("Recognizer", String(format: "reload: malloc %.0fMB, available %.0fMB", heap, Memory.availableMB()))
             if let fresh = Self.make() {
                 current = fresh   // 古い認識器は、使っている解析が終わったときに捨てられる
             }
@@ -52,19 +52,11 @@ final class RecognizerPool {
             // 古い認識器を使っていた解析が終わるのを少し待ってから、空いた分を OS に返し、返った量を測る
             queue.asyncAfter(deadline: .now() + 1.5) { [self] in
                 malloc_zone_pressure_relief(nil, 0)
-                lastFreedMB = heap - Diagnostics.mallocMB()
+                lastFreedMB = heap - Memory.mallocMB()
                 logInfo("Recognizer", String(format: "reload done: freed %.0fMB", lastFreedMB))
                 reloading = false
             }
         }
-    }
-
-    /// 画面に出す 1 行。
-    var summary: String {
-        let where_ = current?.backend ?? "未読み込み"
-        if reloads == 0 { return "計算 \(where_)・作り直し 0 回" }
-        let ago = (nowMs() - lastReloadAt) / 1000
-        return "計算 \(where_)・" + String(format: "作り直し %d 回（最後は %d 秒前、返った量 %.0fMB）", reloads, Int(ago), lastFreedMB)
     }
 
     private static func make() -> ProductRecognizer? {
