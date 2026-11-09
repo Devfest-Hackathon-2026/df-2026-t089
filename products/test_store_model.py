@@ -61,6 +61,14 @@ restored = glass_restored(view, 0.0, 1.5, 3.5, 1.5)
 assert restored is not None and restored[0] < 3.5, (restored, text(view))
 assert glass_restored(view, 0.0, 1.5, -1.5, 1.5) is None   # 反対側の棚の点は動かさない
 
+# 角: 直交する 2 面の端が少し離れていても交点にそろい、遠い面はそのまま
+r = {"ax": 0, "c": 5.0, "a": 0.4, "b": 2.8}
+q = {"ax": 1, "c": 0.0, "a": 2.0, "b": 4.7}
+far = {"ax": 1, "c": 9.0, "a": 2.0, "b": 4.7}
+StoreModel._snap_corners([r, q, far])
+assert r["a"] == 0.0 and q["b"] == 5.0 and r["corner"] and q["corner"], (r, q)
+assert far["a"] == 2.0 and far["b"] == 4.7 and "corner" not in far, far
+
 # テーマの表と分類表がずれていない（taxonomy.json を変えたら store_themes.json も直す）
 tax = {v[0] for g in calib_tax.values() for v in g.values()}
 listed = {c for t in THEMES for c in t["cats"]}

@@ -27,6 +27,7 @@
 （直したら python products/store_sim.py --fixture でテストデータを作り直す）。
 """
 import json
+from bisect import bisect
 from math import cos, floor, hypot, log, radians, sin
 from pathlib import Path
 
@@ -52,6 +53,8 @@ TOUCH = 0.01       # 棚どうしが重なったとみなす食い込み
 SHELF_COST = 16    # 棚を 1 つ増やすのに必要な点の数（少ない棚で説明するための罰則）
 MODULE_COST = 3
 CORNER_BONUS = 12
+CORNER_R = 0.6     # 直交する面の端がこの距離以内なら、同じ角とみなす
+TRAIL_MARGIN = 0.2 # 歩いた線が棚の端をこれだけかすめても、棚を否定しない
 GLASS_GAP = 1.2    # ガラスの散らばりは疎なので、棚の面より遠くまで 1 つの塊とみなす
 GLASS_SPREAD = 0.6 # 視線方向の厚みがこれ以上なら面ではなく散らばり（棚の帯は 0.4 m ほど）
 GLASS_MIN = 8
@@ -160,47 +163,96 @@ class StoreModel:
         return pts, trail
 
     @staticmethod
-    def _runs(pts):
-        """軸に平行な棚の面を、点の多い線から順に取り出す"""
-        runs, left = [], pts
+    def _cuts(trail, ax, line):
+        """歩いた線がこの線を横切る位置（面に沿った座標）。そこは通路で、棚はつながらない"""
+        out = []
+        for p, q in zip(trail, trail[1:]):
+            if (p[ax] - line) * (q[ax] - line) < 0:
+                out.append(p[1 - ax] + (line - p[ax]) / (q[ax] - p[ax]) * (q[1 - ax] - p[1 - ax]))
+        return sorted(out)
+
+    def _runs(self, pts, trail):
+        """軸に平行な棚の面を、点の多い線から順に取り出す。線は歩いた線で区切り、面にならなかった点は直交する棚のために残す"""
+        runs, left, tried, cache = [], pts, set(), {}
+
+        def cuts(ax, b):
+            return cache.setdefault((ax, b), self._cuts(trail, ax, (b + 0.5) * 0.05))
+
         while len(left) >= 5:
-            score, axis, center = 0, 0, 0.0
+            score, axis, center, line = 0, 0, 0.0, 0
             for ax in (0, 1):
                 bins = {}
                 for p in left:
                     bins.setdefault(floor(p[ax] / 0.05), set()).add(floor(p[1 - ax] / 0.2))
                 for b in sorted(bins):
-                    s = sum(len(bins.get(b + i, ())) for i in range(-3, 4))
+                    if (ax, b) in tried:
+                        continue
+                    pieces = {}
+                    for i in range(-3, 4):
+                        for y in bins.get(b + i, ()):
+                            k = bisect(cuts(ax, b), (y + 0.5) * 0.2)
+                            pieces[k] = pieces.get(k, 0) + 1
+                    s = max(pieces.values(), default=0)
                     if s > score:
-                        score, axis, center = s, ax, (b + 0.5) * 0.05
+                        score, axis, center, line = s, ax, (b + 0.5) * 0.05, b
             if score < 4:
                 break
+            tried.add((axis, line))
+            walked = cuts(axis, line)
             band = sorted((p for p in left if abs(p[axis] - center) <= BAND), key=lambda p: p[1 - axis])
-            left = [p for p in left if abs(p[axis] - center) > BAND]
-            seg = []
+            taken, seg = set(), []
             for p in band + [None]:
-                if seg and (p is None or p[1 - axis] - seg[-1][1 - axis] > GAP):
+                if seg and (p is None or p[1 - axis] - seg[-1][1 - axis] > GAP or bisect(walked, p[1 - axis]) != bisect(walked, seg[-1][1 - axis])):
                     a, b, w = seg[0][1 - axis], seg[-1][1 - axis], sum(q[2] for q in seg)
                     if b - a >= MIN_LEN and w >= MIN_OBS:
                         sign = 1 if sum(q[3 + axis] for q in seg) >= 0 else -1
                         runs.append({"ax": axis, "c": _front(seg, axis, sign), "a": a, "b": b, "s": sign, "w": w, "pts": seg})
+                        taken |= {id(q) for q in seg}
                     seg = []
                 if p is not None:
                     seg.append(p)
+            left = [p for p in left if id(p) not in taken]
         return runs
 
-    @staticmethod
-    def _merge(runs):
-        """同じ線の上で少しだけ途切れた面をつなぐ"""
+    def _merge(self, runs, trail):
+        """同じ線の上で少しだけ途切れた面をつなぐ。間を歩いていたら通路なのでつながない"""
         out = []
         for r in sorted(runs, key=lambda r: (r["ax"], r["s"], r["a"])):
-            hit = next((m for m in out if m["ax"] == r["ax"] and m["s"] == r["s"] and abs(m["c"] - r["c"]) < SAME_FACE and r["a"] - m["b"] < 1.0), None)
+            hit = next((m for m in out if m["ax"] == r["ax"] and m["s"] == r["s"] and abs(m["c"] - r["c"]) < SAME_FACE and r["a"] - m["b"] < 1.0 and
+                        not any(m["b"] <= t <= r["a"] for t in self._cuts(trail, m["ax"], (m["c"] + r["c"]) / 2))), None)
             if hit is None:
                 out.append(r)
             else:
                 hit["b"], hit["w"], hit["pts"] = max(hit["b"], r["b"]), hit["w"] + r["w"], hit["pts"] + r["pts"]
                 hit["c"] = _front(hit["pts"], hit["ax"], hit["s"])
         return out
+
+    @staticmethod
+    def _snap_corners(runs):
+        """直交する 2 つの面の端が近ければ、そこは棚の角。両方の面の端を交点にそろえて、棚を角に当てる"""
+        ends = []
+        for r in runs:
+            if r["ax"] != 0:
+                continue
+            for q in runs:
+                if q["ax"] != 1:
+                    continue
+                for re_ in ("a", "b"):
+                    for qe in ("a", "b"):
+                        d = hypot(r[re_] - q["c"], q[qe] - r["c"])
+                        if d < CORNER_R:
+                            ends.append((d, r, re_, q, qe))
+        used = set()
+        for _, r, re_, q, qe in sorted(ends, key=lambda e: e[0]):
+            if (id(r), re_) in used or (id(q), qe) in used:
+                continue
+            ra, qa = (q["c"] if re_ == "a" else r["a"]), (r["c"] if qe == "a" else q["a"])
+            rb, qb = (q["c"] if re_ == "b" else r["b"]), (r["c"] if qe == "b" else q["b"])
+            if rb - ra < MIN_LEN or qb - qa < MIN_LEN:
+                continue
+            used |= {(id(r), re_), (id(q), qe)}
+            r["a"], r["b"], q["a"], q["b"] = ra, rb, qa, qb
+            r["corner"] = q["corner"] = True
 
     @staticmethod
     def _has_wall_behind(r, runs, trail):
@@ -318,7 +370,8 @@ class StoreModel:
         count = best3 + best4
         prior = best3 * 0.9 + best4 * 1.2
         observations = sum(r["w"] for r in faces)
-        trust = max(0.0, min(1.0, observations / 30.0))
+        # 角に当たった端は測った位置を信じる
+        trust = 1.0 if any(r.get("corner") for r in faces) else max(0.0, min(1.0, observations / 30.0))
         target = prior + (measured - prior) * trust
         correction = (target - prior) / count
         small, large = 0.9 + correction, 1.2 + correction
@@ -476,8 +529,8 @@ class StoreModel:
 
     def _valid(self, fixture, draft, pts, trail):
         rect = self._rect(fixture)
-        if any(self._crosses(p, p, rect, 0.06) for p in trail) or any(
-                self._crosses(a, b, rect, 0.06) for a, b in zip(trail, trail[1:])):
+        if any(self._crosses(p, p, rect, TRAIL_MARGIN) for p in trail) or any(
+                self._crosses(a, b, rect, TRAIL_MARGIN) for a, b in zip(trail, trail[1:])):
             return False
         wrong_side = views = 0
         for face in draft[6]:
@@ -493,23 +546,30 @@ class StoreModel:
         core = sum(id(p) not in own and rect[0] + 0.15 < p[0] < rect[2] - 0.15 and
                    rect[1] + 0.15 < p[1] < rect[3] - 0.15 and
                    not any((cam[face["ax"]] - face["c"]) * face["s"] > 0 for face in draft[6] for cam in p[6]) for p in pts)
-        if fixture["kind"] == "glass":   # ガラスの奥に点があるのは当然なので、下の 2 つは調べない
+        if fixture["kind"] == "glass":   # ガラスの奥に点があるのは当然なので、下は調べない
             return True
-        if core > max(6, len(pts) // 50):
-            return False
-        across = fixture["axis"]
-        blocked = 0
+        return core <= max(6, len(pts) // 50)
+
+    def _see_through(self, fixture, pts):
+        """カメラから棚の向こうの点へ、棚を突き抜けて届いた点。不透明な棚では起きない"""
+        rect, across, out = self._rect(fixture), fixture["axis"], set()
+        low, high = fixture["c"] - fixture["d"] / 2 - 0.2, fixture["c"] + fixture["d"] / 2 + 0.2
         for p in pts:
-            target = p[:2]
             for cam in p[6]:
-                through = (cam[across] < fixture["c"] - fixture["d"] / 2 - 0.2 and target[across] > fixture["c"] + fixture["d"] / 2 + 0.2) or (
-                    cam[across] > fixture["c"] + fixture["d"] / 2 + 0.2 and target[across] < fixture["c"] - fixture["d"] / 2 - 0.2)
-                if through and self._crosses(cam, target, rect, 0.1):
-                    blocked += 1
+                if ((cam[across] < low and p[across] > high) or (cam[across] > high and p[across] < low)) and self._crosses(cam, p[:2], rect, 0.1):
+                    out.add(id(p))
                     break
-            if blocked > max(4, len(own) // 4):   # 深度の外れ値が少し抜けるだけなら、棚の裏付けのほうを信じる
-                return False
-        return True
+        return out
+
+    @staticmethod
+    def _glass_views(own):
+        return max(4, own // 4)
+
+    @staticmethod
+    def _glass_front(fixture, draft):
+        sign = draft[6][0]["s"]
+        face = fixture["c"] + sign * fixture["d"] / 2
+        return {**fixture, "kind": "glass", "c": face - sign * CASE_DEPTH / 2, "d": CASE_DEPTH, "h": HEIGHT["glass"]}
 
     def _overlaps(self, f, g):
         r, q = self._rect(f), self._rect(g)
@@ -546,7 +606,8 @@ class StoreModel:
             other = next((o for o in accepted if self._overlaps(candidate["fixture"], o["fixture"])), None)
             if other is None:
                 return self._end_touches_one_island(candidate["fixture"], accepted)
-            if not (self._trim(candidate, other["fixture"]) or self._trim(other, candidate["fixture"])):
+            # 既に置いた棚を削るのは、幅の決まったエンドを島の先端に付けるときだけ
+            if not (self._trim(candidate, other["fixture"]) or (candidate["fixture"]["kind"] == "end" and self._trim(other, candidate["fixture"]))):
                 return False
         return False
 
@@ -600,17 +661,28 @@ class StoreModel:
             return {"yaw": 0.0, "room": None, "fixtures": []}
         self._fit_yaw()
         pts, trail = self._frame()
-        runs = self._merge(self._runs(pts))
+        runs = self._merge(self._runs(pts, trail), trail)
+        self._snap_corners(runs)
         drafts = self._classify(runs, trail)
-        candidates = []
+        opaque, doubtful = [], []
         for draft in drafts:
             fixture = self._build(draft)
-            if self._valid(fixture, draft, pts, trail):
-                rect = self._rect(fixture)
-                near = {id(p) for p in pts if rect[0] - EXPLAIN <= p[0] <= rect[2] + EXPLAIN and rect[1] - EXPLAIN <= p[1] <= rect[3] + EXPLAIN}
-                own = {id(p) for face in draft[6] for p in face["pts"]}
-                candidates.append({"draft": draft, "fixture": fixture, "explains": near | own, "bonus": CORNER_BONUS * self._corner_support(draft, drafts)})
-        accepted = self._choose(candidates, [])
+            own = {id(p) for face in draft[6] for p in face["pts"]}
+            through = self._see_through(fixture, pts)
+            if len(through) > len(own) or not self._valid(fixture, draft, pts, trail):   # 面の裏付けより突き抜ける視線が多いなら、そこに棚はない
+                continue
+            rect = self._rect(fixture)
+            near = {id(p) for p in pts if rect[0] - EXPLAIN <= p[0] <= rect[2] + EXPLAIN and rect[1] - EXPLAIN <= p[1] <= rect[3] + EXPLAIN}
+            c = {"draft": draft, "fixture": fixture, "explains": near | own, "bonus": CORNER_BONUS * self._corner_support(draft, drafts), "through": through, "own": len(own)}
+            (doubtful if fixture["kind"] in ("wall", "case") and len(through) >= self._glass_views(len(own)) else opaque).append(c)
+        accepted = self._choose(opaque, [])
+        explained = set().union(*(c["explains"] for c in accepted))
+        for c in doubtful:   # 奥の棚で説明できる点は通路越しに見えただけ。どの棚でも説明できない点へ抜けるなら、面はガラス
+            beyond = c["through"] - explained
+            if len(beyond) >= self._glass_views(c["own"]):
+                c["fixture"] = self._glass_front(c["fixture"], c["draft"])
+                c["explains"] |= beyond
+        accepted = self._choose(doubtful, accepted)
         explained = set().union(*(c["explains"] for c in accepted))
         glass = [c for c in self._glass_candidates([p for p in pts if id(p) not in explained])
                  if self._valid(c["fixture"], c["draft"], pts, trail)]

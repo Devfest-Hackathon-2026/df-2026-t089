@@ -40,12 +40,12 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
         val cats: LinkedHashMap<String, Double> = LinkedHashMap(), val cameras: ArrayList<DoubleArray> = ArrayList())
     private class Pt(val p: DoubleArray, val w: Double, val nu: Double, val nv: Double,
         val cats: Map<String, Double>, val cameras: List<DoubleArray>)
-    private class Run(val ax: Int, var c: Double, val a: Double, var b: Double, val s: Int, var w: Double, var pts: List<Pt>)
+    private class Run(val ax: Int, var c: Double, var a: Double, var b: Double, val s: Int, var w: Double, var pts: List<Pt>, var corner: Boolean = false)
     private class Draft(val kind: String, val axis: Int, val c: Double, val a: Double, val b: Double, val d: Double, val faces: List<Run>)
     private data class ModuleLayout(val start: Double, val widths: List<Double>)
     private data class Pairing(val front: Run, val back: Run, val score: Double)
     private data class Rect(val u0: Double, val v0: Double, val u1: Double, val v1: Double)
-    private class Candidate(var draft: Draft, var fixture: StoreFixture, val explains: Set<Pt>, val bonus: Double)
+    private class Candidate(var draft: Draft, var fixture: StoreFixture, var explains: Set<Pt>, val bonus: Double, val through: Set<Pt> = emptySet(), val own: Int = 0)
 
     private val cells = LinkedHashMap<Pair<Int, Int>, Cell>()
     private val counters = LinkedHashMap<Pair<Int, Int>, Int>()
@@ -111,50 +111,102 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
         yaw = Math.toRadians(((d % 90.0) + 90.0) % 90.0)
     }
 
-    private fun runsOf(input: List<Pt>): List<Run> {
+    /** 歩いた線がこの線を横切る位置（面に沿った座標）。そこは通路で、棚はつながらない。 */
+    private fun walkedAcross(t: List<DoubleArray>, ax: Int, line: Double): DoubleArray {
+        val out = ArrayList<Double>()
+        for (i in 0 until t.size - 1) {
+            val p = t[i]; val q = t[i + 1]
+            if ((p[ax] - line) * (q[ax] - line) < 0) out += p[1 - ax] + (line - p[ax]) / (q[ax] - p[ax]) * (q[1 - ax] - p[1 - ax])
+        }
+        return out.sorted().toDoubleArray()
+    }
+
+    private fun piece(cuts: DoubleArray, x: Double) = cuts.count { it <= x }
+
+    /** 軸に平行な棚の面を、点の多い線から順に取り出す。線は歩いた線で区切り、面にならなかった点は直交する棚のために残す。 */
+    private fun runsOf(input: List<Pt>, frameTrail: List<DoubleArray>): List<Run> {
         val runs = ArrayList<Run>()
         var left = input
+        val tried = HashSet<Pair<Int, Int>>()
+        val cache = HashMap<Pair<Int, Int>, DoubleArray>()
+        fun cuts(ax: Int, b: Int) = cache.getOrPut(ax to b) { walkedAcross(frameTrail, ax, (b + 0.5) * 0.05) }
         while (left.size >= 5) {
-            var score = 0; var axis = 0; var center = 0.0
+            var score = 0; var axis = 0; var center = 0.0; var line = 0
             for (ax in 0..1) {
                 val bins = HashMap<Int, HashSet<Int>>()
                 for (p in left) bins.getOrPut(floorI(p.p[ax] / 0.05)) { HashSet() }.add(floorI(p.p[1 - ax] / 0.2))
                 for (b in bins.keys.sorted()) {
-                    val s = (-3..3).sumOf { bins[b + it]?.size ?: 0 }
-                    if (s > score) { score = s; axis = ax; center = (b + 0.5) * 0.05 }
+                    if ((ax to b) in tried) continue
+                    val pieces = HashMap<Int, Int>()
+                    for (i in -3..3) for (y in bins[b + i].orEmpty()) pieces.merge(piece(cuts(ax, b), (y + 0.5) * 0.2), 1, Int::plus)
+                    val s = pieces.values.maxOrNull() ?: 0
+                    if (s > score) { score = s; axis = ax; center = (b + 0.5) * 0.05; line = b }
                 }
             }
             if (score < 4) break
+            tried += axis to line
             val t = 1 - axis
             val ax = axis; val mid = center
+            val walked = cuts(axis, line)
             val band = left.filter { abs(it.p[ax] - mid) <= BAND }.sortedBy { it.p[t] }
-            left = left.filter { abs(it.p[ax] - mid) > BAND }
+            val taken = HashSet<Pt>()
             var seg = ArrayList<Pt>()
             for (p in band + listOf<Pt?>(null)) {
-                if (seg.isNotEmpty() && (p == null || p.p[t] - seg.last().p[t] > GAP)) {
+                if (seg.isNotEmpty() && (p == null || p.p[t] - seg.last().p[t] > GAP || piece(walked, p.p[t]) != piece(walked, seg.last().p[t]))) {
                     val a = seg.first().p[t]; val b = seg.last().p[t]; val w = seg.sumOf { it.w }
                     if (b - a >= MIN_LEN && w >= MIN_OBS) {
                         val sign = if (seg.sumOf { if (ax == 0) it.nu else it.nv } >= 0) 1 else -1
                         runs += Run(ax, front(seg, ax, sign), a, b, sign, w, seg)
+                        taken += seg
                     }
                     seg = ArrayList()
                 }
                 if (p != null) seg.add(p)
             }
+            left = left.filter { it !in taken }
         }
         return runs
     }
 
-    private fun merge(runs: List<Run>): List<Run> {
+    /** 同じ線の上で少しだけ途切れた面をつなぐ。間を歩いていたら通路なのでつながない。 */
+    private fun merge(runs: List<Run>, frameTrail: List<DoubleArray>): List<Run> {
         val out = ArrayList<Run>()
         for (r in runs.sortedWith(compareBy({ it.ax }, { it.s }, { it.a }))) {
-            val hit = out.firstOrNull { it.ax == r.ax && it.s == r.s && abs(it.c - r.c) < SAME_FACE && r.a - it.b < 1.0 }
+            val hit = out.firstOrNull { m -> m.ax == r.ax && m.s == r.s && abs(m.c - r.c) < SAME_FACE && r.a - m.b < 1.0 &&
+                walkedAcross(frameTrail, m.ax, (m.c + r.c) / 2).none { it >= m.b && it <= r.a } }
             if (hit == null) out += r else {
                 hit.b = max(hit.b, r.b); hit.w += r.w; hit.pts = hit.pts + r.pts
                 hit.c = front(hit.pts, hit.ax, hit.s)
             }
         }
         return out
+    }
+
+    /** 直交する 2 つの面の端が近ければ、そこは棚の角。両方の面の端を交点にそろえて、棚を角に当てる。 */
+    private fun snapCorners(runs: List<Run>) {
+        class End(val d: Double, val r: Run, val rLow: Boolean, val q: Run, val qLow: Boolean)
+        val ends = ArrayList<End>()
+        for (r in runs) {
+            if (r.ax != 0) continue
+            for (q in runs) {
+                if (q.ax != 1) continue
+                for (rLow in listOf(true, false)) for (qLow in listOf(true, false)) {
+                    val d = hypot((if (rLow) r.a else r.b) - q.c, (if (qLow) q.a else q.b) - r.c)
+                    if (d < CORNER_R) ends += End(d, r, rLow, q, qLow)
+                }
+            }
+        }
+        val used = HashSet<Pair<Run, Boolean>>()
+        for (e in ends.sortedBy { it.d }) {
+            if ((e.r to e.rLow) in used || (e.q to e.qLow) in used) continue
+            val ra = if (e.rLow) e.q.c else e.r.a; val rb = if (e.rLow) e.r.b else e.q.c
+            val qa = if (e.qLow) e.r.c else e.q.a; val qb = if (e.qLow) e.q.b else e.r.c
+            if (rb - ra < MIN_LEN || qb - qa < MIN_LEN) continue
+            used += e.r to e.rLow
+            used += e.q to e.qLow
+            e.r.a = ra; e.r.b = rb; e.q.a = qa; e.q.b = qb
+            e.r.corner = true; e.q.corner = true
+        }
     }
 
     /** 面の後ろを歩いたか、後ろに別の棚の面があれば、壁際の什器ではない。 */
@@ -303,7 +355,7 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
         val count = best3 + best4
         val prior = best3 * 0.9 + best4 * 1.2
         val observations = d.faces.sumOf { it.w }
-        val trust = (observations / 30.0).coerceIn(0.0, 1.0)
+        val trust = if (d.faces.any { it.corner }) 1.0 else (observations / 30.0).coerceIn(0.0, 1.0)   // 角に当たった端は測った位置を信じる
         val target = prior + (measured - prior) * trust
         val correction = (target - prior) / count
         val small = 0.9 + correction; val large = 1.2 + correction
@@ -450,8 +502,8 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
     /** Reject occupied walkways, see-through shelves, back-side observations, and products in the rack core. */
     private fun valid(f: StoreFixture, d: Draft, pts: List<Pt>, frameTrail: List<DoubleArray>): Boolean {
         val r = rect(f)
-        if (frameTrail.any { crosses(it, it, r, 0.06) } ||
-            frameTrail.zipWithNext().any { (a, b) -> crosses(a, b, r, 0.06) }) return false
+        if (frameTrail.any { crosses(it, it, r, TRAIL_MARGIN) } ||
+            frameTrail.zipWithNext().any { (a, b) -> crosses(a, b, r, TRAIL_MARGIN) }) return false
 
         var wrongSide = 0; var views = 0
         for (face in d.faces) for (p in face.pts) for (cam in p.cameras) {
@@ -467,23 +519,25 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
             p.p[0] > r.u0 + 0.15 && p.p[0] < r.u1 - 0.15 &&
             p.p[1] > r.v0 + 0.15 && p.p[1] < r.v1 - 0.15 &&
             d.faces.none { face -> p.cameras.any { (it[face.ax] - face.c) * face.s > 0 } } }
-        if (core > max(6, pts.size / 50)) return false
+        return core <= max(6, pts.size / 50)
+    }
 
-        val across = f.axis
-        var blocked = 0
-        for (p in pts) {
-            val target = p.p
-            for (cam in p.cameras) {
-                val through = (cam[across] < f.c - f.d / 2 - 0.2 && target[across] > f.c + f.d / 2 + 0.2) ||
-                    (cam[across] > f.c + f.d / 2 + 0.2 && target[across] < f.c - f.d / 2 - 0.2)
-                if (through && crosses(cam, target, r, 0.1)) {
-                    blocked++
-                    break
-                }
-            }
-            if (blocked > max(4, own.size / 4)) return false   // 深度の外れ値が少し抜けるだけなら、棚の裏付けのほうを信じる
-        }
-        return true
+    /** カメラから棚の向こうの点へ、棚を突き抜けて届いた点。不透明な棚では起きない。 */
+    private fun seeThrough(f: StoreFixture, pts: List<Pt>): Set<Pt> {
+        val r = rect(f)
+        val low = f.c - f.d / 2 - 0.2; val high = f.c + f.d / 2 + 0.2
+        return pts.filterTo(HashSet()) { p -> p.cameras.any { cam ->
+            ((cam[f.axis] < low && p.p[f.axis] > high) || (cam[f.axis] > high && p.p[f.axis] < low)) && crosses(cam, p.p, r, 0.1)
+        } }
+    }
+
+    private fun glassViews(own: Int) = max(4, own / 4)
+
+    private fun glassFront(f: StoreFixture, d: Draft): StoreFixture {
+        val sign = d.faces[0].s
+        val face = f.c + sign * f.d / 2
+        return StoreFixture("glass", f.axis, face - sign * CASE_DEPTH / 2, f.a, f.b, CASE_DEPTH,
+            HEIGHT.getValue("glass"), f.n, f.w, f.faces, f.themes, f.moduleWidths)
     }
 
     private fun overlaps(f: StoreFixture, g: StoreFixture): Boolean {
@@ -523,7 +577,8 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
     private fun place(c: Candidate, accepted: List<Candidate>): Boolean {
         repeat(4) {
             val other = accepted.firstOrNull { overlaps(c.fixture, it.fixture) } ?: return endTouchesOneIsland(c.fixture, accepted)
-            if (!trim(c, other.fixture) && !trim(other, c.fixture)) return false
+            // 既に置いた棚を削るのは、幅の決まったエンドを島の先端に付けるときだけ
+            if (!trim(c, other.fixture) && !(c.fixture.kind == "end" && trim(other, c.fixture))) return false
         }
         return false
     }
@@ -578,19 +633,32 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
                 c.cameras.map { doubleArrayOf(it[0] * cs + it[1] * sn, -it[0] * sn + it[1] * cs) })
         }
         val frameTrail = trail.map { doubleArrayOf(it[0] * cs + it[1] * sn, -it[0] * sn + it[1] * cs) }
-        val runs = merge(runsOf(pts))
+        val runs = merge(runsOf(pts, frameTrail), frameTrail)
+        snapCorners(runs)
         val drafts = classify(runs, frameTrail)
-        val candidates = drafts.mapNotNull { d ->
+        val opaque = ArrayList<Candidate>(); val doubtful = ArrayList<Candidate>()
+        for (d in drafts) {
             val f = build(d)
-            if (!valid(f, d, pts, frameTrail)) return@mapNotNull null
+            val own = d.faces.flatMapTo(HashSet()) { it.pts }
+            val through = seeThrough(f, pts)
+            if (through.size > own.size || !valid(f, d, pts, frameTrail)) continue   // 面の裏付けより突き抜ける視線が多いなら、そこに棚はない
             val r = rect(f)
-            val explains = pts.filter { it.p[0] >= r.u0 - EXPLAIN && it.p[0] <= r.u1 + EXPLAIN && it.p[1] >= r.v0 - EXPLAIN && it.p[1] <= r.v1 + EXPLAIN }.toHashSet()
-            explains += d.faces.flatMap { it.pts }
-            Candidate(d, f, explains, CORNER_BONUS * cornerSupport(d, drafts))
+            val near = pts.filterTo(HashSet()) { it.p[0] >= r.u0 - EXPLAIN && it.p[0] <= r.u1 + EXPLAIN && it.p[1] >= r.v0 - EXPLAIN && it.p[1] <= r.v1 + EXPLAIN }
+            val c = Candidate(d, f, near + own, CORNER_BONUS * cornerSupport(d, drafts), through, own.size)
+            (if ((f.kind == "wall" || f.kind == "case") && through.size >= glassViews(own.size)) doubtful else opaque) += c
         }
         val accepted = ArrayList<Candidate>()
-        choose(candidates, accepted)
-        val explained = accepted.flatMapTo(HashSet()) { it.explains }
+        choose(opaque, accepted)
+        var explained = accepted.flatMapTo(HashSet()) { it.explains }
+        for (c in doubtful) {   // 奥の棚で説明できる点は通路越しに見えただけ。どの棚でも説明できない点へ抜けるなら、面はガラス
+            val beyond = c.through - explained
+            if (beyond.size >= glassViews(c.own)) {
+                c.fixture = glassFront(c.fixture, c.draft)
+                c.explains = c.explains + beyond
+            }
+        }
+        choose(doubtful, accepted)
+        explained = accepted.flatMapTo(HashSet()) { it.explains }
         choose(glassCandidates(pts.filter { it !in explained }).filter { valid(it.fixture, it.draft, pts, frameTrail) }, accepted)
         val fixtures = ArrayList<StoreFixture>()
         for (c in accepted) if (fixtures.none { overlaps(c.fixture, it) }) fixtures += c.fixture   // 削った棚はモジュール幅を合わせ直すので、最後にもう一度確かめる
@@ -620,6 +688,8 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
         private const val SHELF_COST = 16.0
         private const val MODULE_COST = 3.0
         private const val CORNER_BONUS = 12.0
+        private const val CORNER_R = 0.6
+        private const val TRAIL_MARGIN = 0.2
         private const val GLASS_GAP = 1.2
         private const val GLASS_SPREAD = 0.6
         private const val GLASS_MIN = 8
