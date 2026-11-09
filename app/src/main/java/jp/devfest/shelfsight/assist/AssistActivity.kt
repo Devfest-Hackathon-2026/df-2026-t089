@@ -216,7 +216,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             addView(modelLabel)
         }
         testView = SpatialTestView(this, { demoListener() to demoPosition() }, { SpatialDemo.chimeSlot(demoSeconds()) != null }).apply { visibility = View.GONE }
-        val names = listOf("案内", "3D モデル", "立体音響")
+        val names = listOf("案内", "3D", "立体音響")
         tabs = names.indices.map { i -> Button(this).apply { text = names[i]; setOnClickListener { selectTab(i) } } }
         recordButton = Button(this).apply {
             text = if (playback == null) RECORD_LABEL else precomputeLabel()
