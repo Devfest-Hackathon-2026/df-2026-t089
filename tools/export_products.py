@@ -4,8 +4,8 @@
 
 書き出すもの（app/src/main/assets/products/）
   detector.onnx   YOLO（商品らしいものの枠）。work/sku26n/weights/sku110k-2.onnx
-  embed.onnx      切り抜きの埋め込み（MobileNetV3-small 128px、出力は正規化済み 128 次元）
-  gallery.bin     照合先の埋め込み。float16、商品ごとに並べてある（n × 128）
+  mobileclip_s0.onnx  切り抜きの埋め込み（256px、512 次元）。Apple の研究用ライセンスなので git に入れない。無いとアプリの商品認識は動かない
+  gallery.bin     照合先の MobileCLIP 埋め込み。float16、商品ごとに並べてある（n × 512）
   gallery.json    商品カテゴリの一覧（カテゴリ名・ジャンル・細分類・照合先の開始位置）と前処理の値
 infer.py と同じく、社名か商品名があり Vision の結果が悪くない命名済みで、商品カテゴリが付いた切り抜きだけを照合先にする。
 """
@@ -38,7 +38,7 @@ def main():
 
     # アプリの検出器は sku110k-2 固定（detector.json は PC 側の切り抜き作り用のまま）
     shutil.copyfile(w / "sku26n/weights/sku110k-2.onnx", OUT / "detector.onnx")
-    shutil.copyfile(w / "embed_mnv3.onnx", OUT / "embed.onnx")
+    shutil.copyfile(w / "models/mobileclip_s0_vision.onnx", OUT / "mobileclip_s0.onnx")
     cfg = read(w / "config.json")
 
     names = read(w / "names.json")
@@ -47,8 +47,7 @@ def main():
     good = {c: cat.get(norm(v.get("maker", "") + v.get("product", ""))) for c, v in names.items()
             if (v.get("maker") or v.get("product")) and v.get("vision") != "bad" and c not in excluded}
     good = {c: k for c, k in good.items() if k}
-    z = np.load(w / "emb_mnv3.npz")
-    ids, E = z["ids"].tolist(), z["E"]
+    ids, E = read(w / "emb_ids.json"), np.load(w / "emb_all.npy")
     keep = [k for k, c in enumerate(ids) if c in good]
     lab = [good[ids[k]] for k in keep]
     order = np.argsort(lab, kind="stable")
@@ -70,8 +69,8 @@ def main():
                 for k, s in zip(keys.tolist(), starts.tolist())]
 
     G.tofile(OUT / "gallery.bin")
-    meta = {"source": "sku110k-2", "detector_size": 640, "embed_size": 128, "pad_color": [124, 116, 104],
-            "dim": int(G.shape[1]), "count": int(G.shape[0]), "nms_iou": 0.5,
+    meta = {"source": "sku110k-2", "detector_size": 640, "embed_size": 256,
+            "dim": int(G.shape[1]), "count": int(G.shape[0]), "det_threshold": 0.15, "nms_iou": 0.5,
             "min_crop": [cfg.get("min_crop_w", 20), cfg.get("min_crop_h", 20)],
             "context_lambda": [0.05, 0.05, 0.1], "products": products}
     (OUT / "gallery.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")

@@ -17,7 +17,7 @@ import java.nio.FloatBuffer
  * 商品認識ダッシュボード（products/）で作ったモデルで、写っている商品を見つけて名前を付ける（products/infer.py の移植）。
  *
  * 1. YOLO で「商品らしいもの」の枠を全部出す（[detect]。写っているものの判定にも使う）
- * 2. 各枠を切り抜いて埋め込み（MobileNetV3-small 128px）を出し、照合先（命名済みの切り抜き）と比べて名前の候補を出す
+ * 2. 各枠を切り抜いて埋め込み（MobileCLIP-S0 256px）を出し、照合先（命名済みの切り抜き）と比べて名前の候補を出す
  * 3. 周りの商品のジャンル・細分類・カテゴリで選び直す（[ContextAdjust]）
  *
  * モデルと照合先は tools/export_products.py で assets/products/ に書き出す。
@@ -26,16 +26,16 @@ class ProductRecognizer(context: Context) : AutoCloseable {
     private val env = OrtEnvironment.getEnvironment()
     private val meta = JSONObject(context.assets.open("$DIR/gallery.json").bufferedReader().readText())
     private val detector = session(context, "detector.onnx")
-    private val embedder = session(context, "embed.onnx")
+    private val embedder = session(context, "mobileclip_s0.onnx")
     private val detInput = detector.inputNames.first()
     private val embInput = embedder.inputNames.first()
     private val detSize = meta.getInt("detector_size")
     private val embSize = meta.getInt("embed_size")
     private val dim = meta.getInt("dim")
+    private val detThreshold = meta.getDouble("det_threshold").toFloat()
     private val nmsIou = meta.optDouble("nms_iou", 0.5).toFloat()
     // (ジャンル, 細分類, カテゴリそのもの)。古い gallery.json は 2 つだけなので足りない分は 0
     private val lambdas = meta.getJSONArray("context_lambda").let { a -> DoubleArray(3) { if (it < a.length()) a.getDouble(it) else 0.0 } }
-    private val pad = meta.getJSONArray("pad_color").let { android.graphics.Color.rgb(it.getInt(0), it.getInt(1), it.getInt(2)) }
 
     private class Product(val key: String, val name: String, val genre: String?, val fine: String?, val start: Int)
 
@@ -75,9 +75,10 @@ class ProductRecognizer(context: Context) : AutoCloseable {
             }
         }
         val n = out[0].size
-        val cand = (0 until n).map { i ->
-            floatArrayOf(out[0][i] - out[2][i] / 2, out[1][i] - out[3][i] / 2, out[0][i] + out[2][i] / 2, out[1][i] + out[3][i] / 2) to out[4][i]
-        }
+        val cand = (0 until n).filter { out[4][it] >= detThreshold }
+            .map { i ->
+                floatArrayOf(out[0][i] - out[2][i] / 2, out[1][i] - out[3][i] / 2, out[0][i] + out[2][i] / 2, out[1][i] + out[3][i] / 2) to out[4][i]
+            }
         return nms(cand, nmsIou).map { (b, s) ->
             floatArrayOf((b[0] / nw).coerceIn(0f, 1f), (b[1] / nh).coerceIn(0f, 1f), (b[2] / nw).coerceIn(0f, 1f), (b[3] / nh).coerceIn(0f, 1f)) to s
         }
@@ -87,7 +88,7 @@ class ProductRecognizer(context: Context) : AutoCloseable {
     fun recognize(image: Bitmap, boxes: List<FloatArray> = detect(image).map { it.first }): List<RecognizedProduct> {
         if (boxes.isEmpty()) return emptyList()
         val emb = boxes.chunked(EMBED_BATCH).flatMap { part ->
-            val crops = part.map { square(image, it) }
+            val crops = part.map { crop(image, it) }
             try {
                 OnnxTensor.createTensor(env, chw(crops, embSize), longArrayOf(crops.size.toLong(), 3, embSize.toLong(), embSize.toLong())).use { t ->
                     embedder.run(mapOf(embInput to t)).use { r ->
@@ -136,23 +137,16 @@ class ProductRecognizer(context: Context) : AutoCloseable {
         return best.indices.sortedByDescending { best[it] }.take(TOP_K).map { ContextAdjust.Candidate(products[it].key, best[it]) }
     }
 
-    /** 枠を切り抜き、灰色で正方形に埋めて縮める（縦長の商品の形を残す）。 */
-    private fun square(image: Bitmap, b: FloatArray): Bitmap {
-        val l = (b[0] * image.width).toInt().coerceIn(0, image.width - 1)
-        val t = (b[1] * image.height).toInt().coerceIn(0, image.height - 1)
-        val r = (b[2] * image.width).toInt().coerceIn(l + 1, image.width)
-        val btm = (b[3] * image.height).toInt().coerceIn(t + 1, image.height)
-        val w = r - l
-        val h = btm - t
-        val s = maxOf(w, h).toFloat()
+    /** 枠を少し広げて切り抜き、正方形に引き伸ばす（照合先と同じ作り方。products/s2_crops.py）。 */
+    private fun crop(image: Bitmap, b: FloatArray): Bitmap {
+        val px = (b[2] - b[0]) * CROP_PAD
+        val py = (b[3] - b[1]) * CROP_PAD
+        val l = ((b[0] - px) * image.width).toInt().coerceIn(0, image.width - 1)
+        val t = ((b[1] - py) * image.height).toInt().coerceIn(0, image.height - 1)
+        val r = ((b[2] + px) * image.width).toInt().coerceIn(l + 1, image.width)
+        val btm = ((b[3] + py) * image.height).toInt().coerceIn(t + 1, image.height)
         val out = Bitmap.createBitmap(embSize, embSize, Bitmap.Config.ARGB_8888)
-        val k = embSize / s
-        val dx = ((s - w) / 2f) * k
-        val dy = ((s - h) / 2f) * k
-        Canvas(out).apply {
-            drawColor(pad)
-            drawBitmap(image, Rect(l, t, r, btm), android.graphics.RectF(dx, dy, dx + w * k, dy + h * k), Paint(Paint.FILTER_BITMAP_FLAG))
-        }
+        Canvas(out).drawBitmap(image, Rect(l, t, r, btm), Rect(0, 0, embSize, embSize), Paint(Paint.FILTER_BITMAP_FLAG))
         return out
     }
 
@@ -188,8 +182,9 @@ class ProductRecognizer(context: Context) : AutoCloseable {
     companion object {
         private const val DIR = "products"
         private const val TOP_K = 10
-        /** 枠は 1 枚で約 2000 個になる。一度に埋め込むとテンソルだけで 400MB ほどになるので分ける。 */
-        private const val EMBED_BATCH = 32
+        /** 枠は 1 枚で 100 個を超えることがある。256px を一度に埋め込むとメモリを食うので分ける。 */
+        private const val EMBED_BATCH = 8
+        private const val CROP_PAD = 0.04f
 
         private fun JSONObject.text(name: String): String? = if (isNull(name)) null else optString(name).ifEmpty { null }
 
