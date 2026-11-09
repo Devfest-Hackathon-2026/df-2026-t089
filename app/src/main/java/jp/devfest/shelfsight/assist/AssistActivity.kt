@@ -681,7 +681,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val pos = ShelfMap.place(cameraPosition(f), along, depth?.let { Unprojector.worldAt(p.cx, p.cy, it, g) }, walls) ?: return null
         val dist = pos.distanceTo(cameraPosition(f))
         val (w, h) = ShelfMap.sizeInMeters(p.right - p.left, p.bottom - p.top, dist, g)
-        shelfMap.add(p.name, p.genre, p.fine, pos, w, h, now)
+        val m = g.cameraToWorld
+        shelfMap.add(p.name, p.genre, p.fine, pos, w, h, now, Vec3(-m[8], -m[9], -m[10]), cameraPosition(f))
         return pos
     }
 

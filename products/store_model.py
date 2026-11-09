@@ -45,8 +45,7 @@ ISLAND_DEPTH = 0.88
 END_DEPTH = 0.44
 GONDOLA_DEPTH = 0.45
 CASE_DEPTH = 0.8
-WIDTHS = (0.9, 1.2)
-HEIGHT = {"island": 1.8, "wall": 1.8, "case": 2.0, "end": 1.5, "register": 1.0}
+HEIGHT = {"island": 1.8, "wall": 1.8, "case": 2.0, "glass": 2.0, "end": 1.5, "register": 1.0}
 CHILLED = {"ソフトドリンク", "栄養・エナジードリンク", "紙パック飲料・乳製品", "酒", "冷凍食品", "アイス",
            "弁当・おにぎり", "サンドイッチ・サラダ・惣菜", "チルドデザート",
            "飲料", "お酒", "パン・米飯・軽食", "冷蔵・冷凍・デザート・惣菜"}   # 上は今のアプリの 26 分類、この行は 120 カテゴリの大分類
@@ -83,12 +82,16 @@ class StoreModel:
         d = hypot(cam_x - x, cam_z - z)
         if d < 1e-6:
             return
-        c = self.cells.setdefault((floor(x / CELL), floor(z / CELL)), [0.0, 0.0, 0.0, 0.0, 0.0, {}])
+        c = self.cells.setdefault((floor(x / CELL), floor(z / CELL)), [0.0, 0.0, 0.0, 0.0, 0.0, {}, []])
         c[0] += 1
         c[1] += x
         c[2] += z
         c[3] += (cam_x - x) / d
         c[4] += (cam_z - z) / d
+        if all(hypot(v[0] - cam_x, v[1] - cam_z) >= 0.35 for v in c[6]):
+            if len(c[6]) == 4:
+                c[6].pop(0)
+            c[6].append((cam_x, cam_z))
         if category:   # 名前なしの検出枠も、棚の形の手がかりにする
             c[5][category] = c[5].get(category, 0) + 1
             self.genre[category] = genre
@@ -136,7 +139,8 @@ class StoreModel:
         pts = []
         for c in self.cells.values():
             x, z, nx, nz = c[1] / c[0], c[2] / c[0], c[3], c[4]
-            pts.append([x * cs + z * sn, -x * sn + z * cs, c[0], nx * cs + nz * sn, -nx * sn + nz * cs, c[5]])
+            cameras = [(cam_x * cs + cam_z * sn, -cam_x * sn + cam_z * cs) for cam_x, cam_z in c[6]]
+            pts.append([x * cs + z * sn, -x * sn + z * cs, c[0], nx * cs + nz * sn, -nx * sn + nz * cs, c[5], cameras])
         trail = [(x * cs + z * sn, -x * sn + z * cs) for x, z in self.trail]
         return pts, trail
 
@@ -192,29 +196,71 @@ class StoreModel:
             return False
         return not any(o is not r and o["ax"] == r["ax"] and back(o["c"]) > 1.2 and _overlap(r["a"], r["b"], o["a"], o["b"]) > 0.3 for o in runs)
 
+    @staticmethod
+    def _island_pairs(runs):
+        """Maximum-score one-to-one matching of observed opposite rack faces."""
+        fronts = [r for r in runs if r["s"] == 1 and r["b"] - r["a"] >= 0.8]
+        backs = [r for r in runs if r["s"] == -1 and r["b"] - r["a"] >= 0.8]
+        options = []
+        for a in fronts:
+            row = []
+            for j, b in enumerate(backs):
+                if a["ax"] != b["ax"]:
+                    continue
+                depth = a["c"] - b["c"]
+                if not 0.5 <= depth <= 1.3:
+                    continue
+                overlap = _overlap(a["a"], a["b"], b["a"], b["b"])
+                shorter = min(a["b"] - a["a"], b["b"] - b["a"])
+                if overlap <= 0.3 * shorter:
+                    continue
+                score = overlap / shorter + (1 - abs(depth - ISLAND_DEPTH) / ISLAND_DEPTH) + min(a["w"], b["w"]) / (a["w"] + b["w"])
+                row.append((j, score))
+            options.append(row)
+        if len(backs) > 18:
+            ranked = sorted(((i, j, score) for i, row in enumerate(options) for j, score in row), key=lambda x: -x[2])
+            used_a, used_b, chosen = set(), set(), []
+            for i, j, _ in ranked:
+                if i not in used_a and j not in used_b:
+                    used_a.add(i)
+                    used_b.add(j)
+                    chosen.append((fronts[i], backs[j]))
+            return chosen
+        from functools import lru_cache
+
+        @lru_cache(None)
+        def solve(i, used):
+            if i == len(fronts):
+                return 0.0, ()
+            best = solve(i + 1, used)
+            for j, score in options[i]:
+                if used & (1 << j):
+                    continue
+                rest_score, rest = solve(i + 1, used | (1 << j))
+                if score + rest_score > best[0]:
+                    best = score + rest_score, ((i, j),) + rest
+            return best
+
+        return [(fronts[i], backs[j]) for i, j in solve(0, 0)[1]]
+
     def _classify(self, runs, trail):
         """面を什器に組み立てる。戻り値は (種類, 軸, 中心, a, b, 奥行き, [面...])"""
         out, islands, used = [], [], set()
-        for A in sorted((r for r in runs if r["s"] == 1 and r["b"] - r["a"] >= 0.8), key=lambda r: r["a"] - r["b"]):
-            if id(A) in used:
-                continue
-            Bs = [B for B in runs if id(B) not in used and B["ax"] == A["ax"] and B["s"] == -1 and 0.5 <= A["c"] - B["c"] <= 1.3
-                  and _overlap(A["a"], A["b"], B["a"], B["b"]) > 0.3 * min(A["b"] - A["a"], B["b"] - B["a"])]
-            if Bs:
-                used.add(id(A))
-                used.update(id(B) for B in Bs)
-                c = (A["c"] + sum(B["c"] for B in Bs) / len(Bs)) / 2
-                islands.append(("island", A["ax"], c, min([A["a"]] + [B["a"] for B in Bs]), max([A["b"]] + [B["b"] for B in Bs]), ISLAND_DEPTH, [A] + Bs))
+        for A, B in self._island_pairs(runs):
+            used.add(id(A))
+            used.add(id(B))
+            islands.append(("island", A["ax"], (A["c"] + B["c"]) / 2, min(A["a"], B["a"]), max(A["b"], B["b"]), A["c"] - B["c"], [A, B]))
 
         def take_ends():
             for r in runs:
                 if id(r) in used or r["b"] - r["a"] > 1.5:
                     continue
                 mid = (r["a"] + r["b"]) / 2
-                for _, iax, ic, ia, ib, _, _ in islands:
+                for _, iax, ic, ia, ib, depth, _ in islands:
                     at_b = r["s"] == 1 and ib - 0.2 <= r["c"] <= ib + 0.8
                     at_a = r["s"] == -1 and ia - 0.8 <= r["c"] <= ia + 0.2
-                    if r["ax"] == 1 - iax and abs(mid - ic) < 0.6 and (at_a or at_b):
+                    covers_edge = r["a"] <= ic - depth / 2 + 0.25 and r["b"] >= ic + depth / 2 - 0.25
+                    if r["ax"] == 1 - iax and abs(mid - ic) < 0.3 and covers_edge and (at_a or at_b):
                         used.add(id(r))
                         out.append(("end", r["ax"], r["c"] - r["s"] * END_DEPTH / 2, ic - 0.45, ic + 0.45, END_DEPTH, [r]))
                         break
@@ -238,13 +284,64 @@ class StoreModel:
         return islands + out
 
     @staticmethod
-    def _snap(a, b, kind):
-        """幅を 0.9 / 1.2 m の倍数に揃える"""
-        mid, length = (a + b) / 2, b - a
+    def _layout(a, b, kind, faces, axis):
+        """Fit mixed 0.9/1.2 m modules; strong endpoint observations can adjust the prior."""
+        mid = (a + b) / 2
         if kind == "end":
-            return mid - 0.45, 1, 0.9
-        n, w = max(((max(1, round(length / w)), w) for w in WIDTHS), key=lambda x: -abs(x[0] * x[1] - length))
-        return mid - n * w / 2, n, w
+            return mid - 0.45, [0.9]
+        measured = b - a
+        best3 = best4 = 0
+        best_cost = float("inf")
+        for n3 in range(13):
+            for n4 in range(13):
+                n = n3 + n4
+                if not 1 <= n <= 12:
+                    continue
+                cost = abs(0.9 * n3 + 1.2 * n4 - measured) + n * 0.005
+                if cost < best_cost:
+                    best_cost, best3, best4 = cost, n3, n4
+        count = best3 + best4
+        prior = best3 * 0.9 + best4 * 1.2
+        observations = sum(r["w"] for r in faces)
+        trust = max(0.0, min(1.0, observations / 30.0))
+        target = prior + (measured - prior) * trust
+        correction = (target - prior) / count
+        small, large = 0.9 + correction, 1.2 + correction
+        start = mid - target / 2
+        pts = [p for r in faces for p in r["pts"]]
+        best, best_evidence = [], float("-inf")
+
+        def evaluate(widths):
+            nonlocal best, best_evidence
+            cats = [{} for _ in widths]
+            at = start
+            for i, width in enumerate(widths):
+                end = at + width
+                for p in pts:
+                    coord = p[1 - axis]
+                    if coord >= at and (coord < end or i == len(widths) - 1):
+                        for cat, weight in p[5].items():
+                            cats[i][cat] = cats[i].get(cat, 0) + weight
+                at = end
+            evidence = sum(max(m.values(), default=0) for m in cats)
+            if evidence > best_evidence + 1e-6:
+                best_evidence, best = evidence, widths[:]
+
+        def enumerate_widths(n3, n4, widths):
+            if n3 + n4 == 0:
+                evaluate(widths)
+                return
+            if n3:
+                widths.append(small)
+                enumerate_widths(n3 - 1, n4, widths)
+                widths.pop()
+            if n4:
+                widths.append(large)
+                enumerate_widths(n3, n4 - 1, widths)
+                widths.pop()
+
+        enumerate_widths(best3, best4, [])
+        return start, best
 
     def _in_theme(self, theme, cat):
         return cat in theme["cats"] or self.genre.get(cat) in theme["genres"]
@@ -280,6 +377,132 @@ class StoreModel:
         c, a, b = ((u0 + u1) / 2, v0, v1) if axis == 0 else ((v0 + v1) / 2, u0, u1)
         return {"kind": "register", "axis": axis, "c": c, "a": a, "b": b, "d": max(0.5, (u1 - u0) if axis == 0 else (v1 - v0)), "h": HEIGHT["register"], "n": 1, "w": b - a, "faces": {}, "themes": {}, "obs": sum(self.counters.values())}
 
+    @staticmethod
+    def _rect(f):
+        c, a, b, depth = f["c"], f["a"], f["b"], f["d"]
+        return (c - depth / 2, a, c + depth / 2, b) if f["axis"] == 0 else (a, c - depth / 2, b, c + depth / 2)
+
+    @staticmethod
+    def _crosses(p, q, rect, inset):
+        lo = (rect[0] + inset, rect[1] + inset)
+        hi = (rect[2] - inset, rect[3] - inset)
+        if lo[0] >= hi[0] or lo[1] >= hi[1]:
+            return False
+        enter, leave = 0.0, 1.0
+        for axis in (0, 1):
+            delta = q[axis] - p[axis]
+            if abs(delta) < 1e-9:
+                if p[axis] <= lo[axis] or p[axis] >= hi[axis]:
+                    return False
+            else:
+                a, b = (lo[axis] - p[axis]) / delta, (hi[axis] - p[axis]) / delta
+                enter, leave = max(enter, min(a, b)), min(leave, max(a, b))
+                if enter >= leave:
+                    return False
+        return True
+
+    @staticmethod
+    def _corner_support(draft, drafts):
+        def endpoints(face):
+            c, a, b = face["c"], face["a"], face["b"]
+            return ((c, a), (c, b)) if face["ax"] == 0 else ((a, c), (b, c))
+        count = 0
+        for face in draft[6]:
+            for other in drafts:
+                if other is draft:
+                    continue
+                for perpendicular in other[6]:
+                    if perpendicular["ax"] != face["ax"] and any(
+                            hypot(a[0] - b[0], a[1] - b[1]) < 0.35
+                            for a in endpoints(face) for b in endpoints(perpendicular)):
+                        count += 1
+        return count
+
+    @staticmethod
+    def _glass_hit(p, cam, f):
+        signs = f["faces"]
+        if len(signs) != 1:
+            return False
+        sign = 1 if "+" in signs else -1
+        ax, along = f["axis"], 1 - f["axis"]
+        face = f["c"] + sign * f["d"] / 2
+        delta = p[ax] - cam[ax]
+        if abs(delta) < 1e-6 or (cam[ax] - face) * sign < 0.3 or (face - p[ax]) * sign < 0.35:
+            return False
+        t = (face - cam[ax]) / delta
+        if not 0.1 <= t <= 0.85:
+            return False
+        at = cam[along] + t * (p[along] - cam[along])
+        return f["a"] + 0.1 < at < f["b"] - 0.1
+
+    def _glass_evidence(self, f, pts):
+        if f["kind"] not in ("case", "wall"):
+            return 0
+        scattered = [p for p in pts if any(self._glass_hit(p, cam, f) for cam in p[6])]
+        if len(scattered) < max(8, len(pts) // 100):
+            return 0
+        spread = max(p[f["axis"]] for p in scattered) - min(p[f["axis"]] for p in scattered)
+        return len(scattered) if spread > 0.6 else 0
+
+    @staticmethod
+    def _glass_fixture(f):
+        sign = 1 if "+" in f["faces"] else -1
+        face = f["c"] + sign * f["d"] / 2
+        return {**f, "kind": "glass", "c": face - sign * CASE_DEPTH / 2, "d": CASE_DEPTH, "h": HEIGHT["glass"]}
+
+    def _valid(self, fixture, draft, pts, trail):
+        rect = self._rect(fixture)
+        if any(self._crosses(p, p, rect, 0.06) for p in trail) or any(
+                self._crosses(a, b, rect, 0.06) for a, b in zip(trail, trail[1:])):
+            return False
+        wrong_side = views = 0
+        for face in draft[6]:
+            for p in face["pts"]:
+                for cam in p[6]:
+                    views += 1
+                    if (cam[face["ax"]] - face["c"]) * face["s"] < -0.1:
+                        wrong_side += 1
+        if views >= 4 and wrong_side * 4 > views:
+            return False
+        own = {id(p) for face in draft[6] for p in face["pts"]}
+        core = sum(id(p) not in own and rect[0] + 0.15 < p[0] < rect[2] - 0.15 and
+                   rect[1] + 0.15 < p[1] < rect[3] - 0.15 for p in pts)
+        if fixture["kind"] != "glass" and core > max(6, len(pts) // 50):
+            return False
+        across = fixture["axis"]
+        blocked = 0
+        for p in pts:
+            target = p[:2]
+            for cam in p[6]:
+                through = (cam[across] < fixture["c"] - fixture["d"] / 2 - 0.2 and target[across] > fixture["c"] + fixture["d"] / 2 + 0.2) or (
+                    cam[across] > fixture["c"] + fixture["d"] / 2 + 0.2 and target[across] < fixture["c"] - fixture["d"] / 2 - 0.2)
+                explained_by_glass = fixture["kind"] == "glass" and (
+                    not p[5] or any(self.genre.get(cat) in CHILLED for cat in p[5])) and self._glass_hit(p, cam, fixture)
+                if through and not explained_by_glass and self._crosses(cam, target, rect, 0.1):
+                    blocked += 1
+                    break
+            if blocked > max(4, len(pts) // 100):
+                return False
+        return True
+
+    def _compatible(self, f, accepted):
+        rect = self._rect(f)
+        for other in accepted:
+            q = self._rect(other)
+            if min(rect[2], q[2]) - max(rect[0], q[0]) > 0.15 and min(rect[3], q[3]) - max(rect[1], q[1]) > 0.15:
+                return False
+        if f["kind"] == "end":
+            contacts = 0
+            for other in accepted:
+                if other["kind"] != "island":
+                    continue
+                q = self._rect(other)
+                if rect[0] <= q[2] + 0.15 and rect[2] >= q[0] - 0.15 and rect[1] <= q[3] + 0.15 and rect[3] >= q[1] - 0.15:
+                    contacts += 1
+            if contacts != 1:
+                return False
+        return True
+
     def estimate(self):
         """今の観測から店のモデルを作る"""
         if len(self.cells) < 30:
@@ -288,8 +511,16 @@ class StoreModel:
         pts, trail = self._frame()
         runs = self._merge(self._runs(pts))
         fixtures = []
-        for kind, axis, c, a, b, depth, faces in self._classify(runs, trail):
-            a, n, w = self._snap(a, b, kind)
+        drafts = self._classify(runs, trail)
+        candidates = []
+        for draft in drafts:
+            kind, axis, c, a, b, depth, faces = draft
+            a, widths = self._layout(a, b, kind, faces, axis)
+            n = len(widths)
+            w = sum(widths) / n
+            edges = [a]
+            for width in widths:
+                edges.append(edges[-1] + width)
             per, theme_of = {}, {}
             for sign in (1, -1):   # 什器の軸の正の向きを見ている面が +
                 sides = [r for r in faces if r["s"] == sign]
@@ -297,14 +528,26 @@ class StoreModel:
                     mods = [{} for _ in range(n)]
                     for r in sides:
                         for p in r["pts"]:
-                            m = mods[min(n - 1, max(0, floor((p[1 - r["ax"]] - a) / w)))]
+                            coord = p[1 - r["ax"]]
+                            index = next((i for i in range(n - 1) if coord < edges[i + 1]), n - 1)
+                            m = mods[index]
                             for cat, v in p[5].items():
                                 m[cat] = m.get(cat, 0) + v
                     side = "+" if sign == 1 else "-"
                     theme_of[side] = self._assign_themes(mods)
                     kept = [{c: v for c, v in m.items() if t is None or self._in_theme(t, c)} for m, t in zip(mods, theme_of[side])]
                     per[side] = [[[cat, v / (sum(m.values()) or 1)] for cat, v in sorted(m.items(), key=lambda x: (-x[1], x[0]))[:3]] for m in kept]
-            fixtures.append({"kind": kind, "axis": axis, "c": c, "a": a, "b": a + n * w, "d": depth, "h": HEIGHT[kind], "n": n, "w": w, "faces": per, "themes": {k: [t["name"] if t else None for t in v] for k, v in theme_of.items()}, "obs": sum(r["w"] for r in faces)})
+            fixture = {"kind": kind, "axis": axis, "c": c, "a": a, "b": edges[-1], "d": depth, "h": HEIGHT[kind], "n": n, "w": w, "widths": widths, "faces": per, "themes": {k: [t["name"] if t else None for t in v] for k, v in theme_of.items()}, "obs": sum(r["w"] for r in faces)}
+            glass = self._glass_evidence(fixture, pts)
+            if glass:
+                fixture = self._glass_fixture(fixture)
+            support = len({id(p) for face in faces for p in face["pts"]})
+            score = support + 12 * self._corner_support(draft, drafts) + 2 * glass - 16 - 3 * fixture["n"]
+            candidates.append((score, draft, fixture))
+        candidates.sort(key=lambda x: (-x[0], x[2]["kind"] == "end", x[2]["c"]))
+        for score, draft, fixture in candidates:
+            if score > 0 and self._valid(fixture, draft, pts, trail) and self._compatible(fixture, fixtures):
+                fixtures.append(fixture)
         reg = self._register(cos(self.yaw), sin(self.yaw))
         if reg:
             fixtures.append(reg)
@@ -339,7 +582,9 @@ def text(model):
     r = model["room"]
     lines = [f"store yaw={_fmt(model['yaw'] * 180 / 3.141592653589793, 1)} room={_fmt(r[0])},{_fmt(r[1])}..{_fmt(r[2])},{_fmt(r[3])}"]
     for f in model["fixtures"]:
-        lines.append(f"{f['kind']} axis={'uv'[f['axis']]} c={_fmt(f['c'])} span={_fmt(f['a'])}..{_fmt(f['b'])} d={_fmt(f['d'])} h={_fmt(f['h'], 1)} mods={f['n']}x{_fmt(f['w'])}")
+        widths = f.get("widths", [f["w"]] * f["n"])
+        modules = f"{f['n']}x{_fmt(f['w'])}" if all(abs(w - f["w"]) < 0.005 for w in widths) else "+".join(_fmt(w) for w in widths)
+        lines.append(f"{f['kind']} axis={'uv'[f['axis']]} c={_fmt(f['c'])} span={_fmt(f['a'])}..{_fmt(f['b'])} d={_fmt(f['d'])} h={_fmt(f['h'], 1)} mods={modules}")
         for i in range(f["n"]):
             parts = [sign + (f"[{f['themes'][sign][i]}]" if f["themes"][sign][i] else "") + ",".join(f"{c}:{_fmt(s)}" for c, s in faces[i])
                      for sign, faces in sorted(f["faces"].items()) if i < len(faces) and faces[i]]

@@ -64,7 +64,7 @@ object StoreGuide {
             val cross = if (f.axis == 0) u else v
             val along = if (f.axis == 0) v else u
             if ((cross - face) * s <= 0f) continue   // 棚の裏側にいる
-            val centerOf = { i: Int -> (f.a + (i + 0.5) * f.w).toFloat() }
+            val centerOf = { i: Int -> f.moduleCenter(i).toFloat() }
             val i = modules.indices.filter { modules[it].isNotEmpty() }.minByOrNull { abs(centerOf(it) - along) } ?: continue
             val pu = if (f.axis == 0) face else centerOf(i)
             val pv = if (f.axis == 0) centerOf(i) else face

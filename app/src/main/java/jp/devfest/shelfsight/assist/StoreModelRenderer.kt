@@ -24,6 +24,7 @@ internal class StoreModelRenderer {
     private val circleLines = GlUtil.floatBuffer(CIRCLE_LINES)
     private val uprightLine = GlUtil.floatBuffer(UPRIGHT_LINE)
     private val pointBuffer = GlUtil.floatBuffer(FloatArray(ShelfMap.MAX_ITEMS * 3))
+    private val productArrowBuffer = GlUtil.floatBuffer(FloatArray(ShelfMap.MAX_ITEMS * ProductViewArrow.FLOATS))
     private val viewProjection = FloatArray(16)
     private val model = FloatArray(16)
     private val result = FloatArray(16)
@@ -41,7 +42,7 @@ internal class StoreModelRenderer {
             for (f in view.fixtures) {
                 val lo = f.c - f.d / 2; val hi = f.c + f.d / 2
                 for (i in 0 until f.n) {
-                    val a = f.a + i * f.w; val b = a + f.w
+                    val a = f.moduleStart(i); val b = f.moduleEnd(i)
                     if (f.axis == 0) box(view.yaw, lo, a, hi, b, floorY, f.h.toFloat(), SHELF)
                     else box(view.yaw, a, lo, b, hi, floorY, f.h.toFloat(), SHELF)
                 }
@@ -49,6 +50,7 @@ internal class StoreModelRenderer {
         }
         if (phone != null) drawPhone(phone)
         for (p in people) drawPerson(p.position.x, floorY, p.position.z, if (p.motion == PersonMotion.APPROACHING) APPROACHING else OTHER_PERSON)
+        drawProductViewArrows(items)
         GLES20.glDisableVertexAttribArray(position)
         drawPoints(items)
         return personLabels(people, phone, floorY, width, height) + labels(view, items, e, floorY, width, height)
@@ -140,6 +142,27 @@ internal class StoreModelRenderer {
         drawPointBuffer(n, POINT, POINT_SIZE)
     }
 
+    /** The tip marks the product point; the shaft shows the camera's horizontal look direction. */
+    private fun drawProductViewArrows(items: List<MapItem>) {
+        productArrowBuffer.clear()
+        var n = 0
+        for (item in items) {
+            val forward = item.viewForward ?: continue
+            if (n == ShelfMap.MAX_ITEMS) break
+            ProductViewArrow.append(item.position, forward, productArrowBuffer)
+            n++
+        }
+        if (n == 0) return
+        productArrowBuffer.position(0)
+        useLines(productArrowBuffer)
+        Matrix.setIdentityM(model, 0)
+        Matrix.multiplyMM(result, 0, viewProjection, 0, model, 0)
+        GLES20.glUniformMatrix4fv(mvp, 1, false, result, 0)
+        GLES20.glUniform3fv(color, 1, PRODUCT_VIEW, 0)
+        GLES20.glDrawArrays(GLES20.GL_LINES, 0, n * ProductViewArrow.FLOATS / 3)
+        useLines(boxLines)
+    }
+
     private fun drawPointBuffer(n: Int, col: FloatArray, size: Float) {
         GLES20.glUseProgram(pointProgram)
         GLES20.glUniformMatrix4fv(pointMvp, 1, false, viewProjection, 0)
@@ -214,6 +237,7 @@ internal class StoreModelRenderer {
         val ME = rgb(0xf0efec)
         val ARROW = rgb(0xff7a45)
         val POINT = rgb(0xffd23f)
+        val PRODUCT_VIEW = rgb(0x63e6ff)
         const val LINE_WIDTH = 2f
         const val POINT_SIZE = 12f
         const val NAME_RANGE_M = 3f

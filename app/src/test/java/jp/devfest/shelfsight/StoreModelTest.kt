@@ -2,10 +2,35 @@ package jp.devfest.shelfsight
 
 import jp.devfest.shelfsight.assist.StoreModel
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** 同じ観測を流して、products/store_model.py と同じ記述になることを確かめる（データは python products/store_sim.py --fixture）。 */
 class StoreModelTest {
+    @Test
+    fun measuredIslandKeepsItsDepthAndFitsMixedModuleWidths() {
+        val model = StoreModel(emptyList())
+        for (i in 0..100) {
+            val z = 0.05 + i * 2.9 / 100
+            model.addProduct(0.4, z, 1.56, z, "A", "")
+            model.addProduct(3.6, z, 2.44, z, "B", "")
+        }
+        val island = model.estimate().fixtures.single { it.kind == "island" }
+        assertEquals(0.88, island.d, 0.05)
+        assertEquals(3, island.n)
+        assertEquals(1, island.moduleWidths.count { it > 1.05 })
+        assertEquals(2.9, island.b - island.a, 0.05)
+
+        // A later batch is included by the next estimate, without restarting the model.
+        val before = island.b
+        for (i in 101..130) {
+            val z = 0.05 + i * 2.9 / 100
+            model.addProduct(0.4, z, 1.56, z, "A", "")
+            model.addProduct(3.6, z, 2.44, z, "B", "")
+        }
+        assertTrue(model.estimate().fixtures.single { it.kind == "island" }.b > before)
+    }
+
     @Test
     fun matchesThePythonEstimator() {
         val all = javaClass.classLoader!!.getResource("store_model_trace.tsv")!!.readText(Charsets.UTF_8).replace("\r\n", "\n")

@@ -26,7 +26,7 @@ internal object StoreLabels {
             for (i in 1..names.size) {
                 if (i < names.size && names[i] == names[first]) continue
                 names[first]?.let { name ->
-                    val along = f.a + (first + i) / 2.0 * f.w
+                    val along = (f.moduleStart(first) + f.moduleEnd(i - 1)) / 2
                     out += if (f.axis == 0) ShelfLabel(across, along, f.h, name) else ShelfLabel(along, across, f.h, name)
                 }
                 first = i
