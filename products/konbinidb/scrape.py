@@ -1,16 +1,17 @@
 """コンビニDB（konbinidb.com）の商品名・画像を集める。途中で止めても続きから再開できる。
 
   .venv/Scripts/python products/konbinidb/scrape.py list    [--max-pages N]  一覧ページから商品名・カテゴリ・画像 URL
-  .venv/Scripts/python products/konbinidb/scrape.py images  [--limit N] [--chain セブンイレブン]  商品画像
+  .venv/Scripts/python products/konbinidb/scrape.py images  [--limit N] [--chain セブンイレブン] [--per-category 100]  商品画像
 
 相手のサイトに負担をかけないよう 1 リクエストずつ、間隔を 0.5 秒以上あける。
 画像の権利は各社にあり、サイトは無断転載を禁じているので、出力は git に入らない products/work/konbinidb/ だけに置く。
 """
-import argparse, html, json, re, sys, time, urllib.error, urllib.request
+import argparse, html, json, random, re, sys, time, urllib.error, urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1] / "work" / "konbinidb"
 ITEMS = ROOT / "items.jsonl"
+LABELS = ROOT / "labels.jsonl"
 PAGES = ROOT / "done_pages.txt"
 IMAGES = ROOT / "images"
 SITEMAPS = ROOT / "sitemaps"
@@ -96,9 +97,35 @@ def stage_list(max_pages: int):
     print(f"完了: {len(seen)} 件", flush=True)
 
 
-def stage_images(limit: int, chain: str | None):
+def excluded(x: dict) -> bool:
+    """店の棚に並ばない商品（キャラクターグッズ・くじ・オンライン限定）は分類も学習もしない"""
+    return x["category"].rsplit("/", 1)[-1] in ("goods", "lottery") or "オンライン限定" in x["name"]
+
+
+def capped(items: list[dict], n: int) -> list[dict]:
+    """分類済みの商品を、カテゴリごとに n 件まで選ぶ。取得済みの画像を先に数え、残りは無作為（毎回同じ結果）"""
+    labels = {}
+    for line in LABELS.open(encoding="utf-8"):
+        x = json.loads(line)
+        labels[x["id"]] = x["cat"]
+    by_cat: dict[str, list[dict]] = {}
+    for x in items:
+        cat = labels.get(x["id"])
+        if cat and cat != "000" and not excluded(x):
+            by_cat.setdefault(cat, []).append(x)
+    rng, out = random.Random(0), []
+    for _, xs in sorted(by_cat.items()):
+        rng.shuffle(xs)
+        xs.sort(key=lambda x: not (IMAGES / f"{x['id']}.webp").exists())
+        out += xs[:n]
+    return out
+
+
+def stage_images(limit: int, chain: str | None, per_category: int):
     IMAGES.mkdir(parents=True, exist_ok=True)
     items = [x for x in map(json.loads, ITEMS.open(encoding="utf-8")) if not chain or x["chain"] == chain]
+    if per_category:
+        items = capped(items, per_category)
     todo = [x for x in items if x["image"] and not (IMAGES / f"{x['id']}.webp").exists()]
     if limit:
         todo = todo[:limit]
@@ -120,5 +147,6 @@ if __name__ == "__main__":
     ap.add_argument("--max-pages", type=int, default=0, help="カテゴリごとのページ数の上限（動作確認用）")
     ap.add_argument("--limit", type=int, default=0, help="画像の枚数の上限（動作確認用）")
     ap.add_argument("--chain", help="画像を取るチェーン（例: セブンイレブン）。省略すると全チェーン")
+    ap.add_argument("--per-category", type=int, default=0, help="カテゴリごとの画像の上限（classify.py の結果を使う）。0 は上限なし")
     a = ap.parse_args()
-    stage_list(a.max_pages) if a.stage == "list" else stage_images(a.limit, a.chain)
+    stage_list(a.max_pages) if a.stage == "list" else stage_images(a.limit, a.chain, a.per_category)

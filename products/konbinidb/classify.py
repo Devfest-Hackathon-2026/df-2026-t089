@@ -12,6 +12,7 @@ import requests
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 from s3_compare import GEMINI, gemini_key  # noqa: E402
+from scrape import excluded  # noqa: E402
 
 ROOT = HERE.parent / "work" / "konbinidb"
 MODEL = "gemini-3-flash-preview"
@@ -30,11 +31,6 @@ RULES = f"""コンビニの商品を、下のカテゴリ一覧のどれか1つ�
 カテゴリ一覧:
 {CATALOG}
 """
-
-
-def excluded(x: dict) -> bool:
-    """店の棚に並ばない商品（キャラクターグッズ・くじ・オンライン限定）は分類も学習もしない"""
-    return x["category"].rsplit("/", 1)[-1] in ("goods", "lottery") or "オンライン限定" in x["name"]
 
 
 def ask(batch: list[dict], rules: str = RULES) -> dict[str, str]:
