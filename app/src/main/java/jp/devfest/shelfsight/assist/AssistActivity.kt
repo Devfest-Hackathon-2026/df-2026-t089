@@ -118,6 +118,10 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private lateinit var modelLabel: TextView
     private lateinit var debugOverlay: DebugOverlay
     private lateinit var tabs: List<Button>
+    private lateinit var recordButton: Button
+    /** 記録中ならその記録（GL スレッドで作って閉じる）。 */
+    @Volatile private var sessionRecorder: SessionRecorder? = null
+    @Volatile private var recordToggle = false
     private val recorder by lazy { Recorder(java.io.File(getExternalFilesDir(null), "records")) }
     /** 商品のジャンル（26 種類）→ 歩行中の判別と同じ 7 分類。場違いな商品を外すのに使う。 */
     private val groups by lazy { ShelfDescriber.Groups.parse(assets.open("coarse/categories.json").bufferedReader().readText()) }
@@ -176,8 +180,9 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         }
         val names = listOf("案内", "3D モデル")
         tabs = names.indices.map { i -> Button(this).apply { text = names[i]; setOnClickListener { selectTab(i == 1) } } }
+        recordButton = Button(this).apply { text = RECORD_LABEL; setOnClickListener { recordToggle = true } }
         val tabBar = LinearLayout(this).apply {
-            tabs.forEach { addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
+            (tabs + recordButton).forEach { addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
         }
         setContentView(FrameLayout(this).apply {
             addView(gl)
@@ -230,6 +235,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         listening.cancel()
         gl.onPause()
         session?.pause()
+        stopRecorder()   // MP4 は一時停止で ARCore が閉じる
     }
 
     override fun onDestroy() {
@@ -264,6 +270,10 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val s = session ?: return
         s.setCameraTextureName(background.texId)
         if (geometryChanged) { s.setDisplayGeometry(display!!.rotation, viewW, viewH); geometryChanged = false }
+        if (recordToggle) {
+            recordToggle = false
+            toggleRecording(s)
+        }
         val frame = try { s.update() } catch (e: Exception) { return }
         val camera = frame.camera
         // 3D モデルを見ている間も、下の認識と地図づくりは止めない
@@ -278,6 +288,14 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             TrackingState.TRACKING -> "追跡中"
             TrackingState.PAUSED -> "一時停止（${camera.trackingFailureReason}）"
             else -> "停止"
+        }
+        // 記録中は認識を止めて、データを取りこぼさないようにする（認識は PC で再生して動かす）
+        sessionRecorder?.let { rec ->
+            rec.onFrame(frame, camera, sensorRotation)
+            val now = System.currentTimeMillis()
+            rec.statusIfDue(now)?.let { runOnUiThread { recordButton.text = it } }
+            if (rec.outOfSpace()) toggleRecording(s)
+            return
         }
         if (camera.trackingState != TrackingState.TRACKING) return
 
@@ -375,39 +393,27 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     // ---------------------------------------------------------------- 1 回たたく: 棚の案内
 
     private fun onTap() {
+        sessionRecorder?.let { it.event("tap"); return }
         listening.cancel()
         val l = listener ?: return voice.say("位置を合わせています。少し周りを見回してから、もう一度たたいてください。", interrupt = true)
-        val view = storeView
-        val items = shelfMap.snapshot()
-        val shelves = view?.let { StoreGuide.nearShelves(it, l) }.orEmpty()
-        val facing = shelves.firstOrNull { it.facing }
-        // モデルができる前でも、正面の棚の商品が十分見えていれば答える
-        val front = if (facing != null) StoreGuide.inFront(items, l) else if (shelves.isEmpty()) StoreGuide.squarelyInFront(items, l) else emptyList()
-        val sentence = if (facing != null || front.size >= ShelfDescriber.MIN_PRODUCTS) {
-            val split = ShelfDescriber.split(front.map { RecognizedProduct(0f, 0f, 0f, 0f, it.name, it.genre, it.fine, it.seen.toFloat()) }, groups)
-            val kept = split.kept.map { it.name }.toSet()
-            StoreGuide.facingSentence(facing?.main, front.filter { it.name in kept }, l.position.y - DEVICE_HEIGHT_M)
-                ?: facing?.let { StoreGuide.facingSentence(it.main, emptyList(), 0f) }
-        } else null
-        when {
-            sentence != null -> { debug.description = sentence; voice.say(sentence, interrupt = true) }
-            shelves.isNotEmpty() -> {
-                val near = StoreGuide.toSpeak(shelves)
-                val clauses = StoreGuide.clauses(near)
-                debug.description = clauses.joinToString("")
+        when (val answer = StoreGuide.tapAnswer(storeView, shelfMap.snapshot(), l, groups, l.position.y - DEVICE_HEIGHT_M)) {
+            is TapAnswer.Sentence -> { debug.description = answer.text; voice.say(answer.text, interrupt = true) }
+            is TapAnswer.Around -> {
+                debug.description = answer.clauses.joinToString("")
                 voice.remember(debug.description)
-                clauses.forEachIndexed { i, c ->
-                    val at = near[i].at
+                answer.clauses.forEachIndexed { i, c ->
+                    val at = answer.shelves[i].at
                     voice.say(c, interrupt = i == 0, remember = false, before = SpatialMixer.Sound(pon, { at }))
                 }
             }
-            else -> voice.say("まだ棚が分かりません。棚の方を向いて、少し歩いてください。", interrupt = true)
+            TapAnswer.Unknown -> voice.say("まだ棚が分かりません。棚の方を向いて、少し歩いてください。", interrupt = true)
         }
     }
 
     // ---------------------------------------------------------------- 2 回たたく: 商品の名前
 
     private fun onProductTap() {
+        sessionRecorder?.let { it.event("double_tap"); return }
         listening.cancel()
         voice.say("調べています", interrupt = true, remember = false)
         pendingCapture = ::runProductTap
@@ -512,6 +518,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     // ---------------------------------------------------------------- 声の操作
 
     private fun startListening() {
+        sessionRecorder?.event("long_press")
         if (!listening.available) {
             voice.say("このスマホでは、音声認識が使えません。", interrupt = true)
             return
@@ -526,6 +533,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     }
 
     private fun handle(command: Command?, heard: String?) {
+        sessionRecorder?.let { it.event("speech", heard ?: ""); return }
         when (command) {
             Command.REPEAT -> voice.say(voice.lastSpoken.ifEmpty { "まだ何も話していません。" }, interrupt = true)
             Command.HELP -> voice.say(Commands.HELP_TEXT, interrupt = true)
@@ -573,6 +581,28 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val (w, h) = ShelfMap.sizeInMeters(p.right - p.left, p.bottom - p.top, dist, g)
         shelfMap.add(p.name, p.genre, p.fine, pos, w, h, now)
         return pos
+    }
+
+    /** GL スレッドで記録を始める・止める。 */
+    private fun toggleRecording(s: Session) {
+        val current = sessionRecorder
+        if (current == null) {
+            val rec = SessionRecorder(this, java.io.File(getExternalFilesDir(null), "recordings"))
+            rec.start(s, sensorRotation)
+            sessionRecorder = rec
+            runOnUiThread { recordButton.text = "■ 停止" }
+            Log.i(TAG, "recording ${rec.name} mp4=${rec.hasMp4}")
+        } else {
+            try { s.stopRecording() } catch (e: com.google.ar.core.exceptions.RecordingFailedException) { Log.e(TAG, "stop recording failed", e) }
+            stopRecorder()
+        }
+    }
+
+    private fun stopRecorder() {
+        val rec = sessionRecorder ?: return
+        sessionRecorder = null
+        rec.close()
+        runOnUiThread { recordButton.text = RECORD_LABEL }
     }
 
     /** 店のモデルに今の 1 枚を足す。名前が付かなかった枠も、棚の形の手がかりとして位置だけ使う。 */
@@ -688,6 +718,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         const val APPROACH_ALERT_M = 6f
         const val CLOSE_ALERT_M = 1.5f
         const val STORE_ESTIMATE_MS = 3000L
+        const val RECORD_LABEL = "● 記録"
         const val DEVICE_HEIGHT_M = 1.3f
         /** スマホ（胸の高さ）から見たレジの天板の高さ。 */
         val COUNTER_BELOW_DEVICE_M = -0.6f..-0.1f

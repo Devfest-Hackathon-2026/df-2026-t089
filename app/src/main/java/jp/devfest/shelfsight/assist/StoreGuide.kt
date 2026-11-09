@@ -12,6 +12,13 @@ class NearShelf(val main: String, val at: Vec3, val distance: Float, val azimuth
 /** 商品名を調べた記録。[at] は調べたときにいた場所。 */
 class LookedUp(val name: String, val at: Vec3, val time: Long)
 
+/** 1 回たたいたときの答え。 */
+sealed interface TapAnswer {
+    class Sentence(val text: String) : TapAnswer
+    class Around(val clauses: List<String>, val shelves: List<NearShelf>) : TapAnswer
+    data object Unknown : TapAnswer
+}
+
 /** タップで話す文と、質問に答える AI に渡す文脈を、店のモデルと今の位置から作る。 */
 object StoreGuide {
     /** ここまでの棚を話す（商品の位置が分かる距離 [ShelfMap.MAX_DEPTH_M] と同じ）。 */
@@ -94,6 +101,23 @@ object StoreGuide {
 
     /** モデルがまだないときに、棚に向かっていると言える商品。 */
     fun squarelyInFront(items: List<MapItem>, l: Listener): List<MapItem> = items.filter { aimedAt(it, l, ITEMS_ONLY_DEG, ITEMS_ONLY_M) }
+
+    /** 1 回たたいたときに話すことを決める。棚に向かっていればその棚の説明、近くに棚があれば方向ごとの棚。 */
+    fun tapAnswer(view: StoreView?, items: List<MapItem>, l: Listener, groups: ShelfDescriber.Groups, floorY: Float): TapAnswer {
+        val shelves = view?.let { nearShelves(it, l) }.orEmpty()
+        val facing = shelves.firstOrNull { it.facing }
+        // モデルができる前でも、正面の棚の商品が十分見えていれば答える
+        val front = if (facing != null) inFront(items, l) else if (shelves.isEmpty()) squarelyInFront(items, l) else emptyList()
+        if (facing != null || front.size >= ShelfDescriber.MIN_PRODUCTS) {
+            val split = ShelfDescriber.split(front.map { RecognizedProduct(0f, 0f, 0f, 0f, it.name, it.genre, it.fine, it.seen.toFloat()) }, groups)
+            val kept = split.kept.map { it.name }.toSet()
+            val text = facingSentence(facing?.main, front.filter { it.name in kept }, floorY) ?: facing?.let { facingSentence(it.main, emptyList(), 0f) }
+            if (text != null) return TapAnswer.Sentence(text)
+        }
+        if (shelves.isEmpty()) return TapAnswer.Unknown
+        val near = toSpeak(shelves)
+        return TapAnswer.Around(clauses(near), near)
+    }
 
     /** 「カップ麺の棚で、上の方にはA、真ん中にはBやC、下の方にはDがあります。」商品がなければ null。 */
     fun facingSentence(main: String?, items: List<MapItem>, floorY: Float): String? {
