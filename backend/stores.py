@@ -5,8 +5,8 @@ import sqlite3
 import time
 
 import httpx
-from vercel.blob import get_blob, put_blob
 from vercel.blob.errors import BlobNotFoundError
+from vercel.blob.sync import get_blob, put_blob
 
 PLACES_URL = "https://places.googleapis.com/v1/places:searchNearby"
 SEARCH_RADIUS_M = 80.0   # 店内の GPS は数十 m ずれる
@@ -38,6 +38,8 @@ def observations_of(model):
 
 class BlobMapStore:
     """Vercel Blob（非公開）に店ごとの JSON を置く。Vercel の関数はファイルを残せないため。"""
+
+    # shortcut: Blob の読み取りは書き込みから数秒遅れるので、直後の版番号と観測量の比較は古い値になり得る。同時に保存が増えたら DB に移す
 
     @staticmethod
     def _path(place_id):
