@@ -56,7 +56,7 @@ class Voice(context: Context, private val mixer: SpatialMixer) : AutoCloseable {
      * 話す。[position] があれば、その位置から聞こえる。
      * [interrupt] なら、話している途中の声と、まだ話していない声をやめる（長押しの「調べています」など、すぐ伝えたいとき）。
      */
-    fun say(text: String, position: (() -> Vec3?)? = null, interrupt: Boolean = false, remember: Boolean = true, onDone: (() -> Unit)? = null) {
+    fun say(text: String, position: (() -> Vec3?)? = null, interrupt: Boolean = false, remember: Boolean = true, before: SpatialMixer.Sound? = null, onDone: (() -> Unit)? = null) {
         if (text.isBlank()) return
         val spoken = Reading.forSpeech(text)
         val gen = if (interrupt) generation.incrementAndGet().also { mixer.stopSpeech() } else generation.get()
@@ -65,8 +65,14 @@ class Voice(context: Context, private val mixer: SpatialMixer) : AutoCloseable {
             if (gen != generation.get()) return@execute
             val pcm = synth(spoken) ?: return@execute
             if (gen != generation.get()) return@execute
+            before?.let(mixer::speak)   // 声と同じ順番の列に入れて、合成を待つ間にずれないようにする
             mixer.speak(SpatialMixer.Sound(pcm, position, onDone = onDone))
         }
+    }
+
+    /** 分けて話した文の全体を「もう一度」で言えるように覚える。 */
+    fun remember(text: String) {
+        lastSpoken = text
     }
 
     /** よく使う短い言葉を先に合成しておき、言うときにすぐ鳴るようにする。 */

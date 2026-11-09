@@ -59,15 +59,14 @@ import kotlin.math.sqrt
 /**
  * 視覚障害のある人のための、コンビニの棚と商品の案内。胸の前にスマホを立てて持ち、イヤホンで聞く。
  *
- * （① 棚の種類の読み上げ（歩行中の判別、8 列 × 7 分類）は、遅いので止めている）
- * ② 棚が 1 つ写っている: 商品を認識し、LLM で何があるかを短く自然な文にして話す（場違いな商品は言わない）
- * ③ 商品が 1 つ大きく写っている: Cloud Vision API に聞き、社名と商品名を言う（1 回の接近で 1 回だけ呼ぶ）
- * ④ 人が近づいてくる: その人の方向からピコピコ鳴らす
+ * 話すのはタップしたときだけ（人が近づいたときの音は別）。歩いている間は、認識した商品で店のモデルと地図を作り続ける。
  *
  * 操作
- * - 長押し: 「調べています」と言い、手前の商品 1 つなら ③、棚の広い範囲なら ②、その間なら「一歩下がって」と頼む
- * - 2 回たたく: 質問する（決まった言い方はその操作、それ以外は LLM が画像を見て答える）
- * TalkBack が有効なときは、ダブルタップが質問、ダブルタップ長押しが長押しになる。
+ * - 1 回たたく: 棚に向かっていれば、その棚の主な商品と、上・真ん中・下の商品。近くに棚がいくつかあれば、方向ごとに「ポン」と鳴らして主な商品を言う
+ * - 2 回たたく: 手前の商品を Cloud Vision API に聞き、社名と商品名を言う（1 回の接近で 1 回だけ呼ぶ）
+ * - 長押し: 話しかける。「〇〇はどこ？」などに、店の地図・今いる場所・調べた商品を知っている LLM が答える
+ * - 人が近づいてくる: その人の方向からピコピコ鳴らす
+ * TalkBack が有効なときは、ダブルタップが 1 回たたく、ダブルタップ長押しが長押し、「商品名を調べる」の操作が 2 回たたくになる。
  */
 class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private lateinit var gl: GLSurfaceView
@@ -97,6 +96,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private val recognizer by lazy { ProductRecognizer(this) }
     private val personDetector by lazy { MediaPipePersonDetector(this) }
     private val tracker = PersonTracker()
+    private val pon = SpatialMixer.makePon()
     private val lookup = ProductLookup(BuildConfig.CLOUD_VISION_API_KEY)
     private val narrator = Narrator(
         BuildConfig.GEMINI_API_KEY.takeIf { it.isNotEmpty() }
@@ -125,17 +125,11 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private var lastScene = 0L
     private var lastPerson = 0L
     private var greeted = false
-    @Volatile private var auto = true
-    /** ② を話した場所。ここから離れるか、棚 1 つの場面を離れるまでは繰り返さない。 */
-    private var describedAt: Vec3? = null
-    private var leftOneShelfAt = 0L
-    private var lastDescribeTry = 0L
     /** 今の接近で、大きく写った商品を最後に見た時刻と、そのときの場所。 */
     private var approachSeenAt = 0L
     private var approachFrom: Vec3? = null
-    /** 質問に答えるときに LLM に渡す、最後に話した説明と、最後に調べた商品。 */
-    @Volatile private var lastDescription = ""
-    @Volatile private var lastProduct = ""
+    /** 調べた商品の記録（質問に答える LLM に渡す）。 */
+    private val lookedUp = java.util.concurrent.CopyOnWriteArrayList<LookedUp>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -151,20 +145,22 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         // 画面全体を 1 つのボタンにする（どこを触ってもよい）
         val gestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent) = true
-            override fun onDoubleTap(e: MotionEvent): Boolean { startListening(); return true }
-            override fun onLongPress(e: MotionEvent) { onLongPressed() }
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean { onTap(); return true }
+            override fun onDoubleTap(e: MotionEvent): Boolean { onProductTap(); return true }
+            override fun onLongPress(e: MotionEvent) { startListening() }
         })
         val touch = object : View(this) {
             @android.annotation.SuppressLint("ClickableViewAccessibility")
             override fun onTouchEvent(event: MotionEvent): Boolean = if (showModel) orbitTouch(event) else gestures.onTouchEvent(event)
         }.apply {
-            contentDescription = "長押しで調べる。2回たたくと質問"
+            contentDescription = "1回たたくと棚の案内。2回たたくと商品の名前。長押しして質問"
             isClickable = true
             isLongClickable = true
-            // TalkBack から: ダブルタップ＝クリック（質問）、ダブルタップ長押し＝長押し
-            setOnClickListener { startListening() }
-            setOnLongClickListener { onLongPressed(); true }
+            // TalkBack から: ダブルタップ＝クリック（棚の案内）、ダブルタップ長押し＝長押し（質問）。2 回たたくの代わりは操作メニューから
+            setOnClickListener { onTap() }
+            setOnLongClickListener { startListening(); true }
         }
+        androidx.core.view.ViewCompat.addAccessibilityAction(touch, "商品名を調べる") { _, _ -> onProductTap(); true }
         debugOverlay = DebugOverlay(this, debug)
         modelLabel = TextView(this).apply {
             setTextColor(android.graphics.Color.WHITE)
@@ -224,7 +220,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         gl.onResume()
         if (!greeted) {
             greeted = true
-            voice.say("準備ができました。長押しで、商品や棚を調べます。2回たたくと、質問できます。")
+            voice.say("準備ができました。1回たたくと棚の案内、2回たたくと商品の名前、長押しで質問ができます。")
             voice.prepare(listOf("調べています"))
         }
     }
@@ -369,21 +365,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                 approachSeenAt = now
                 if (approachFrom == null) approachFrom = camera
             }
-            if (judge.scene != Scene.ONE_SHELF && leftOneShelfAt == 0L) leftOneShelfAt = now
-            if (judge.scene == Scene.ONE_SHELF) leftOneShelfAt = 0L
-            if (leftOneShelfAt != 0L && now - leftOneShelfAt > FORGET_DESCRIPTION_MS) describedAt = null
-
-            when {
-                !auto || voice.speaking -> Unit
-                judge.scene == Scene.ONE_SHELF && now - lastDescribeTry > DESCRIBE_RETRY_MS &&
-                    (describedAt?.distanceTo(camera) ?: Float.MAX_VALUE) > MOVE_TO_REDESCRIBE_M -> {
-                    lastDescribeTry = now
-                    // LLM を待つ間も 1 秒ごとの記録を止めないよう、別のスレッドで話す
-                    val jpg = jpeg(image, NARRATE_LONG_SIDE)
-                    val inView = debug.mapView
-                    lookupWorker.execute { describe(inView, jpg, boxes.size, camera, requested = false) }
-                }
-            }
         } catch (e: RuntimeException) {
             Log.e(TAG, "scene analysis failed", e)
         } finally {
@@ -391,68 +372,67 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         }
     }
 
-    /**
-     * ② 棚 1 つの商品を説明する。[products] は地図から取り出した今見えている商品（なければその場で認識したもの）。
-     * LLM で短い自然な文にする（使えなければ決まった言い方の文）。LLM を待つので、呼んだスレッドはしばらく止まる。
-     */
-    private fun describe(products: List<RecognizedProduct>, jpg: ByteArray, boxCount: Int, camera: Vec3?, requested: Boolean) {
-        val t1 = SystemClock.elapsedRealtime()
-        val split = ShelfDescriber.split(products, groups)
-        debug.kept = split.kept
-        debug.removed = split.removed
-        debug.unnamed = (boxCount - products.size).coerceAtLeast(0)
-        debug.mainGroup = "${split.mainGroup}（${split.mainKinds.joinToString("・")}）"
-        debug.productsAt = t1
-        val llm = if (narrator.available) narrator.describeShelf(split.kept, jpg) else null
-        val text = llm ?: ShelfDescriber.describe(split.kept)
-        val t2 = SystemClock.elapsedRealtime()
-        debug.description = text ?: "（商品が少なく説明なし）"
-        debug.describeInfo = "文 ${if (llm != null) "LLM" else "定型"} ${t2 - t1}ms"
-        Log.i(TAG, "describe: ${products.size} products, kept ${split.kept.size}, removed ${split.removed.size} (${split.mainGroup}) -> $text")
-        if (text != null) {
-            if (camera != null) describedAt = camera
-            lastDescription = text
-            voice.say(text, interrupt = requested)
-        } else if (requested) {
-            voice.say("商品がよく分かりませんでした。棚の正面から、棚全体を写してください。")
+    // ---------------------------------------------------------------- 1 回たたく: 棚の案内
+
+    private fun onTap() {
+        listening.cancel()
+        val l = listener ?: return voice.say("位置を合わせています。少し周りを見回してから、もう一度たたいてください。", interrupt = true)
+        val view = storeView
+        val items = shelfMap.snapshot()
+        val shelves = view?.let { StoreGuide.nearShelves(it, l) }.orEmpty()
+        val facing = shelves.firstOrNull { it.facing }
+        // モデルができる前でも、正面の棚の商品が十分見えていれば答える
+        val front = if (facing != null) StoreGuide.inFront(items, l) else if (shelves.isEmpty()) StoreGuide.squarelyInFront(items, l) else emptyList()
+        val sentence = if (facing != null || front.size >= ShelfDescriber.MIN_PRODUCTS) {
+            val split = ShelfDescriber.split(front.map { RecognizedProduct(0f, 0f, 0f, 0f, it.name, it.genre, it.fine, it.seen.toFloat()) }, groups)
+            val kept = split.kept.map { it.name }.toSet()
+            StoreGuide.facingSentence(facing?.main, front.filter { it.name in kept }, l.position.y - DEVICE_HEIGHT_M)
+                ?: facing?.let { StoreGuide.facingSentence(it.main, emptyList(), 0f) }
+        } else null
+        when {
+            sentence != null -> { debug.description = sentence; voice.say(sentence, interrupt = true) }
+            shelves.isNotEmpty() -> {
+                val near = StoreGuide.toSpeak(shelves)
+                val clauses = StoreGuide.clauses(near)
+                debug.description = clauses.joinToString("")
+                voice.remember(debug.description)
+                clauses.forEachIndexed { i, c ->
+                    val at = near[i].at
+                    voice.say(c, interrupt = i == 0, remember = false, before = SpatialMixer.Sound(pon, { at }))
+                }
+            }
+            else -> voice.say("まだ棚が分かりません。棚の方を向いて、少し歩いてください。", interrupt = true)
         }
     }
 
-    // ---------------------------------------------------------------- 長押し: 商品か棚を調べる
+    // ---------------------------------------------------------------- 2 回たたく: 商品の名前
 
-    private fun onLongPressed() {
+    private fun onProductTap() {
         listening.cancel()
         voice.say("調べています", interrupt = true, remember = false)
-        pendingCapture = ::runLongPress
+        pendingCapture = ::runProductTap
     }
 
-    /** 撮った画像で、手前の商品 1 つ（③）か、棚の広い範囲（②）か、その間（一歩下がってもらう）かを決める。 */
-    private fun runLongPress(f: CapturedFrame) {
+    /** 撮った画像の手前の商品を調べる。棚が広く写っているだけなら、近づいてもらう。 */
+    private fun runProductTap(f: CapturedFrame) {
         val image = JpegEncoder.toUprightBitmap(f, LOOKUP_LONG_SIDE)
         try {
             val boxes = recognizer.detect(image).map { it.first }
             val (focus, productBox) = SceneJudge.focus(boxes)
             val largest = boxes.maxOfOrNull { SceneJudge.area(it) } ?: 0f
-            Log.i(TAG, "long press: ${boxes.size} boxes, largest $largest -> $focus")
+            Log.i(TAG, "product tap: ${boxes.size} boxes, largest $largest -> $focus")
             debug.longPress = "$focus（枠 ${boxes.size} 個、いちばん大きい枠 ${(largest * 100).toInt()}%）"
             debug.focusBox = productBox
             debug.focusAt = SystemClock.elapsedRealtime()
             debug.productBoxes = boxes
             debug.sceneAt = debug.focusAt
             when (focus) {
-                Focus.PRODUCT -> lookupProduct(image, productBox!!)
-                Focus.SHELF -> {
-                    // 地図に貯めた、今見えている商品を使う（何枚も見た結果の多数決）。足りなければ、この 1 枚で認識する
-                    val fromMap = shelfMap.visible(f.geometry)
-                    debug.longPress += "、地図から ${fromMap.size} 個"
-                    val products = if (fromMap.size >= ShelfDescriber.MIN_PRODUCTS) fromMap else recognizer.recognize(image, boxes)
-                    describe(products, jpeg(image, NARRATE_LONG_SIDE), boxes.size, camera = null, requested = true)
-                }
-                Focus.STEP_BACK -> voice.say("一歩下がって、棚の全体か、商品を一つだけ写してください。")
-                Focus.NOTHING -> voice.say("商品が見えません。棚か商品の方にスマホを向けてください。")
+                Focus.PRODUCT -> lookupProduct(image, productBox!!, cameraPosition(f))
+                Focus.SHELF, Focus.STEP_BACK -> voice.say("商品を一つだけ、カメラに近づけて、もう一度2回たたいてください。")
+                Focus.NOTHING -> voice.say("商品が見えません。商品の方にスマホを向けてください。")
             }
         } catch (e: RuntimeException) {
-            Log.e(TAG, "long press failed", e)
+            Log.e(TAG, "product tap failed", e)
             voice.say("調べられませんでした。")
         } finally {
             image.recycle()
@@ -460,8 +440,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     }
 
     /** ③ 手前の商品を Cloud Vision API で調べる。この接近ですでに調べていれば、API を呼ばずにその結果を言う。 */
-    private fun lookupProduct(image: Bitmap, box: FloatArray) {
-        lookup.cachedResult?.let { debug.lookup = "（この接近で調べた結果を使う）"; speakLookup(it); return }
+    private fun lookupProduct(image: Bitmap, box: FloatArray, at: Vec3) {
+        lookup.cachedResult?.let { debug.lookup = "（この接近で調べた結果を使う）"; speakLookup(it, at); return }
         if (!lookup.configured) {
             voice.say("商品を調べる設定がされていません。")
             return
@@ -472,11 +452,15 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         result.exceptionOrNull()?.let { Log.w(TAG, "lookup failed", it) }
         debug.lookup = result.fold({ it?.let { a -> "社名「${a.maker}」商品「${a.product}」" } ?: "分からない" }, { "失敗: ${it.message}" }) +
             "（Cloud Vision ${SystemClock.elapsedRealtime() - t0}ms）"
-        speakLookup(result)
+        speakLookup(result, at)
     }
 
-    private fun speakLookup(result: Result<ProductAnswer?>) {
-        result.getOrNull()?.let { lastProduct = it.spoken() }
+    private fun speakLookup(result: Result<ProductAnswer?>, at: Vec3) {
+        result.getOrNull()?.let { answer ->
+            val name = answer.spoken()
+            if (lookedUp.lastOrNull()?.name != name) lookedUp += LookedUp(name, at, SystemClock.elapsedRealtime())
+            if (lookedUp.size > MAX_LOOKED_UP) lookedUp.removeAt(0)
+        }
         val text = result.fold(
             onSuccess = { it?.spoken() ?: "商品が分かりませんでした。商品の正面を、カメラに向けてください。" },
             onFailure = { "調べられませんでした。通信を確認してください。" },
@@ -543,17 +527,13 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
 
     private fun handle(command: Command?, heard: String?) {
         when (command) {
-            Command.SHELVES -> ask(heard!!)   // 棚の種類の判定は止めているので、画像を見て LLM が答える
-            Command.DESCRIBE, Command.LOOKUP -> onLongPressed()
-            Command.PAUSE -> { auto = false; updateSettings(); voice.say("お知らせを止めます。人が近づいたときの音は鳴ります。", interrupt = true) }
-            Command.RESUME -> { auto = true; updateSettings(); describedAt = null; voice.say("お知らせを再開します。", interrupt = true) }
             Command.REPEAT -> voice.say(voice.lastSpoken.ifEmpty { "まだ何も話していません。" }, interrupt = true)
             Command.HELP -> voice.say(Commands.HELP_TEXT, interrupt = true)
             null -> if (heard.isNullOrBlank()) voice.say("聞き取れませんでした。", interrupt = true) else ask(heard)
         }
     }
 
-    /** 決まった言い方でない質問は、今のカメラの画像と分かっていることを LLM に渡して答えてもらう。 */
+    /** 決まった言い方でない質問は、今のカメラの画像と、店の地図や調べた商品を LLM に渡して答えてもらう。 */
     private fun ask(question: String) {
         if (!narrator.available) {
             voice.say("質問に答える設定がされていません。", interrupt = true)
@@ -562,10 +542,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         voice.say("調べています", interrupt = true, remember = false)
         pendingCapture = { f ->
             val image = JpegEncoder.toUprightBitmap(f, QUESTION_LONG_SIDE)
-            val context = buildString {
-                if (lastDescription.isNotEmpty()) appendLine("- 最後に伝えた棚の説明: $lastDescription")
-                if (lastProduct.isNotEmpty()) appendLine("- 最後に調べた商品: $lastProduct")
-            }
+            val context = StoreGuide.context(storeView, listener, shelfMap.snapshot(), lookedUp.toList(), SystemClock.elapsedRealtime(), voice.lastSpoken)
             val t0 = SystemClock.elapsedRealtime()
             val answer = try { narrator.answer(question, context, jpeg(image, QUESTION_LONG_SIDE)) } finally { image.recycle() }
             debug.voice = "質問「$question」→「${answer ?: "失敗"}」（${SystemClock.elapsedRealtime() - t0}ms）"
@@ -670,7 +647,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
 
     private fun updateSettings() {
         val ok = { b: Boolean -> if (b) "○" else "×" }
-        debug.settings = "Gemini${ok(narrator.available)} Vision${ok(lookup.configured)} 自動のお知らせ${ok(auto)}"
+        debug.settings = "Gemini${ok(narrator.available)} Vision${ok(lookup.configured)}"
     }
 
     private fun useHighResolutionCameraImage(s: Session) {
@@ -703,11 +680,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         const val PERSON_LONG_SIDE = 640
         const val LOOKUP_LONG_SIDE = 1600
         const val MAX_CAMERA_IMAGE_WIDTH = 1920
-        const val NARRATE_LONG_SIDE = 768
+        const val MAX_LOOKED_UP = 20
         const val QUESTION_LONG_SIDE = 1280
-        const val FORGET_DESCRIPTION_MS = 3000L
-        const val MOVE_TO_REDESCRIBE_M = 1.5f
-        const val DESCRIBE_RETRY_MS = 4000L
         const val APPROACH_GAP_MS = 2000L
         const val APPROACH_MOVE_M = 0.6f
         const val PERSON_HOLD_S = 1.0

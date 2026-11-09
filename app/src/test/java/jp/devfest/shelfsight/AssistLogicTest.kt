@@ -216,12 +216,8 @@ class AssistLogicTest {
 
     @Test
     fun `spoken commands`() {
-        assertEquals(Command.LOOKUP, Commands.parse("これは何？"))
-        assertEquals(Command.DESCRIBE, Commands.parse("何がある？"))
-        assertEquals(Command.SHELVES, Commands.parse("ここは何の棚"))
-        assertEquals(Command.PAUSE, Commands.parse("ちょっと止めて"))
         assertEquals(Command.REPEAT, Commands.parse("もう一度"))
-        assertNull(Commands.parse("こんにちは"))
+        assertNull(Commands.parse("カップ麺はどこにある？"))
     }
 
     // ---------------------------------------------------------------- 立体音響
@@ -331,15 +327,7 @@ class AssistLogicTest {
     // ---------------------------------------------------------------- LLM への依頼
 
     @Test
-    fun `shelf prompt lists rows top to bottom with kinds and counts, and replies are parsed`() {
-        val rows = listOf(
-            listOf(p(0.1f, 0.15f, "緑茶").copy(name = "伊藤園 お〜いお茶"), p(0.3f, 0.15f, "緑茶").copy(name = "伊藤園 お〜いお茶")),
-            listOf(p(0.1f, 0.8f, "炭酸飲料").copy(name = "コカ・コーラ コカ・コーラ 500ml")),
-        )
-        val prompt = Narrator.shelfPrompt(rows)
-        assertTrue(prompt, "上の段: 伊藤園 お〜いお茶（緑茶）×2" in prompt)
-        assertTrue(prompt, "下の段: コカ・コーラ コカ・コーラ 500ml（炭酸飲料）" in prompt)
-        assertTrue(prompt.indexOf("上の段:") < prompt.indexOf("下の段:"))
+    fun `replies are parsed and questions reach the prompt`() {
         assertEquals("上のほうにお茶があります。", Narrator.parse("""{"text":" 上のほうにお茶があります。 "}"""))
         assertNull(Narrator.parse("""{"text":""}"""))
         assertTrue(Narrator.questionPrompt("これはいくら？", "- 棚: 飲み物").contains("これはいくら？"))

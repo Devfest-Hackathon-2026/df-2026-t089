@@ -210,6 +210,16 @@ class SpatialMixer(private val listener: () -> Listener?) : AutoCloseable {
             }
         }
 
+        /** 「ポン」: 棚の方向を知らせる、丸く低めの音。 */
+        fun makePon(): FloatArray {
+            val len = (RATE * 0.16f).toInt()
+            return FloatArray(len) { t ->
+                val s = t.toFloat() / RATE
+                val env = min(1f, s / 0.003f) * exp(-s / 0.05f) * min(1f, (len - t) / (RATE * 0.005f))
+                0.6f * env * (sin(2 * PI * 620 * s).toFloat() + 0.35f * sin(2 * PI * 1240 * s).toFloat())
+            }
+        }
+
         /** [rate] のモノラルを、ミキサーの周波数へ線形補間で変換する。 */
         fun resample(pcm: FloatArray, rate: Int): FloatArray {
             if (rate == RATE) return pcm
