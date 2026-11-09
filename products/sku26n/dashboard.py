@@ -3,7 +3,7 @@
   python products/sku26n/dashboard.py [--port 8771]   -> http://127.0.0.1:8771
 各手法の結果は products/work/sku26n/pred_<手法>.json: {"images": {画像名: [[x0, y0, x1, y1, 信頼度, カテゴリ番号], ...]}}（座標は 0..1）
 """
-import argparse, json, os, re, subprocess, sys, threading, unicodedata
+import argparse, csv, json, os, re, subprocess, sys, threading, unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -21,15 +21,108 @@ SELECTED = WORK / "selected_crops.json"
 SELECTED_DB = WORK / "selected_db.json"
 VERIFY = WORK / "verify_all.json"
 TAXONOMY = HERE.parent / "konbinidb" / "taxonomy.json"
-METHODS = ["m1", "clip", "gemini"]
+METHODS = ["trained", "b", "c", "gemini"]
 AUG = DB_IMAGES.parent / "train_aug"  # コンビニDB を店内の切り抜きに似せた学習データ（konbinidb/make_train.py）
+
+
+_annotation_lock = threading.Lock()
+_annotation_cache = {"key": None, "rows": [], "by_box": {}}
+
+
+def annotation_rows(pred_dir: Path) -> list:
+    """Return complete JSONL records while another process appends annotations."""
+    log = pred_dir / "label_all.jsonl"
+    if not log.exists():
+        return []
+    stat = log.stat()
+    key = (str(log), stat.st_mtime_ns, stat.st_size)
+    with _annotation_lock:
+        if _annotation_cache["key"] != key:
+            data = log.read_bytes()
+            if not data.endswith(b"\n"):
+                data = data.rsplit(b"\n", 1)[0] + b"\n"
+            rows = [json.loads(line) for line in data.splitlines() if line]
+            _annotation_cache.update(key=key, rows=rows,
+                                     by_box={(r["image"], r["box"]): r for r in rows})
+        return _annotation_cache["rows"]
+
+
+def gemini_predictions(pred_dir: Path) -> dict:
+    """Read the completed lines of the ongoing Gemini annotation run."""
+    log = pred_dir / "label_all.jsonl"
+    if not log.exists():
+        saved = pred_dir / "pred_gemini.json"
+        return json.loads(saved.read_text(encoding="utf-8"))["images"] if saved.exists() else {}
+    codes = {"unsure": "UNS", "multiple": "MLT", "not_product": "NP"}
+    images = {}
+    for row in annotation_rows(pred_dir):
+        cat = row["cat"] if row["status"] == "ok" else codes[row["status"]]
+        box = row["xyxy"] + [row["det_conf"], cat, False, row.get("maker", ""), row.get("product", "")]
+        images.setdefault(row["image"], []).append(box)
+    return images
+
+
+def confirmed_view(pred_dir: Path, params: dict) -> dict:
+    query = params.get("q", [""])[0].strip().casefold()[:100]
+    category = params.get("cat", [""])[0]
+    try:
+        page = max(0, int(params.get("page", ["0"])[0]))
+    except ValueError:
+        page = 0
+    rows = [r for r in reversed(annotation_rows(pred_dir)) if r["status"] == "ok"
+            and (not category or r["cat"] == category)
+            and (not query or query in " ".join(str(r.get(k, "")) for k in ("maker", "product", "image", "cat")).casefold())]
+    per_page = 100
+    pages = max(1, (len(rows) + per_page - 1) // per_page)
+    page = min(page, pages - 1)
+    shown = rows[page * per_page:(page + 1) * per_page]
+    return {"total": len(rows), "page": page, "pages": pages,
+            "rows": [[r["image"], r["box"], r["cat"], r.get("maker", ""),
+                      r.get("product", ""), r["det_conf"]] for r in shown]}
+
+
+def confirmed_crop(pred_dir: Path, name: str, number: int) -> bytes | None:
+    import io
+    from PIL import Image
+
+    annotation_rows(pred_dir)
+    row = _annotation_cache["by_box"].get((name, number))
+    if row is None or row["status"] != "ok":
+        return None
+    with Image.open(VIEW / name) as image:
+        x0, y0, x1, y1 = row["xyxy"]
+        pad_x, pad_y = (x1 - x0) * .05, (y1 - y0) * .05
+        box = (int(max(0, x0 - pad_x) * image.width), int(max(0, y0 - pad_y) * image.height),
+               int(min(1, x1 + pad_x) * image.width), int(min(1, y1 + pad_y) * image.height))
+        crop = image.crop(box).convert("RGB")
+        crop.thumbnail((240, 240))
+        out = io.BytesIO()
+        crop.save(out, "JPEG", quality=85)
+        return out.getvalue()
 
 
 def state(det: Path, pred_dir: Path) -> bytes:
     d = json.loads(det.read_text(encoding="utf-8")) if det.exists() else \
         {"weights": None, "images": [{"name": f.name, "boxes": []} for f in sorted(VIEW.glob("*.jpg"))]}
     d["methods"] = {m: json.loads((pred_dir / f"pred_{m}.json").read_text(encoding="utf-8"))["images"]
-                    for m in METHODS if (pred_dir / f"pred_{m}.json").exists()}
+                    for m in METHODS if m != "gemini" and (pred_dir / f"pred_{m}.json").exists()}
+    d["methods"]["gemini"] = gemini_predictions(pred_dir)
+    manifest = pred_dir / "bc_manifest.json"
+    if manifest.exists():
+        details = json.loads(manifest.read_text(encoding="utf-8"))
+        d["training"] = {}
+        for variant in ("b", "c"):
+            results = pred_dir / f"bc_{variant}_results.csv"
+            if results.exists():
+                with results.open(newline="", encoding="utf-8") as source:
+                    epochs = list(csv.DictReader(source))
+                best = max(epochs, key=lambda row: float(row["metrics/mAP50-95(B)"]))
+                d["training"][variant] = {"photos": details["photos"],
+                    "accepted": details["accepted_boxes"], "ignored": details["ignored_boxes"],
+                    "epoch": int(best["epoch"]), "map50": float(best["metrics/mAP50(B)"]),
+                    "map5095": float(best["metrics/mAP50-95(B)"]),
+                    "precision": float(best["metrics/precision(B)"]),
+                    "recall": float(best["metrics/recall(B)"])}
     d["cats"] = {k: v[0] for g in json.loads(TAXONOMY.read_text(encoding="utf-8")).values() for k, v in g.items()}
     d["cats"].update({"NP": "商品でない", "UNS": "断定できない", "MLT": "主役を絞れない"})
     return json.dumps(d, ensure_ascii=False).encode()
@@ -248,6 +341,12 @@ def handler(det: Path, pred_dir: Path):
                 self.send((HERE / "dashboard.html").read_bytes(), "text/html; charset=utf-8")
             elif path == "/api/state":
                 self.send(state(det, pred_dir), "application/json")
+            elif path == "/api/confirmed":
+                params = parse_qs(urlparse(self.path).query)
+                self.send(json.dumps(confirmed_view(pred_dir, params), ensure_ascii=False).encode(), "application/json")
+            elif (match := re.fullmatch(r"/api/confirmed/crop/([^/]+)/(\d+)\.jpg", path)) and match[1] in names:
+                body = confirmed_crop(pred_dir, match[1], int(match[2]))
+                self.send(body, "image/jpeg") if body else self.send_error(404)
             elif path == "/api/crops":
                 self.send(json.dumps({"crops": named_crops(), "selected": sorted(read_selected()),
                                       "verification": verification_view()}, ensure_ascii=False).encode(), "application/json")
