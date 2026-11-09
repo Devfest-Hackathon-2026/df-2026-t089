@@ -65,6 +65,86 @@ def classify_boxes(view: Path, predict) -> "Iterator[dict]":
     yield {"type": "pred", "json": json.dumps({"images": result}, separators=(",", ":"))}
 
 
+def top5_boxes(view: Path, predict):
+    """全画像の枠の Top-5: {画像名: [[[カテゴリ, 確からしさ] × 5] × 枠の数]}（枠の順は det.json と同じ）"""
+    det = json.loads((view / "det.json").read_text())
+    result = {}
+    for item in det["images"]:
+        boxes, out = item["boxes"], []
+        im = load_rgb(view / "images" / item["name"])
+        w, h = im.size
+        for start in range(0, len(boxes), 128):
+            crops = []
+            for b in boxes[start:start + 128]:
+                x0, y0 = max(0, min(w - 1, int(b[0] * w))), max(0, min(h - 1, int(b[1] * h)))
+                crops.append(im.crop((x0, y0, max(x0 + 1, min(w, int(b[2] * w))), max(y0 + 1, min(h, int(b[3] * h))))))
+            out += predict(crops)
+        result[item["name"]] = out
+    return result
+
+
+@app.function(gpu=["L4", "A10G", "L40S", "T4"], volumes={"/data": volume}, timeout=2 * 3600, cpu=8, memory=32768)
+def predict_top5():
+    """学習済みの 2 モデルで Top-5 を出す。全部の枠と、商品名付きの切り抜き（原因の調査用）。埋め込みも返す"""
+    import numpy as np
+    import onnxruntime as ort
+    import torch
+    import torch.nn as nn
+    from PIL import Image
+    from ultralytics import YOLO
+
+    view, named, train = Path("/tmp/view"), Path("/tmp/named"), Path("/tmp/data")
+    for directory, archive in ((view, "/data/view.zip"), (named, "/data/named_crops.zip"), (train, "/data/train.zip")):
+        directory.mkdir()
+        with zipfile.ZipFile(archive) as z:
+            z.extractall(directory)
+    yolo = YOLO("/data/yolo26n-cls-aug.pt")
+    ckpt = torch.load("/data/mobileclip_s0_head.pt", map_location="cuda")
+    classes = ckpt["classes"]
+    head = nn.Sequential(nn.Linear(ckpt["dim"], 512), nn.ReLU(), nn.Dropout(0.3), nn.Linear(512, len(classes))).cuda()
+    head.load_state_dict(ckpt["state"])
+    head.eval()
+    try:
+        ort.preload_dlls()
+    except Exception:
+        pass
+    session = ort.InferenceSession(REMOTE_ONNX, providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
+    input_name = session.get_inputs()[0].name
+
+    def yolo_top5(images):
+        preds = yolo.predict(source=images, imgsz=224, batch=len(images), device=0, verbose=False)
+        return [[[yolo.names[int(i)], round(float(c), 4)] for i, c in zip(p.probs.top5, p.probs.top5conf.tolist())] for p in preds]
+
+    def embed(images):
+        x = np.stack([np.asarray(i.resize((CLIP_SIZE, CLIP_SIZE), Image.BILINEAR), np.float32) / 255 for i in images]).transpose(0, 3, 1, 2)
+        e = session.run(None, {input_name: x})[0]
+        return e / np.linalg.norm(e, axis=1, keepdims=True)
+
+    def clip_rank(vectors):
+        with torch.no_grad():
+            top = head(torch.from_numpy(vectors).cuda()).softmax(1).topk(5, dim=1)
+        return [[[classes[i], round(p, 4)] for i, p in zip(ids, probs)] for ids, probs in zip(top.indices.tolist(), top.values.tolist())]
+
+    for key, predict in (("m1", yolo_top5), ("clip", lambda images: clip_rank(embed(images)))):
+        yield {"type": "top5", "model": key, "json": json.dumps(top5_boxes(view, predict), separators=(",", ":"))}
+
+    ids = json.loads((named / "ids.json").read_text())
+    result = {"ids": ids, "m1": [], "clip": []}
+    vectors = []
+    for k in range(0, len(ids), 128):
+        images = [load_rgb(named / "images" / f"{i}.jpg") for i in ids[k:k + 128]]
+        result["m1"] += yolo_top5(images)
+        e = embed(images)
+        vectors.append(e)
+        result["clip"] += clip_rank(e)
+    yield {"type": "named", "json": json.dumps(result, separators=(",", ":")), "emb": np.concatenate(vectors).astype(np.float16).tobytes()}
+
+    manifest = json.loads((train / "manifest.json").read_text())
+    rows = [r for r in manifest if r["source"] == "db" and r["split"] == "train"]
+    vectors = [embed([load_rgb(train / r["path"]) for r in rows[k:k + 128]]) for k in range(0, len(rows), 128)]
+    yield {"type": "db_emb", "rows": [[r["id"], r["cat"]] for r in rows], "emb": np.concatenate(vectors).astype(np.float16).tobytes()}
+
+
 def train_yolo(root, ds, epochs, imgsz, batch, q, errors, device=0, project="/tmp/runs"):
     import torch.nn.functional as F
     from ultralytics import YOLO
