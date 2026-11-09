@@ -32,6 +32,8 @@ android {
         ndk { abiFilters += "arm64-v8a" }
 
         buildConfigField("String", "GEMINI_API_KEY", "\"${secret("GEMINI_API_KEY")}\"")
+        buildConfigField("String", "BACKEND_URL", "\"${secret("BACKEND_URL")}\"")
+        buildConfigField("String", "BACKEND_API_KEY", "\"${secret("BACKEND_API_KEY")}\"")
         buildConfigField(
             "String",
             "GEMINI_MODELS",

@@ -127,6 +127,16 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     @Volatile private var showTest = false
     private lateinit var testView: SpatialTestView
     private lateinit var topViewButton: Button
+    private val backend = BackendClient(BuildConfig.BACKEND_URL, BuildConfig.BACKEND_API_KEY)
+    private val backendWorker = Executors.newSingleThreadExecutor()
+    private val backendBusy = AtomicBoolean(false)
+    private var lastBackendSolve = 0L
+    /** OR-Tools で解いた最新の店。あれば端末での推定より優先する。 */
+    @Volatile private var solvedView: StoreView? = null
+    /** この店の、前回までに保存された地図。 */
+    @Volatile private var savedView: StoreView? = null
+    @Volatile private var location: android.location.Location? = null
+    private var locationAsked = false
     private lateinit var legend: StoreLegend
     @Volatile private var storeLayers: Set<StoreLayer> = StoreLayer.values().toSet()
     /** 3D タブを真上からの 2D で見ている。 */
@@ -272,8 +282,13 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         super.onResume()
         val missing = arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
             .filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        // 店の地図は任意の機能なので、位置情報を断られてもカメラと音声は使える
+        val askLocation = wantsLocation() && !locationAsked && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
+        if (askLocation) locationAsked = true
+        if (missing.isNotEmpty() || askLocation) {
+            requestPermissions((missing + if (askLocation) listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION) else emptyList()).toTypedArray(), 0)
+        }
         if (missing.isNotEmpty()) {
-            requestPermissions(missing.toTypedArray(), 0)
             return
         }
         val restartingPlayback = session != null && playback != null
@@ -323,6 +338,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         }
         gl.onResume()
         if (showTest) startDemo()
+        fetchLocation()
         if (!greeted && playback == null) {
             greeted = true
             voice.say("準備ができました。1回たたくと棚の案内、2回たたくと商品の名前、長押しで質問ができます。")
@@ -341,7 +357,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
 
     override fun onDestroy() {
         super.onDestroy()
-        for (w in listOf(sceneWorker, personWorker, lookupWorker, identifyWorker)) w.shutdownNow()
+        for (w in listOf(sceneWorker, personWorker, lookupWorker, identifyWorker, backendWorker)) w.shutdownNow()
         listening.close()
         voice.close()
         mixer.close()
@@ -350,7 +366,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
+        if (permissions.indices.any { !permissions[it].contains("LOCATION") && grantResults[it] != PackageManager.PERMISSION_GRANTED }) {
             voice.say("カメラとマイクの許可が必要です。設定から許可してください。")
         }
     }
@@ -379,7 +395,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val camera = frame.camera
         // 3D モデルを見ている間も、下の認識と地図づくりは止めない
         if (showModel) {
-            storeLabels.labels = storeRenderer.draw(storeView, orbit, viewW, viewH, devicePose, (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, shelfMap.snapshot(), people, topView, storeLayers)
+            storeLabels.labels = storeRenderer.draw(storeView, orbit, viewW, viewH, devicePose, (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, shelfMap.snapshot(), people, topView, storeLayers, savedView)
             storeLabels.postInvalidate()
         } else if (showTest) storeRenderer.drawDemo(testOrbit, viewW, viewH, demoListener(), demoPosition(), SpatialDemo.chimeSlot(demoSeconds()) != null)
         else background.draw(frame)
@@ -856,8 +872,24 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         for (c in counters) storeModel.addCounter(c.x.toDouble(), c.z.toDouble())
         if (now - lastStoreEstimate < STORE_ESTIMATE_MS) return
         lastStoreEstimate = now
-        val view = storeModel.estimate()
+        val local = storeModel.estimate()
+        val view = solvedView ?: local
         storeView = view
+        if (backend.configured && now - lastBackendSolve >= BACKEND_SOLVE_MS && backendBusy.compareAndSet(false, true)) {
+            lastBackendSolve = now
+            val body = storeModel.requestBody()
+            backendWorker.execute {
+                try {
+                    backend.solve(body)?.let { solved ->
+                        solvedView = solved.view
+                        // 録画の再生は今の GPS の店の地図ではないので保存しない
+                        if (playback == null) location?.let { backend.save(it.latitude, it.longitude, solved.model) }
+                    }
+                } finally {
+                    backendBusy.set(false)
+                }
+            }
+        }
         val description = StoreModel.text(view)
         runOnUiThread { modelLabel.text = description }
     }
@@ -889,6 +921,24 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         topViewButton.visibility = modelText.visibility
         legend.visibility = modelText.visibility
         if (model) storeView?.let { fitOrbit(it) }
+    }
+
+    private fun wantsLocation() = backend.configured && playback == null
+
+    /** GPS から店を求め、保存済みの地図があれば読み込む。 */
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun fetchLocation() {
+        if (!wantsLocation() || location != null || checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
+        val manager = getSystemService(android.location.LocationManager::class.java)
+        val provider = if (manager.hasProvider(android.location.LocationManager.FUSED_PROVIDER)) android.location.LocationManager.FUSED_PROVIDER else android.location.LocationManager.NETWORK_PROVIDER
+        manager.getCurrentLocation(provider, null, mainExecutor) { found ->
+            location = found ?: return@getCurrentLocation
+            backendWorker.execute {
+                val map = backend.lookup(found.latitude, found.longitude) ?: return@execute
+                savedView = map.view
+                if (map.view != null) voice.say("${map.name}の地図を読み込みました。")
+            }
+        }
     }
 
     private fun startDemo() {
@@ -989,6 +1039,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         const val STORE_ESTIMATE_MS = 3000L
         const val RECORD_LABEL = "● 記録"
         const val DEMO_TICK_MS = 50L
+        const val BACKEND_SOLVE_MS = 15_000L
         /** 256px の切り抜きは 1 枚 262 KB なので、判定待ちは 60 MB ほどで頭打ちにする。 */
         const val MAX_PENDING_CROPS = 240
         const val IDENTIFY_IDLE_MS = 30L

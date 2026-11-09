@@ -11,7 +11,7 @@ from ortools.sat.python import cp_model
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "products"))
 from store_model import MODULE_COST, SHELF_COST, StoreModel, text  # noqa: E402
 
-TIME_LIMIT_S = 5.0
+TIME_LIMIT_S = 3.0   # 棚とガラスで最大 3 回解くので、アプリの待ち時間（12 秒）に収める
 
 
 class CpSatStoreModel(StoreModel):

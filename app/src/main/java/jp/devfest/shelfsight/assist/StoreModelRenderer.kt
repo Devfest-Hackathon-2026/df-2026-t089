@@ -36,7 +36,7 @@ internal class StoreModelRenderer {
      * @return 画面に重ねる文字（棚のジャンルが先、商品名は見えた回数の多い順）
      */
     fun draw(view: StoreView?, orbit: OrbitCamera, width: Int, height: Int, phone: FloatArray?, floorY: Float, items: List<MapItem>, people: List<PersonMarker>, topView: Boolean = false,
-        layers: Set<StoreLayer> = StoreLayer.values().toSet()): List<ScreenLabel> {
+        layers: Set<StoreLayer> = StoreLayer.values().toSet(), saved: StoreView? = null): List<ScreenLabel> {
         val e = begin(orbit, width, height, 50f, topView)
         useLines(boxLines)
         if (view?.room != null) {
@@ -51,6 +51,14 @@ internal class StoreModelRenderer {
                     if (f.axis == 0) box(view.yaw, lo, a, hi, b, floorY, f.h.toFloat(), col)
                     else box(view.yaw, a, lo, b, hi, floorY, f.h.toFloat(), col)
                 }
+            }
+        }
+        // shortcut: 保存した地図は前回の ARCore の座標のままで今の場所と合っていない。店の点との位置合わせを入れたら案内にも使う
+        if (saved != null && StoreLayer.SAVED in layers) for (f in saved.fixtures) {
+            val lo = f.c - f.d / 2; val hi = f.c + f.d / 2
+            for (i in 0 until f.n) {
+                val a = f.moduleStart(i); val b = f.moduleEnd(i)
+                if (f.axis == 0) box(saved.yaw, lo, a, hi, b, floorY, f.h.toFloat(), SAVED) else box(saved.yaw, a, lo, b, hi, floorY, f.h.toFloat(), SAVED)
             }
         }
         if (phone != null && StoreLayer.PHONE in layers) drawPhone(phone)
@@ -344,6 +352,7 @@ internal class StoreModelRenderer {
         val GLASS = rgb(StoreLayer.GLASS.color)
         val RANSAC = rgb(StoreLayer.RANSAC.color)
         val MIRROR_POINT = rgb(0xff5a36)
+        val SAVED = rgb(StoreLayer.SAVED.color)
         val PRODUCT_VIEW = rgb(StoreLayer.SIGHT.color)
         const val LINE_WIDTH = 2f
         const val THIN_LINE_WIDTH = 1f

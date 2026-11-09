@@ -20,6 +20,7 @@ internal enum class StoreLayer(val label: String, val color: Int, val topViewOnl
     PHONE("スマホ", 0xf0efec),
     MIRROR("ガラス補正", 0xff8c00),
     RANSAC("RANSAC", 0xff4fd8, topViewOnly = true),
+    SAVED("保存マップ", 0xb388ff),
 }
 
 /** 項目ごとのチェックを縦に並べた凡例。チェックの色が描画の色になる。 */

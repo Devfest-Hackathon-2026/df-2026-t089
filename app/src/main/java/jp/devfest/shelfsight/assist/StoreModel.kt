@@ -58,6 +58,8 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
     private var obs = 0
     /** 観測ごとの (カメラ x, カメラ z, 点 x, 点 z)。ガラスの補正は同じ視点の視線どうしを比べるので、格子にまとめる前の形で持つ。 */
     private val rays = ArrayDeque<DoubleArray>()
+    /** バックエンドへ送る観測（カメラ x, z, 点 x, z と、カテゴリ、ジャンル）。 */
+    private val uploads = ArrayDeque<Triple<DoubleArray, String, String>>()
     private var yaw = 0.0
     private var yawAt = 0
 
@@ -78,6 +80,8 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
             genre[category] = genreName
         }
         obs++
+        uploads.addLast(Triple(doubleArrayOf(camX, camZ, x, z), category, genreName))
+        if (uploads.size > MAX_RAYS) uploads.removeFirst()
         if (d <= ShelfMap.MAX_DEPTH_M) rays.addLast(doubleArrayOf(camX, camZ, x, z))   // これより遠い深度は信頼できない
         if (rays.size > MAX_RAYS) rays.removeFirst()
     }
@@ -677,6 +681,20 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
         }
         for (p in frameTrail) for (ax in 0..1) { low[ax] += p[ax] - 0.5; high[ax] += p[ax] + 0.5 }
         return doubleArrayOf(low[0].min(), low[1].min(), high[0].max(), high[1].max())
+    }
+
+    /** バックエンドの /v1/solve に送る JSON。 */
+    fun requestBody(): String {
+        fun point(a: Double, b: Double) = org.json.JSONArray().put(a).put(b)
+        val observations = org.json.JSONArray()
+        for ((r, category, genreName) in uploads) {
+            observations.put(org.json.JSONObject().put("cam", point(r[0], r[1])).put("point", point(r[2], r[3])).put("category", category).put("genre", genreName))
+        }
+        val path = org.json.JSONArray()
+        for (p in trail) path.put(point(p[0], p[1]))
+        val counterPoints = org.json.JSONArray()
+        for ((i, k) in counters.keys) counterPoints.put(point((i + 0.5) * CELL, (k + 0.5) * CELL))
+        return org.json.JSONObject().put("path", path).put("observations", observations).put("counters", counterPoints).toString()
     }
 
     /** 今の観測から店のモデルを作る。 */
