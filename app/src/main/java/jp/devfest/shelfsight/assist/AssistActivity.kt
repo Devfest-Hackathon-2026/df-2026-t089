@@ -118,6 +118,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private val orbit = OrbitCamera()
     @Volatile private var showModel = false
     @Volatile private var deviceAt: Vec3? = null
+    @Volatile private var devicePose: FloatArray? = null
     private lateinit var modelText: ScrollView
     private lateinit var storeLabels: StoreLabelsView
     private lateinit var modelLabel: TextView
@@ -335,7 +336,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val camera = frame.camera
         // 3D モデルを見ている間も、下の認識と地図づくりは止めない
         if (showModel) {
-            storeLabels.labels = storeRenderer.draw(storeView, orbit, viewW, viewH, deviceAt, (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, shelfMap.snapshot())
+            storeLabels.labels = storeRenderer.draw(storeView, orbit, viewW, viewH, devicePose, (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, shelfMap.snapshot())
             storeLabels.postInvalidate()
         } else background.draw(frame)
         // 画面の表示用: センサー画像の正規化座標が、画面のどこに来るか
@@ -375,6 +376,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         // 聞く人の向き: スマホを胸の前に立てて持つので、カメラの前（-z）を水平にしたもの
         val pose = camera.pose
         deviceAt = Vec3(pose.tx(), pose.ty(), pose.tz())
+        devicePose = FloatArray(16).also { camera.displayOrientedPose.toMatrix(it, 0) }
         val z = pose.zAxis
         val fx = -z[0]
         val fz = -z[2]

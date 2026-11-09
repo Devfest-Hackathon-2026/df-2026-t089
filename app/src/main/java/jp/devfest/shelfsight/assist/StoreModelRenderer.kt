@@ -6,31 +6,31 @@ import jp.devfest.shelfsight.ar.GlUtil
 import jp.devfest.shelfsight.mapping.OrbitCamera
 import jp.devfest.shelfsight.model.Vec3
 
-/** 推定した店（[StoreView]）を箱の集まりとして、認識した商品を点として描く。GL スレッドから使う。 */
+/** 推定した店（[StoreView]）を線画で、認識した商品を点で、自分を向き付きのスマホで描く。GL スレッドから使う。 */
 internal class StoreModelRenderer {
+    private val program = GlUtil.createProgram(VERTEX, FRAGMENT)
+    private val position = GLES20.glGetAttribLocation(program, "a_Position")
+    private val mvp = GLES20.glGetUniformLocation(program, "u_Mvp")
+    private val color = GLES20.glGetUniformLocation(program, "u_Color")
+    private val boxLines = GlUtil.floatBuffer(BOX_LINES)
+    private val arrowLines = GlUtil.floatBuffer(ARROW_LINES)
     private val pointProgram = GlUtil.createProgram(POINT_VERTEX, POINT_FRAGMENT)
     private val pointPosition = GLES20.glGetAttribLocation(pointProgram, "a_Position")
     private val pointMvp = GLES20.glGetUniformLocation(pointProgram, "u_Mvp")
     private val pointColor = GLES20.glGetUniformLocation(pointProgram, "u_Color")
     private val pointBuffer = GlUtil.floatBuffer(FloatArray(ShelfMap.MAX_ITEMS * 3))
-    private val program = GlUtil.createProgram(VERTEX, FRAGMENT)
-    private val position = GLES20.glGetAttribLocation(program, "a_Position")
-    private val shade = GLES20.glGetAttribLocation(program, "a_Shade")
-    private val mvp = GLES20.glGetUniformLocation(program, "u_Mvp")
-    private val color = GLES20.glGetUniformLocation(program, "u_Color")
-    private val cube = GlUtil.floatBuffer(CUBE)
     private val viewProjection = FloatArray(16)
     private val model = FloatArray(16)
     private val result = FloatArray(16)
 
     /**
-     * @param camera 今いる場所。[floorY] はそこから見積もった床の高さ。
+     * @param phone 端末の姿勢（画面の右 +x、上 +y、カメラの向き -z の 4×4 行列）。[floorY] はそこから見積もった床の高さ。
      * @return 画面に重ねる文字（棚のジャンルが先、商品名は見えた回数の多い順）
      */
-    fun draw(view: StoreView?, orbit: OrbitCamera, width: Int, height: Int, camera: Vec3?, floorY: Float, items: List<MapItem>): List<ScreenLabel> {
+    fun draw(view: StoreView?, orbit: OrbitCamera, width: Int, height: Int, phone: FloatArray?, floorY: Float, items: List<MapItem>): List<ScreenLabel> {
         GLES20.glClearColor(0.08f, 0.09f, 0.11f, 1f)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
-        GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+        GLES20.glDisable(GLES20.GL_DEPTH_TEST)   // 線画なので隠れる面がない
         val projection = FloatArray(16)
         val lookAt = FloatArray(16)
         Matrix.perspectiveM(projection, 0, 50f, width.toFloat() / height.coerceAtLeast(1), 0.1f, 200f)
@@ -38,31 +38,30 @@ internal class StoreModelRenderer {
         Matrix.setLookAtM(lookAt, 0, e.x, e.y, e.z, c.x, c.y, c.z, 0f, 1f, 0f)
         Matrix.multiplyMM(viewProjection, 0, projection, 0, lookAt, 0)
         GLES20.glUseProgram(program)
+        GLES20.glLineWidth(LINE_WIDTH)
         GLES20.glEnableVertexAttribArray(position)
-        GLES20.glEnableVertexAttribArray(shade)
-        cube.position(0)
-        GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 16, cube)
-        cube.position(3)
-        GLES20.glVertexAttribPointer(shade, 1, GLES20.GL_FLOAT, false, 16, cube)
+        useLines(boxLines)
         if (view?.room != null) {
             val r = view.room
-            box(view.yaw, r[0], r[1], r[2], r[3], floorY - 0.02f, 0.02f, FLOOR)
+            box(view.yaw, r[0], r[1], r[2], r[3], floorY, 0f, FLOOR)
             for (f in view.fixtures) {
                 val lo = f.c - f.d / 2; val hi = f.c + f.d / 2
-                val col = COLORS.getValue(f.kind)
-                // モジュールの境目が見えるよう、1 つずつ少し隙間を空けて描く
                 for (i in 0 until f.n) {
-                    val a = f.a + i * f.w + GAP; val b = f.a + (i + 1) * f.w - GAP
-                    if (f.axis == 0) box(view.yaw, lo, a, hi, b, floorY, f.h.toFloat(), col)
-                    else box(view.yaw, a, lo, b, hi, floorY, f.h.toFloat(), col)
+                    val a = f.a + i * f.w; val b = a + f.w
+                    if (f.axis == 0) box(view.yaw, lo, a, hi, b, floorY, f.h.toFloat(), SHELF)
+                    else box(view.yaw, a, lo, b, hi, floorY, f.h.toFloat(), SHELF)
                 }
             }
         }
-        if (camera != null) marker(camera, floorY)
+        if (phone != null) drawPhone(phone)
         GLES20.glDisableVertexAttribArray(position)
-        GLES20.glDisableVertexAttribArray(shade)
         drawPoints(items)
         return labels(view, items, e, floorY, width, height)
+    }
+
+    private fun useLines(lines: java.nio.FloatBuffer) {
+        lines.position(0)
+        GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 0, lines)
     }
 
     private fun drawPoints(items: List<MapItem>) {
@@ -72,14 +71,12 @@ internal class StoreModelRenderer {
         for (i in 0 until n) items[i].position.let { pointBuffer.put(it.x).put(it.y).put(it.z) }
         pointBuffer.position(0)
         GLES20.glUseProgram(pointProgram)
-        GLES20.glDisable(GLES20.GL_DEPTH_TEST)   // 商品は棚の箱の中に入るので、奥行きを見ると隠れて見えない
         GLES20.glUniformMatrix4fv(pointMvp, 1, false, viewProjection, 0)
         GLES20.glUniform3fv(pointColor, 1, POINT, 0)
         GLES20.glEnableVertexAttribArray(pointPosition)
         GLES20.glVertexAttribPointer(pointPosition, 3, GLES20.GL_FLOAT, false, 0, pointBuffer)
         GLES20.glDrawArrays(GLES20.GL_POINTS, 0, n)
         GLES20.glDisableVertexAttribArray(pointPosition)
-        GLES20.glEnable(GLES20.GL_DEPTH_TEST)
     }
 
     private fun labels(view: StoreView?, items: List<MapItem>, eye: Vec3, floorY: Float, width: Int, height: Int): List<ScreenLabel> {
@@ -118,71 +115,83 @@ internal class StoreModelRenderer {
         Matrix.translateM(model, 0, (cu * cs - cv * sn).toFloat(), y + height / 2, (cu * sn + cv * cs).toFloat())
         Matrix.rotateM(model, 0, -Math.toDegrees(yaw).toFloat(), 0f, 1f, 0f)
         Matrix.scaleM(model, 0, (u1 - u0).toFloat(), height, (v1 - v0).toFloat())
-        drawCube(col)
+        drawLines(col, BOX_LINES)
     }
 
-    private fun marker(p: Vec3, floorY: Float) {
-        Matrix.setIdentityM(model, 0)
-        Matrix.translateM(model, 0, p.x, floorY + 0.8f, p.z)
-        Matrix.scaleM(model, 0, 0.3f, 1.6f, 0.3f)
-        drawCube(ME)
+    /** 実際の位置と傾きで浮かぶスマホと、カメラの向きの矢印。店の中で見えるよう、実物より大きく描く。 */
+    private fun drawPhone(pose: FloatArray) {
+        Matrix.scaleM(model, 0, pose, 0, PHONE_W, PHONE_H, PHONE_D)
+        drawLines(ME, BOX_LINES)
+        useLines(arrowLines)
+        System.arraycopy(pose, 0, model, 0, 16)
+        drawLines(ARROW, ARROW_LINES)
+        useLines(boxLines)
     }
 
-    private fun drawCube(col: FloatArray) {
+    private fun drawLines(col: FloatArray, lines: FloatArray) {
         Matrix.multiplyMM(result, 0, viewProjection, 0, model, 0)
         GLES20.glUniformMatrix4fv(mvp, 1, false, result, 0)
         GLES20.glUniform3fv(color, 1, col, 0)
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, CUBE.size / 4)
+        GLES20.glDrawArrays(GLES20.GL_LINES, 0, lines.size / 3)
     }
 
     private companion object {
-        const val GAP = 0.01
         fun rgb(hex: Int) = floatArrayOf((hex shr 16 and 255) / 255f, (hex shr 8 and 255) / 255f, (hex and 255) / 255f)
-        val COLORS = mapOf(
-            "island" to rgb(0x3987e5), "wall" to rgb(0xd95926), "case" to rgb(0x199e70),
-            "end" to rgb(0xc98500), "register" to rgb(0xd55181),
-        )
-        val FLOOR = rgb(0x2d333c)
+        val SHELF = rgb(0xc8ccd2)
+        val FLOOR = rgb(0x565d68)
         val ME = rgb(0xf0efec)
+        val ARROW = rgb(0xff7a45)
         val POINT = rgb(0xffd23f)
+        const val LINE_WIDTH = 2f
         const val POINT_SIZE = 12f
         const val NAME_RANGE_M = 3f
         const val SHELF_LABEL_LIFT_M = 0.1f
         /** 中心が少し画面の外に出た棚も、文字を画面の端に寄せて出す。 */
         const val SHELF_LABEL_REACH = 1.6f
+        const val PHONE_W = 0.24f
+        const val PHONE_H = 0.5f
+        const val PHONE_D = 0.04f
+        const val ARROW_LENGTH_M = 1f
+        const val ARROW_HEAD_M = 0.18f
 
-        /** 単位立方体の三角形（x, y, z, 明るさ）。上の面を明るく、横の面は向きで明るさを変えて形を見せる。 */
-        val CUBE: FloatArray = run {
+        /** 中心が原点の単位立方体の 12 本の辺（x, y, z）。 */
+        val BOX_LINES: FloatArray = run {
             val v = ArrayList<Float>()
-            fun quad(a: FloatArray, b: FloatArray, c: FloatArray, d: FloatArray, s: Float) {
-                for (p in listOf(a, b, c, a, c, d)) { v += p[0] - 0.5f; v += p[1] - 0.5f; v += p[2] - 0.5f; v += s }
+            val ends = listOf(-0.5f, 0.5f)
+            for (a in ends) for (b in ends) {
+                v += listOf(-0.5f, a, b, 0.5f, a, b)
+                v += listOf(a, -0.5f, b, a, 0.5f, b)
+                v += listOf(a, b, -0.5f, a, b, 0.5f)
             }
-            fun p(x: Int, y: Int, z: Int) = floatArrayOf(x.toFloat(), y.toFloat(), z.toFloat())
-            quad(p(0, 1, 0), p(0, 1, 1), p(1, 1, 1), p(1, 1, 0), 1f)
-            quad(p(0, 0, 0), p(1, 0, 0), p(1, 0, 1), p(0, 0, 1), 0.4f)
-            quad(p(0, 0, 1), p(1, 0, 1), p(1, 1, 1), p(0, 1, 1), 0.8f)
-            quad(p(0, 0, 0), p(0, 1, 0), p(1, 1, 0), p(1, 0, 0), 0.6f)
-            quad(p(1, 0, 0), p(1, 1, 0), p(1, 1, 1), p(1, 0, 1), 0.7f)
-            quad(p(0, 0, 0), p(0, 0, 1), p(0, 1, 1), p(0, 1, 0), 0.5f)
             v.toFloatArray()
+        }
+
+        /** 端末の中心からカメラの向き（-z）へ伸びる矢印。 */
+        val ARROW_LINES: FloatArray = run {
+            val tip = -ARROW_LENGTH_M
+            val back = tip + ARROW_HEAD_M
+            val h = ARROW_HEAD_M * 0.6f
+            floatArrayOf(
+                0f, 0f, 0f, 0f, 0f, tip,
+                0f, 0f, tip, h, 0f, back,
+                0f, 0f, tip, -h, 0f, back,
+                0f, 0f, tip, 0f, h, back,
+                0f, 0f, tip, 0f, -h, back,
+            )
         }
 
         const val VERTEX = """
             uniform mat4 u_Mvp;
             attribute vec3 a_Position;
-            attribute float a_Shade;
-            varying float v_Shade;
             void main() {
                 gl_Position = u_Mvp * vec4(a_Position, 1.0);
-                v_Shade = a_Shade;
             }
         """
         const val FRAGMENT = """
             precision mediump float;
             uniform vec3 u_Color;
-            varying float v_Shade;
             void main() {
-                gl_FragColor = vec4(u_Color * v_Shade, 1.0);
+                gl_FragColor = vec4(u_Color, 1.0);
             }
         """
         const val POINT_VERTEX = """
