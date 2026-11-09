@@ -43,6 +43,11 @@ class ProductRecognizer(context: Context) : AutoCloseable {
     private val gallery: FloatArray
     private val byKey: Map<String, Product>
 
+    private class Category(val name: String, val genre: String)
+
+    private val categories: List<Category>
+    private val head: CategoryHead
+
     init {
         val list = meta.getJSONArray("products")
         products = (0 until list.length()).map { i ->
@@ -54,6 +59,13 @@ class ProductRecognizer(context: Context) : AutoCloseable {
         val raw = context.assets.open("$DIR/gallery.bin").use { it.readBytes() }
         val half = ByteBuffer.wrap(raw).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
         gallery = FloatArray(count * dim) { android.util.Half.toFloat(half.get(it)) }
+
+        val headMeta = JSONObject(context.assets.open("$DIR/category_head.json").bufferedReader().readText())
+        val names = headMeta.getJSONArray("categories")
+        categories = (0 until names.length()).map { i -> names.getJSONObject(i).let { Category(it.getString("name"), it.getString("genre")) } }
+        val bytes = context.assets.open("$DIR/category_head.bin").use { it.readBytes() }
+        val weights = FloatArray(bytes.size / 4).also { ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(it) }
+        head = CategoryHead(headMeta.getInt("dim"), headMeta.getInt("hidden"), categories.size, weights)
     }
 
     /** 商品の枠（正立画像の 0..1、[left, top, right, bottom]）と確からしさ。 */
@@ -110,14 +122,15 @@ class ProductRecognizer(context: Context) : AutoCloseable {
         }
     }
 
-    /** 枠の切り抜き。[judge] にそのまま渡せる大きさで、解放は呼ぶ側で行う。 */
-    fun cropOf(image: Bitmap, box: FloatArray): Bitmap = crop(image, box)
+    /** 枠の切り抜き（分類層の学習と同じく広げない）。[judge] にそのまま渡せる大きさで、解放は呼ぶ側で行う。 */
+    fun cropOf(image: Bitmap, box: FloatArray): Bitmap = crop(image, box, 0f)
 
-    /** 切り抜き 1 枚に、いちばん近い商品の名前を付ける。 */
+    /** 切り抜き 1 枚を 122 カテゴリに分類する。確率が [KNOWN_PROB] 未満なら、分からないとして null。 */
     fun judge(crop: Bitmap, box: FloatArray): RecognizedProduct? {
-        val best = topProducts(normalize(embed(listOf(crop)).single())).firstOrNull() ?: return null
-        val product = byKey[best.key] ?: return null
-        return RecognizedProduct(box[0], box[1], box[2], box[3], product.name, product.genre, product.fine, best.sim)
+        val (index, prob) = head.predict(normalize(embed(listOf(crop)).single()))
+        if (prob < KNOWN_PROB) return null
+        val category = categories[index]
+        return RecognizedProduct(box[0], box[1], box[2], box[3], category.name, category.genre, category.name, prob)
     }
 
     private fun embed(crops: List<Bitmap>): List<FloatArray> =
@@ -147,9 +160,9 @@ class ProductRecognizer(context: Context) : AutoCloseable {
     }
 
     /** 枠を少し広げて切り抜き、正方形に引き伸ばす（照合先と同じ作り方。products/s2_crops.py）。 */
-    private fun crop(image: Bitmap, b: FloatArray): Bitmap {
-        val px = (b[2] - b[0]) * CROP_PAD
-        val py = (b[3] - b[1]) * CROP_PAD
+    private fun crop(image: Bitmap, b: FloatArray, pad: Float = CROP_PAD): Bitmap {
+        val px = (b[2] - b[0]) * pad
+        val py = (b[3] - b[1]) * pad
         val l = ((b[0] - px) * image.width).toInt().coerceIn(0, image.width - 1)
         val t = ((b[1] - py) * image.height).toInt().coerceIn(0, image.height - 1)
         val r = ((b[2] + px) * image.width).toInt().coerceIn(l + 1, image.width)
@@ -194,6 +207,8 @@ class ProductRecognizer(context: Context) : AutoCloseable {
         /** 枠は 1 枚で 100 個を超えることがある。256px を一度に埋め込むとメモリを食うので分ける。 */
         private const val EMBED_BATCH = 8
         private const val CROP_PAD = 0.04f
+        /** 検証では、確率 0.7 以上の箱の 87% が正解だった（Gemini の確定ラベルとの一致。products/sku26n）。 */
+        private const val KNOWN_PROB = 0.7f
 
         /** 照合先やカテゴリを作り直すと変わる値。事前計算の結果が今のモデルのものかを見分ける。 */
         fun version(context: Context): String = context.assets.open("$DIR/gallery.json").bufferedReader().use { it.readText() }.hashCode().toString()

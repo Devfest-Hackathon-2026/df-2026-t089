@@ -58,7 +58,7 @@ class AssistDebug {
 
 /**
  * カメラの映像の上に、認識の状況をすべて描く。
- * 映像の上: 商品の枠（緑＝説明に使った、橙＝場違いとして外した、灰＝最後の解析の枠、青＝地図に貯めた今見えている商品と見えた回数）、
+ * 映像の上: 商品の枠（緑＝説明に使った、橙で×＝場違いとして外した、灰＝最後の解析の枠、橙＝分類できて地図に貯めた今見えている商品と見えた回数）、
  * 長押しで調べた範囲（水色）、人の枠（赤＝人、紫の点線＝自分の手として外した）。下: 文字の一覧。
  */
 class DebugOverlay(context: Context, private val d: AssistDebug) : View(context) {
@@ -109,8 +109,8 @@ class DebugOverlay(context: Context, private val d: AssistDebug) : View(context)
     private fun drawImageLayer(canvas: Canvas, now: Long) {
         // 商品の枠（最後の解析）
         if (now - d.sceneAt < SCENE_MS) for (b in d.productBoxes) rect(canvas, b[0], b[1], b[2], b[3], GRAY)
-        // 地図に貯めた、今見えている商品（青、数字は見えた回数）
-        if (now - d.sceneAt < SCENE_MS) for (p in d.mapView) rect(canvas, p.left, p.top, p.right, p.bottom, BLUE, "${short(p.name)} ${p.sim.toInt()}")
+        // 分類できて地図に貯めた、今見えている商品（橙、数字は見えた回数）
+        if (now - d.sceneAt < SCENE_MS) for (p in d.mapView) rect(canvas, p.left, p.top, p.right, p.bottom, ORANGE, "${short(p.name)} ${p.sim.toInt()}")
         // 説明に使った商品と、外した商品
         if (now - d.productsAt < PRODUCTS_MS) {
             for (p in d.kept) rect(canvas, p.left, p.top, p.right, p.bottom, GREEN, short(p.name))
@@ -172,7 +172,6 @@ class DebugOverlay(context: Context, private val d: AssistDebug) : View(context)
         const val SCENE_MS = 40000L
         const val PRODUCTS_MS = 8000L
         const val GRAY = 0xFF9E9E9E.toInt()
-        const val BLUE = 0xFF448AFF.toInt()
         const val GREEN = 0xFF4CAF50.toInt()
         const val ORANGE = 0xFFFF9800.toInt()
         const val CYAN = 0xFF00E5FF.toInt()

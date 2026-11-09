@@ -38,6 +38,22 @@ class CropQueueTest {
         assertEquals(listOf("a"), q.add(entry("c", 3f, time = 3L)))
     }
 
+    @Test fun `higher detection confidence comes out first at the same distance`() {
+        val q = CropQueue<String>(10)
+        q.add(CropQueue.Entry("low", FloatArray(4), Vec3(1f, 0f, 0f), Vec3(0f, 0f, 0f), 0.1f, 0.1f, 0f, 0L, confidence = 0.2f))
+        q.add(CropQueue.Entry("high", FloatArray(4), Vec3(0f, 1f, 0f), Vec3(0f, 0f, 0f), 0.1f, 0.1f, 0f, 0L, confidence = 0.9f))
+        assertEquals("high", q.take(Vec3(0f, 0f, 0f), 0L)!!.crop)
+    }
+
+    @Test fun `a spot that stayed unknown is judged again only when seen larger`() {
+        val q = CropQueue<String>(10)
+        q.reject(entry("first", 1f, area = 0.1f))
+        assertEquals(listOf("same size"), q.add(entry("same size", 1f, area = 0.12f)))
+        assertEquals(0, q.size)
+        assertTrue(q.add(entry("closer", 1f, area = 0.2f)).isEmpty())
+        assertEquals(1, q.size)
+    }
+
     @Test fun `a judged spot is touched instead of judged again`() {
         val map = ShelfMap()
         assertEquals(false, map.touch(Vec3(1f, 0f, 0f), 0.1f, 0.1f, 1L, null))

@@ -158,6 +158,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         }
     }
     @Volatile private var deviceAt: Vec3? = null
+    @Volatile private var sceneGeometry: jp.devfest.shelfsight.ar.CaptureGeometry? = null
     @Volatile private var devicePose: FloatArray? = null
     private lateinit var modelText: ScrollView
     private lateinit var storeLabels: StoreLabelsView
@@ -491,19 +492,21 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val image = JpegEncoder.toUprightBitmap(f, SCENE_LONG_SIDE)
         try {
             val now = SystemClock.elapsedRealtime()
-            val boxes = recognizer.detect(image).map { it.first }
+            val detected = recognizer.detect(image)
+            val boxes = detected.map { it.first }
             val detectMs = SystemClock.elapsedRealtime() - now
             debug.productBoxes = boxes  // 名前付けに数秒かかるので、枠は先に出す
             debug.sceneAt = SystemClock.elapsedRealtime()
             val switched = judge.update(SceneEvidence(0, boxes))
             val products = cached?.match(boxes).orEmpty()
-            if (cached == null) queueCrops(image, boxes, f, walls, now)
+            if (cached == null) queueCrops(image, detected, f, walls, now)
             val recognizeMs = SystemClock.elapsedRealtime() - now - detectMs
             val placed = products.map { p -> Recorder.Product(p, placeOnMap(p, f, walls, now)) }
             updateStoreModel(boxes, placed, counters, f, now)
             recorder.record(System.currentTimeMillis(), image, f.geometry, heading, walls.size, placed)
             debug.scene = judge.scene
             debug.sceneMs = "枠 ${detectMs}ms / ${if (cached != null) "名前 ${recognizeMs}ms（事前計算 ${products.size}/${boxes.size}）" else "切り抜き ${recognizeMs}ms・判定待ち ${cropQueue.size}"} / 壁 ${walls.size}"
+            sceneGeometry = f.geometry
             debug.mapView = shelfMap.visible(f.geometry)
             debug.mapInfo = "${shelfMap.size} 個（今見えている ${debug.mapView.size}、この 1 枚で置いた ${placed.count { it.position != null }}/${products.size}）"
             val main = SceneJudge.mainProduct(boxes)
@@ -729,12 +732,12 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     }
 
     /** まだ判定していない点の切り抜きを、判定待ちに入れる。判定済みの場所は見えたことだけ記録する。 */
-    private fun queueCrops(image: Bitmap, boxes: List<FloatArray>, f: CapturedFrame, walls: List<Wall>, now: Long) {
+    private fun queueCrops(image: Bitmap, boxes: List<Pair<FloatArray, Float>>, f: CapturedFrame, walls: List<Wall>, now: Long) {
         val camera = cameraPosition(f)
-        for (b in boxes) {
+        for ((b, confidence) in boxes) {
             val at = locate(b[0], b[1], b[2], b[3], f, walls) ?: continue
             if (shelfMap.touch(at.position, at.widthM, at.heightM, now, camera)) continue
-            cropQueue.add(CropQueue.Entry(recognizer.cropOf(image, b), b, at.position, camera, at.widthM, at.heightM, SceneJudge.area(b), now)).forEach { it.recycle() }
+            cropQueue.add(CropQueue.Entry(recognizer.cropOf(image, b), b, at.position, camera, at.widthM, at.heightM, SceneJudge.area(b), now, confidence)).forEach { it.recycle() }
         }
     }
 
@@ -745,8 +748,10 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                 val e = cropQueue.take(deviceAt, SystemClock.elapsedRealtime())
                 if (e == null) { Thread.sleep(IDENTIFY_IDLE_MS); continue }
                 try {
-                    val p = recognizer.judge(e.crop, e.box) ?: continue
+                    val p = recognizer.judge(e.crop, e.box)
+                    if (p == null) { cropQueue.reject(e); continue }
                     shelfMap.add(p.name, p.genre, p.fine, e.position, e.widthM, e.heightM, e.time, e.camera)
+                    sceneGeometry?.let { debug.mapView = shelfMap.visible(it) }  // 分かったものから順にオレンジにする
                     sceneWorker.execute { storeModel.addProduct(e.camera.x.toDouble(), e.camera.z.toDouble(), e.position.x.toDouble(), e.position.z.toDouble(), p.name, p.genre ?: "") }
                 } catch (err: InterruptedException) {
                     throw err
