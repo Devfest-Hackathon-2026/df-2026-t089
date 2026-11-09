@@ -120,6 +120,9 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     /** 立体音響のテストのタブを開いている。 */
     @Volatile private var showTest = false
     private lateinit var testView: SpatialTestView
+    /** テストの人を、少し上の後ろから見る。 */
+    private val testOrbit = OrbitCamera().apply { fit(Vec3(0f, 0.9f, 0f), 3.9f); rotate(0f, -125f) }
+    private val activeOrbit get() = if (showTest) testOrbit else orbit
     private val demoHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var demoStart = 0L
     private var demoSlot: Int? = null
@@ -191,7 +194,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         })
         val touch = object : View(this) {
             @android.annotation.SuppressLint("ClickableViewAccessibility")
-            override fun onTouchEvent(event: MotionEvent): Boolean = if (showModel) orbitTouch(event) else gestures.onTouchEvent(event)
+            override fun onTouchEvent(event: MotionEvent): Boolean = if (showModel || showTest) orbitTouch(event) else gestures.onTouchEvent(event)
         }.apply {
             contentDescription = "1回たたくと棚の案内。2回たたくと商品の名前。長押しして質問"
             isClickable = true
@@ -215,7 +218,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             visibility = View.GONE
             addView(modelLabel)
         }
-        testView = SpatialTestView(this, { demoListener() to demoPosition() }, { SpatialDemo.chimeSlot(demoSeconds()) != null }).apply { visibility = View.GONE }
+        testView = SpatialTestView(this) { demoListener() to demoPosition() }.apply { visibility = View.GONE }
         val names = listOf("案内", "3D", "立体音響")
         tabs = names.indices.map { i -> Button(this).apply { text = names[i]; setOnClickListener { selectTab(i) } } }
         recordButton = Button(this).apply {
@@ -358,7 +361,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         if (showModel) {
             storeLabels.labels = storeRenderer.draw(storeView, orbit, viewW, viewH, devicePose, (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, shelfMap.snapshot())
             storeLabels.postInvalidate()
-        } else background.draw(frame)
+        } else if (showTest) storeRenderer.drawDemo(testOrbit, viewW, viewH, demoListener(), demoPosition(), SpatialDemo.chimeSlot(demoSeconds()) != null)
+        else background.draw(frame)
         // 画面の表示用: センサー画像の正規化座標が、画面のどこに来るか
         val corners = FloatArray(6)
         frame.transformCoordinates2d(Coordinates2d.IMAGE_NORMALIZED, floatArrayOf(0f, 0f, 1f, 0f, 0f, 1f), Coordinates2d.VIEW_NORMALIZED, corners)
@@ -397,7 +401,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val pose = camera.pose
         deviceAt = Vec3(pose.tx(), pose.ty(), pose.tz())
         devicePose = FloatArray(16).also { camera.displayOrientedPose.toMatrix(it, 0) }
-        if (showTest) testView.viewProjection = viewProjection(camera)
         val z = pose.zAxis
         val fx = -z[0]
         val fz = -z[2]
@@ -830,7 +833,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         demoStart = SystemClock.elapsedRealtime()
         demoSlot = null
         demoOrigin = null
-        testView.viewProjection = null
         demoHandler.post(demoTick)
     }
 
@@ -845,14 +847,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         return SpatialDemo.world(demoOrigin ?: DEMO_LISTENER, demoSeconds())
     }
 
-    private fun viewProjection(camera: com.google.ar.core.Camera): FloatArray {
-        val projection = FloatArray(16)
-        val view = FloatArray(16)
-        camera.getProjectionMatrix(projection, 0, 0.1f, 100f)
-        camera.getViewMatrix(view, 0)
-        return FloatArray(16).also { android.opengl.Matrix.multiplyMM(it, 0, projection, 0, view, 0) }
-    }
-
     private fun fitOrbit(v: StoreView) {
         val r = v.room ?: return
         val cu = (r[0] + r[2]) / 2
@@ -865,7 +859,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
 
     private val orbitScale by lazy {
         ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-            override fun onScale(d: ScaleGestureDetector): Boolean { orbit.zoom(d.scaleFactor); return true }
+            override fun onScale(d: ScaleGestureDetector): Boolean { activeOrbit.zoom(d.scaleFactor); return true }
         })
     }
     private var orbitX = 0f
@@ -880,8 +874,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val x = fingers.map { e.getX(it) }.average().toFloat()
         val y = fingers.map { e.getY(it) }.average().toFloat()
         if (e.actionMasked == MotionEvent.ACTION_MOVE) when (e.pointerCount) {
-            1 -> orbit.rotate(x - orbitX, y - orbitY)
-            2 -> orbit.pan(x - orbitX, y - orbitY)
+            1 -> activeOrbit.rotate(x - orbitX, y - orbitY)
+            2 -> activeOrbit.pan(x - orbitX, y - orbitY)
         }
         orbitX = x
         orbitY = y

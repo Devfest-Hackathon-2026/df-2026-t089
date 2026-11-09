@@ -4,15 +4,12 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Path
 import android.view.View
 import jp.devfest.shelfsight.model.Vec3
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.floor
-import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -68,29 +65,18 @@ internal object SpatialDemo {
     }
 }
 
-/** カメラ映像に重ねて、音源の場所に印を出す。画面の外にあるときは、その方向の端に矢印を出す。 */
-internal class SpatialTestView(context: Context, private val state: () -> Pair<Listener, Vec3>, private val sounding: () -> Boolean) : View(context) {
-    /** 世界座標 → クリップ座標の行列。ARCore が追跡していなければ null。 */
-    @Volatile var viewProjection: FloatArray? = null
+/** テスト中の音源の方向と距離を、3D の人の上に文字で出す。 */
+internal class SpatialTestView(context: Context, private val state: () -> Pair<Listener, Vec3>) : View(context) {
     private val density = resources.displayMetrics.density
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 3 * density }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 20 * resources.displayMetrics.scaledDensity; textAlign = Paint.Align.CENTER }
     private val strip = Paint().apply { color = 0xB0000000.toInt() }
-    private val arrow = Path()
 
     init {
         contentDescription = "立体音響のテスト。同じ場所から5回鳴らしたあと、ゆっくり別の場所へ移ります"
-        isClickable = true   // 下の画面の「たたく」操作に渡さない
     }
 
     override fun onDraw(canvas: Canvas) {
         val (l, position) = state()
-        val color = if (sounding()) 0xFFFFD23F.toInt() else 0xFFAEB4BD.toInt()
-        fill.color = color
-        ring.color = color
-        viewProjection?.let { drawMarker(canvas, it, position) }
-
         val az = Binaural.azimuth(l, position)
         val horizontal = Binaural.horizontalDistance(l, position)
         val rise = position.y - l.position.y
@@ -99,40 +85,7 @@ internal class SpatialTestView(context: Context, private val state: () -> Pair<L
         val bottom = height - 40 * density
         canvas.drawRect(0f, bottom - 44 * density, width.toFloat(), bottom, strip)
         val where = "${if (deg >= 0) "右" else "左"} ${abs(deg)}°   ${if (up >= 0) "上" else "下"} ${abs(up)}°   ${"%.1f".format(sqrt(horizontal * horizontal + rise * rise))}m"
-        canvas.drawText(if (viewProjection == null) "位置合わせ中  $where" else where, width / 2f, bottom - 14 * density, text)
+        canvas.drawText(where, width / 2f, bottom - 14 * density, text)
         if (isShown) postInvalidateOnAnimation()
-    }
-
-    private fun drawMarker(canvas: Canvas, m: FloatArray, p: Vec3) {
-        val w = m[3] * p.x + m[7] * p.y + m[11] * p.z + m[15]
-        val x = (m[0] * p.x + m[4] * p.y + m[8] * p.z + m[12]) / w
-        val y = (m[1] * p.x + m[5] * p.y + m[9] * p.z + m[13]) / w
-        if (w > 0f && abs(x) <= 1f && abs(y) <= 1f) {
-            val radius = (28f / w).coerceIn(9f, 40f) * density
-            val sx = (x + 1f) / 2f * width
-            val sy = (1f - y) / 2f * height
-            canvas.drawCircle(sx, sy, radius, fill)
-            canvas.drawCircle(sx, sy, radius * 1.7f, ring)
-            return
-        }
-        // 後ろにあるときは投影が反転するので、向きを戻す
-        val sign = if (w > 0f) 1f else -1f
-        val dx = x * sign * width
-        val dy = -y * sign * height
-        val inset = 44 * density
-        val halfW = width / 2f - inset
-        val halfH = height / 2f - TOP_INSET_DP * density
-        val k = min(halfW / max(abs(dx), 1f), halfH / max(abs(dy), 1f))
-        canvas.save()
-        canvas.translate(width / 2f + dx * k, height / 2f + dy * k)
-        canvas.rotate(Math.toDegrees(atan2(dy, dx).toDouble()).toFloat())
-        val s = 26 * density
-        arrow.reset(); arrow.moveTo(s, 0f); arrow.lineTo(-s * 0.6f, s * 0.7f); arrow.lineTo(-s * 0.6f, -s * 0.7f); arrow.close()
-        canvas.drawPath(arrow, fill)
-        canvas.restore()
-    }
-
-    private companion object {
-        const val TOP_INSET_DP = 110
     }
 }

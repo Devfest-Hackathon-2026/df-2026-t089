@@ -18,6 +18,9 @@ internal class StoreModelRenderer {
     private val pointPosition = GLES20.glGetAttribLocation(pointProgram, "a_Position")
     private val pointMvp = GLES20.glGetUniformLocation(pointProgram, "u_Mvp")
     private val pointColor = GLES20.glGetUniformLocation(pointProgram, "u_Color")
+    private val pointSize = GLES20.glGetUniformLocation(pointProgram, "u_Size")
+    private val circleLines = GlUtil.floatBuffer(CIRCLE_LINES)
+    private val uprightLine = GlUtil.floatBuffer(UPRIGHT_LINE)
     private val pointBuffer = GlUtil.floatBuffer(FloatArray(ShelfMap.MAX_ITEMS * 3))
     private val viewProjection = FloatArray(16)
     private val model = FloatArray(16)
@@ -28,18 +31,7 @@ internal class StoreModelRenderer {
      * @return 画面に重ねる文字（棚のジャンルが先、商品名は見えた回数の多い順）
      */
     fun draw(view: StoreView?, orbit: OrbitCamera, width: Int, height: Int, phone: FloatArray?, floorY: Float, items: List<MapItem>): List<ScreenLabel> {
-        GLES20.glClearColor(0.08f, 0.09f, 0.11f, 1f)
-        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
-        GLES20.glDisable(GLES20.GL_DEPTH_TEST)   // 線画なので隠れる面がない
-        val projection = FloatArray(16)
-        val lookAt = FloatArray(16)
-        Matrix.perspectiveM(projection, 0, 50f, width.toFloat() / height.coerceAtLeast(1), 0.1f, 200f)
-        val e = orbit.eye(); val c = orbit.center()
-        Matrix.setLookAtM(lookAt, 0, e.x, e.y, e.z, c.x, c.y, c.z, 0f, 1f, 0f)
-        Matrix.multiplyMM(viewProjection, 0, projection, 0, lookAt, 0)
-        GLES20.glUseProgram(program)
-        GLES20.glLineWidth(LINE_WIDTH)
-        GLES20.glEnableVertexAttribArray(position)
+        val e = begin(orbit, width, height, 50f)
         useLines(boxLines)
         if (view?.room != null) {
             val r = view.room
@@ -59,6 +51,65 @@ internal class StoreModelRenderer {
         return labels(view, items, e, floorY, width, height)
     }
 
+    /** 立体音響のテスト: 正面（-z）を向いて立つ人の線画と、その人から見た音源の位置を描く。 */
+    fun drawDemo(orbit: OrbitCamera, width: Int, height: Int, listener: Listener, source: Vec3, sounding: Boolean) {
+        begin(orbit, width, height, DEMO_FOV_DEG)
+        useLines(circleLines)
+        for (r in 1..4) {
+            Matrix.setIdentityM(model, 0)
+            Matrix.scaleM(model, 0, r.toFloat(), 1f, r.toFloat())
+            drawLines(FLOOR, CIRCLE_LINES)
+        }
+        // 頭は 3 方向の輪で球に見せる
+        for ((angle, x, z) in listOf(Triple(0f, 1f, 0f), Triple(90f, 1f, 0f), Triple(90f, 0f, 1f))) {
+            Matrix.setIdentityM(model, 0)
+            Matrix.translateM(model, 0, 0f, HEAD_Y, 0f)
+            if (angle != 0f) Matrix.rotateM(model, 0, angle, x, 0f, z)
+            Matrix.scaleM(model, 0, HEAD_R, HEAD_R, HEAD_R)
+            drawLines(ME, CIRCLE_LINES)
+        }
+        useLines(boxLines)
+        for (p in BODY) {
+            Matrix.setIdentityM(model, 0)
+            Matrix.translateM(model, 0, p[0], p[1], p[2])
+            Matrix.scaleM(model, 0, p[3], p[4], p[5])
+            drawLines(ME, BOX_LINES)
+        }
+        val az = Binaural.azimuth(listener, source)
+        val horizontal = Binaural.horizontalDistance(listener, source)
+        val x = horizontal * Math.sin(az.toDouble()).toFloat()
+        val y = HEAD_Y + source.y - listener.position.y
+        val z = -horizontal * Math.cos(az.toDouble()).toFloat()
+        val col = if (sounding) POINT else MOVING
+        useLines(uprightLine)
+        Matrix.setIdentityM(model, 0)
+        Matrix.translateM(model, 0, x, 0f, z)
+        Matrix.scaleM(model, 0, 1f, y, 1f)
+        drawLines(col, UPRIGHT_LINE)   // 床からの線で高さを見せる
+        GLES20.glDisableVertexAttribArray(position)
+        pointBuffer.clear()
+        pointBuffer.put(x).put(y).put(z)
+        pointBuffer.position(0)
+        drawPointBuffer(1, col, SOURCE_SIZE)
+    }
+
+    /** 画面を消して線の描画を始める。@return 視点の位置 */
+    private fun begin(orbit: OrbitCamera, width: Int, height: Int, fovDeg: Float): Vec3 {
+        GLES20.glClearColor(0.08f, 0.09f, 0.11f, 1f)
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
+        GLES20.glDisable(GLES20.GL_DEPTH_TEST)   // 線画なので隠れる面がない
+        val projection = FloatArray(16)
+        val lookAt = FloatArray(16)
+        Matrix.perspectiveM(projection, 0, fovDeg, width.toFloat() / height.coerceAtLeast(1), 0.1f, 200f)
+        val e = orbit.eye(); val c = orbit.center()
+        Matrix.setLookAtM(lookAt, 0, e.x, e.y, e.z, c.x, c.y, c.z, 0f, 1f, 0f)
+        Matrix.multiplyMM(viewProjection, 0, projection, 0, lookAt, 0)
+        GLES20.glUseProgram(program)
+        GLES20.glLineWidth(LINE_WIDTH)
+        GLES20.glEnableVertexAttribArray(position)
+        return e
+    }
+
     private fun useLines(lines: java.nio.FloatBuffer) {
         lines.position(0)
         GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 0, lines)
@@ -70,9 +121,14 @@ internal class StoreModelRenderer {
         pointBuffer.clear()
         for (i in 0 until n) items[i].position.let { pointBuffer.put(it.x).put(it.y).put(it.z) }
         pointBuffer.position(0)
+        drawPointBuffer(n, POINT, POINT_SIZE)
+    }
+
+    private fun drawPointBuffer(n: Int, col: FloatArray, size: Float) {
         GLES20.glUseProgram(pointProgram)
         GLES20.glUniformMatrix4fv(pointMvp, 1, false, viewProjection, 0)
-        GLES20.glUniform3fv(pointColor, 1, POINT, 0)
+        GLES20.glUniform3fv(pointColor, 1, col, 0)
+        GLES20.glUniform1f(pointSize, size)
         GLES20.glEnableVertexAttribArray(pointPosition)
         GLES20.glVertexAttribPointer(pointPosition, 3, GLES20.GL_FLOAT, false, 0, pointBuffer)
         GLES20.glDrawArrays(GLES20.GL_POINTS, 0, n)
@@ -153,6 +209,35 @@ internal class StoreModelRenderer {
         const val PHONE_D = 0.04f
         const val ARROW_LENGTH_M = 1f
         const val ARROW_HEAD_M = 0.18f
+        val MOVING = rgb(0xaeb4bd)
+        const val SOURCE_SIZE = 44f
+        /** 縦長の画面でも左右の音源が入るよう、店のモデルより広く写す。 */
+        const val DEMO_FOV_DEG = 70f
+        const val HEAD_Y = 1.6f
+        const val HEAD_R = 0.12f
+
+        /** 人の体の箱（中心 x, y, z、大きさ x, y, z）。胴・両腕・両脚と、正面が分かる鼻。正面は -z。 */
+        val BODY = listOf(
+            floatArrayOf(0f, 1.18f, 0f, 0.42f, 0.62f, 0.22f),
+            floatArrayOf(-0.3f, 1.16f, 0f, 0.1f, 0.62f, 0.12f),
+            floatArrayOf(0.3f, 1.16f, 0f, 0.1f, 0.62f, 0.12f),
+            floatArrayOf(-0.11f, 0.43f, 0f, 0.15f, 0.86f, 0.16f),
+            floatArrayOf(0.11f, 0.43f, 0f, 0.15f, 0.86f, 0.16f),
+            floatArrayOf(0f, 1.6f, -0.15f, 0.04f, 0.05f, 0.08f),
+        )
+
+        /** 半径 1 で y = 0 の水平な円。 */
+        val CIRCLE_LINES: FloatArray = run {
+            val v = ArrayList<Float>()
+            val n = 48
+            for (i in 0 until n) for (k in listOf(i, i + 1)) {
+                val a = 2 * Math.PI * k / n
+                v += listOf(Math.cos(a).toFloat(), 0f, Math.sin(a).toFloat())
+            }
+            v.toFloatArray()
+        }
+
+        val UPRIGHT_LINE = floatArrayOf(0f, 0f, 0f, 0f, 1f, 0f)
 
         /** 中心が原点の単位立方体の 12 本の辺（x, y, z）。 */
         val BOX_LINES: FloatArray = run {
@@ -196,10 +281,11 @@ internal class StoreModelRenderer {
         """
         const val POINT_VERTEX = """
             uniform mat4 u_Mvp;
+            uniform float u_Size;
             attribute vec3 a_Position;
             void main() {
                 gl_Position = u_Mvp * vec4(a_Position, 1.0);
-                gl_PointSize = 12.0;
+                gl_PointSize = u_Size;
             }
         """
         const val POINT_FRAGMENT = """
