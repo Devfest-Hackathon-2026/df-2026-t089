@@ -12,7 +12,7 @@ import argparse, json, re, subprocess, sys, time
 from math import atan2, cos, degrees, floor, hypot, radians, sin, sqrt
 
 from common import ROOT, WORK, read_json, write_json
-from store_model import StoreModel, text as store_text
+from store_model import StoreModel, glass_restored, text as store_text
 
 RECORDINGS = WORK / "recordings"
 REMOTE = "/sdcard/Android/data/jp.devfest.shelfsight/files/recordings"
@@ -28,7 +28,7 @@ FRONT_DEG, FRONT_M, ITEMS_ONLY_DEG, ITEMS_ONLY_M = 35.0, 2.2, 20.0, 1.5
 KINDS_PER_BAND, UPPER_M, LOWER_M = 3, 1.25, 0.75
 MIN_PRODUCTS, OUTLIER_SHARE = 3, 0.25
 MAX_MAP_LINES, MAX_ITEM_LINES, MAX_LOOKED_LINES = 30, 60, 10
-KIND_NAMES = {"island": "島の棚", "wall": "壁ぎわの棚", "case": "冷蔵・冷凍ケース", "end": "島の端の棚", "register": "レジ"}
+KIND_NAMES = {"glass": "ガラスのケース", "island": "島の棚", "wall": "壁ぎわの棚", "case": "冷蔵・冷凍ケース", "end": "島の端の棚", "register": "レジ"}
 
 
 def spoken_table():
@@ -463,6 +463,7 @@ def replay(name, detector="app", hz=1.0, recognize=None):
             chosen.append(k)
             nxt = k["t"] + step_ns * 0.95
     model, shelf, planes, ppos = StoreModel(), ShelfMap(), {}, 0
+    observed = []   # (カメラ x, z, 点 x, z)。ガラス越しの点を戻して図に出す
     view, last_est, steps, last_spoken = None, None, [], ""
     stats = {"frames": 0, "tracked": 0, "boxes": 0, "named": 0, "with_depth": 0, "placed": 0, "ms": 0.0}
     for si, k in enumerate(chosen):
@@ -513,10 +514,12 @@ def replay(name, detector="app", hz=1.0, recognize=None):
                     w, h = size_in_meters(b[2] - b[0], b[3] - b[1], dist3(pos, cam), g)
                     shelf.add(det["name"], det["genre"], det["fine"], pos, w, h, now_ms)
                     model.add_product(cam[0], cam[2], pos[0], pos[2], det["name"], det["genre"] or "")
+                    observed.append((cam[0], cam[2], pos[0], pos[2]))
                     stats["placed"] += 1
             elif depth is not None and depth <= RANGE_M:
                 p = world_at(cu, cv, depth, g)
                 model.add_product(cam[0], cam[2], p[0], p[2], "", "")
+                observed.append((cam[0], cam[2], p[0], p[2]))
             out.append([*[round(float(v), 4) for v in b], round(float(det["score"]), 3), det["name"], round(float(det["sim"]), 3), None if depth is None else round(depth, 2), pos is not None])
         for c in counters:
             model.add_counter(c[0], c[2])
@@ -548,7 +551,8 @@ def replay(name, detector="app", hz=1.0, recognize=None):
     audio_offset = max(0.0, (keyframes[0].get("wall_ms", 0) - meta.get("audio_start_ms", 0)) / 1000) if meta.get("audio_start_ms") and keyframes[0].get("wall_ms") else 0.0
     result = {"name": name, "detector": detector, "hz": hz, "meta": meta, "has_audio": (d / "audio.pcm").exists(), "audio_offset": audio_offset,
               "summary": summary, "steps": steps, "events": timed,
-              "text": store_text(view), "final_model": light_model(view)}
+              "text": store_text(view), "final_model": light_model(view),
+              "glass_points": [[round(x, 3), round(z, 3), round(r[0], 3), round(r[1], 3)] for cx, cz, x, z in observed if (r := glass_restored(view, cx, cz, x, z))]}
     write_json(d / f"replay_{detector}.json", result)
     set_status(state="done", job="replay", msg=f"{name} ({detector}) を再生しました", done=len(chosen), total=len(chosen))
     return result

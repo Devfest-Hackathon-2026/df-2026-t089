@@ -1,7 +1,7 @@
 // 記録の再生（products/replay.html）。端末で記録したデータに、アプリと同じ認識と案内を動かした結果を時間に沿って見る
 const R = { list:[], name:"", detector:"app", hz:1, data:null, i:0, timer:null, depth:false, img:new Image(), job:false };
-const KIND = { island:"#3987e5", wall:"#d95926", case:"#199e70", end:"#c98500", register:"#d55181" };
-const KIND_NAME = { island:"島ゴンドラ", wall:"壁面ゴンドラ", case:"冷蔵・冷凍ケース", end:"エンド什器", register:"レジ" };
+const KIND = { glass:"#2bb7ad", island:"#3987e5", wall:"#d95926", case:"#199e70", end:"#c98500", register:"#d55181" };
+const KIND_NAME = { glass:"ガラスのケース", island:"島ゴンドラ", wall:"壁面ゴンドラ", case:"冷蔵・冷凍ケース", end:"エンド什器", register:"レジ" };
 const EVENT_NAME = { tap:"タップ", double_tap:"ダブルタップ", long_press:"長押し", speech:"聞き取り" };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
@@ -157,12 +157,19 @@ function planDraw() {
   const xs = [], zs = [];
   for (const s of steps) { xs.push(s.cam[0]); zs.push(s.cam[2]); }
   for (const f of R.data.final_model) for (const p of f.c) { xs.push(p[0]); zs.push(p[1]); }
+  for (const p of R.data.glass_points || []) { xs.push(p[0]); zs.push(p[1]); }
   if (!xs.length) return;
   const x0 = Math.min(...xs) - 1, x1 = Math.max(...xs) + 1, z0 = Math.min(...zs) - 1, z1 = Math.max(...zs) + 1, k = Math.min(c.width / (x1 - x0), c.height / (z1 - z0));
   const X = (x) => (x - x0) * k, Z = (z) => (z - z0) * k;
   for (const f of lastModel()) {
     g.beginPath(); f.c.forEach((p, i) => i ? g.lineTo(X(p[0]), Z(p[1])) : g.moveTo(X(p[0]), Z(p[1]))); g.closePath();
     g.fillStyle = KIND[f.kind]; g.globalAlpha = 0.8; g.fill(); g.globalAlpha = 1;
+  }
+  g.strokeStyle = "#ff8c00"; g.lineWidth = 0.5;   // ガラス越しの元の点（薄いオレンジ）と、ガラス面へ戻した点
+  for (const [x, z, rx, rz] of R.data.glass_points || []) {
+    g.beginPath(); g.moveTo(X(x), Z(z)); g.lineTo(X(rx), Z(rz)); g.stroke();
+    g.fillStyle = "#ffd9a8"; g.beginPath(); g.arc(X(x), Z(z), 2, 0, 7); g.fill();
+    g.fillStyle = "#c2410c"; g.beginPath(); g.arc(X(rx), Z(rz), 2, 0, 7); g.fill();
   }
   g.strokeStyle = css("--fg"); g.lineWidth = 2; g.beginPath();
   R.data.steps.slice(0, R.i + 1).filter(s => s.cam).forEach((s, i) => i ? g.lineTo(X(s.cam[0]), Z(s.cam[2])) : g.moveTo(X(s.cam[0]), Z(s.cam[2]))); g.stroke();
