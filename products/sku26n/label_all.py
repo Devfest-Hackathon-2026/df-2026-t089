@@ -79,6 +79,15 @@ def label_image(item, conf):
     return rows, usage
 
 
+def write_dashboard(rows):
+    """比較タブの Gemini の列: {画像名: [[x0, y0, x1, y1, 検出信頼度, カテゴリ, 要確認, 社名, 商品名], ...]}"""
+    codes = {"unsure": "UNS", "multiple": "MLT", "not_product": "NP"}
+    images: dict[str, list] = {}
+    for r in sorted(rows, key=lambda r: (r["image"], r["box"])):
+        images.setdefault(r["image"], []).append(r["xyxy"] + [r["det_conf"], r["cat"] if r["status"] == "ok" else codes[r["status"]], False, r.get("maker", ""), r.get("product", "")])
+    (WORK / "pred_gemini.json").write_text(json.dumps({"images": images}, ensure_ascii=False), encoding="utf-8")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--boxes", type=int, default=200, help="画像を丸ごと、枠がこの数を超えるまで。0 は全部")
@@ -121,6 +130,8 @@ def main():
             if n % 25 == 0 or n == len(images):
                 print(f"{n}/{len(images)} 画像", flush=True)
     a.out.write_text(json.dumps({"rows": rows}, ensure_ascii=False), encoding="utf-8")
+    if not a.boxes and not a.images:  # 全件のときだけ、比較タブの Gemini の列を置き換える
+        write_dashboard(rows)
     print(f"枠 {len(rows)} 個, 入力 {usage['in']} / 出力 {usage['out']} トークン, 約 ${usage['in'] / 1e6 * 0.5 + usage['out'] / 1e6 * 3:.3f}", flush=True)
 
 
