@@ -21,7 +21,7 @@ SELECTED = WORK / "selected_crops.json"
 SELECTED_DB = WORK / "selected_db.json"
 VERIFY = WORK / "verify_all.json"
 TAXONOMY = HERE.parent / "konbinidb" / "taxonomy.json"
-METHODS = ["trained", "b", "b_lr1e3", "c", "gemini"]
+METHODS = ["m1_gem", "clip_gem", "trained", "b", "b_lr1e3", "c", "gemini"]
 AUG = DB_IMAGES.parent / "train_aug"  # コンビニDB を店内の切り抜きに似せた学習データ（konbinidb/make_train.py）
 
 
