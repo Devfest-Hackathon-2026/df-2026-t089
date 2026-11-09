@@ -357,7 +357,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             val now = SystemClock.elapsedRealtime()
             val boxes = recognizer.detect(image).map { it.first }
             val detectMs = SystemClock.elapsedRealtime() - now
-            debug.productBoxes = boxes  // 名前付けに 30 秒ほどかかるので、枠は先に出す
+            debug.productBoxes = boxes  // 名前付けに数秒かかるので、枠は先に出す
             debug.sceneAt = SystemClock.elapsedRealtime()
             val switched = judge.update(SceneEvidence(0, boxes))
             val products = recognizer.recognize(image, boxes)
@@ -385,7 +385,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                 approachSeenAt = now
                 if (approachFrom == null) approachFrom = camera
             }
-        } catch (e: RuntimeException) {
+        } catch (e: Exception) {
             Log.e(TAG, "scene analysis failed", e)
         } finally {
             image.recycle()
@@ -439,7 +439,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                 Focus.SHELF, Focus.STEP_BACK -> voice.say("商品を一つだけ、カメラに近づけて、もう一度2回たたいてください。")
                 Focus.NOTHING -> voice.say("商品が見えません。商品の方にスマホを向けてください。")
             }
-        } catch (e: RuntimeException) {
+        } catch (e: Exception) {
             Log.e(TAG, "product tap failed", e)
             voice.say("調べられませんでした。")
         } finally {
