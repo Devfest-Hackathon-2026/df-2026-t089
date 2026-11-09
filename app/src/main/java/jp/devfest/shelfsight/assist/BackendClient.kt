@@ -15,19 +15,13 @@ internal class BackendClient(
     private val transport: HttpTransport = UrlConnectionTransport,
     private val warn: (String) -> Unit = { Log.w(TAG, it) },
 ) {
-    class Solved(val view: StoreView, val model: JSONObject)
     class SavedMap(val name: String, val view: StoreView?)
 
     val configured: Boolean get() = baseUrl.isNotEmpty() && apiKey.isNotEmpty()
 
-    /** @param body [StoreModel.requestBody] の JSON */
-    fun solve(body: String): Solved? = post("/v1/solve", body)?.let { r ->
-        val model = r.getJSONObject("model")
-        Solved(parseView(model), model)
-    }
-
-    fun save(lat: Double, lng: Double, model: JSONObject): Boolean =
-        post("/v1/maps", location(lat, lng).put("model", model).toString())?.optBoolean("saved") == true
+    /** 観測を送る。サーバが OR-Tools で解いて店の地図として保存する。@param body [StoreModel.requestBody] の JSON */
+    fun upload(lat: Double, lng: Double, body: String): Boolean =
+        post("/v1/maps", JSONObject(body).put("lat", lat).put("lng", lng).toString())?.optBoolean("saved") == true
 
     fun lookup(lat: Double, lng: Double): SavedMap? = post("/v1/maps/lookup", location(lat, lng).toString())?.let { r ->
         SavedMap(r.getString("name"), if (r.isNull("model")) null else parseView(r.getJSONObject("model")))

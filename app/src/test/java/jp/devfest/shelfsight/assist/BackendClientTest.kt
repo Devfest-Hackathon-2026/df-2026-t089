@@ -19,22 +19,22 @@ class BackendClientTest {
             HttpResult(code, body)
         }, {})
 
-    @Test fun `a solved model becomes a store view`() {
-        val solved = client(200, """{"model":$model,"text":"","solver":["OPTIMAL"]}""").solve("{}")!!
-        val f = solved.view.fixtures.single()
-        assertEquals(0.5, solved.view.yaw, 1e-9)
+    @Test fun `a saved model becomes a store view`() {
+        val view = client(200, """{"name":"店","model":$model}""").lookup(35.0, 139.0)!!.view!!
+        val f = view.fixtures.single()
+        assertEquals(0.5, view.yaw, 1e-9)
         assertEquals(listOf(0.9, 1.2), f.moduleWidths)
         assertEquals("お茶" to 0.8, f.faces.getValue("+")[0][0])
         assertEquals(listOf("お茶・水", null), f.themes["+"])
     }
 
-    @Test fun `saving sends the location and the model to the right address`() {
+    @Test fun `uploading sends the location and the observations to the right address`() {
         val sent = ArrayList<String>()
-        assertTrue(client(200, """{"saved":true}""", sent).save(35.0, 139.0, JSONObject(model)))
+        assertTrue(client(200, """{"saved":true}""", sent).upload(35.0, 139.0, """{"path":[[0,1]],"observations":[]}"""))
         assertEquals("http://server/v1/maps", sent[0])
         val body = JSONObject(sent[1])
         assertEquals(35.0, body.getDouble("lat"), 1e-9)
-        assertEquals(1, body.getJSONObject("model").getJSONArray("fixtures").length())
+        assertEquals(1, body.getJSONArray("path").length())
     }
 
     @Test fun `a store without a saved map has a name and no view`() {
@@ -44,6 +44,6 @@ class BackendClientTest {
     }
 
     @Test fun `server errors give null`() {
-        assertNull(client(500, "oops").solve("{}"))
+        assertNull(client(500, "oops").lookup(35.0, 139.0))
     }
 }

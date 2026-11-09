@@ -136,9 +136,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private val backend = BackendClient(BuildConfig.BACKEND_URL, BuildConfig.BACKEND_API_KEY)
     private val backendWorker = Executors.newSingleThreadExecutor()
     private val backendBusy = AtomicBoolean(false)
-    private var lastBackendSolve = 0L
-    /** OR-Tools で解いた最新の店。あれば端末での推定より優先する。 */
-    @Volatile private var solvedView: StoreView? = null
+    private var lastBackendUpload = 0L
     /** この店の、前回までに保存された地図。 */
     @Volatile private var savedView: StoreView? = null
     @Volatile private var location: android.location.Location? = null
@@ -886,19 +884,16 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         for (c in counters) storeModel.addCounter(c.x.toDouble(), c.z.toDouble())
         if (now - lastStoreEstimate < STORE_ESTIMATE_MS) return
         lastStoreEstimate = now
-        val local = storeModel.estimate()
-        val view = solvedView ?: local
+        val view = storeModel.estimate()
         storeView = view
-        if (backend.configured && now - lastBackendSolve >= BACKEND_SOLVE_MS && backendBusy.compareAndSet(false, true)) {
-            lastBackendSolve = now
+        val at = location
+        // 録画の再生は今の GPS の店の地図ではないので送らない
+        if (backend.configured && at != null && playback == null && now - lastBackendUpload >= BACKEND_UPLOAD_MS && backendBusy.compareAndSet(false, true)) {
+            lastBackendUpload = now
             val body = storeModel.requestBody()
             backendWorker.execute {
                 try {
-                    backend.solve(body)?.let { solved ->
-                        solvedView = solved.view
-                        // 録画の再生は今の GPS の店の地図ではないので保存しない
-                        if (playback == null) location?.let { backend.save(it.latitude, it.longitude, solved.model) }
-                    }
+                    backend.upload(at.latitude, at.longitude, body)
                 } finally {
                     backendBusy.set(false)
                 }
@@ -1053,7 +1048,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         const val STORE_ESTIMATE_MS = 3000L
         const val RECORD_LABEL = "● 記録"
         const val DEMO_TICK_MS = 50L
-        const val BACKEND_SOLVE_MS = 15_000L
+        const val BACKEND_UPLOAD_MS = 60_000L   // 送るたびに店の検索（Places API）と OR-Tools が 1 回ずつ動く
         /** 256px の切り抜きは 1 枚 262 KB なので、判定待ちは 60 MB ほどで頭打ちにする。 */
         const val MAX_PENDING_CROPS = 240
         const val IDENTIFY_IDLE_MS = 30L
