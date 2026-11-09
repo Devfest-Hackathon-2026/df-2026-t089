@@ -34,10 +34,34 @@
   #zoom img { display:block; max-width:100vw; max-height:100vh; }
   #zoom canvas { position:absolute; inset:0; width:100%; height:100%; }
   #ztitle { position:fixed; top:8px; left:12px; z-index:11; color:#fff; background:rgba(0,0,0,.6); padding:2px 10px; border-radius:4px; }
+  .tabs { display:flex; gap:4px; padding:8px 16px 0; }
+  .tabs button { border-radius:6px 6px 0 0; border-bottom:none; padding:6px 18px; }
+  .tabs button.on { background:var(--box); color:#06210f; font-weight:600; border-color:var(--box); }
+  .tools { position:sticky; top:var(--h,44px); z-index:4; display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; padding:10px 16px; background:var(--panel); border-bottom:1px solid var(--line); }
+  .tools input[type=search], .tools select { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:4px 8px; font:inherit; }
+  .tools .count { font-variant-numeric:tabular-nums; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(132px,1fr)); gap:8px; padding:12px 16px 24px; }
+  .card { position:relative; background:var(--panel); border:3px solid transparent; border-radius:6px; padding:4px; overflow:hidden; }
+  .card.pick { cursor:pointer; }
+  .card.on { border-color:var(--box); }
+  .card.on::after { content:"✓"; position:absolute; top:2px; right:6px; color:#06210f; background:var(--box); border-radius:50%; width:22px; line-height:22px; text-align:center; font-weight:700; }
+  .card .ph { height:130px; display:flex; align-items:center; justify-content:center; }
+  .card .ph img { max-width:100%; max-height:130px; display:block; }
+  .card .none { color:var(--muted); font-size:12px; }
+  .card .t { font-size:12px; line-height:1.35; height:3.1em; overflow:hidden; margin-top:4px; }
+  .card .c { color:var(--muted); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  h2 { font-size:15px; margin:0; }
+  [hidden] { display:none !important; }
 </style>
 </head>
 <body>
-<header>
+<header id="top">
+  <nav class="tabs">
+    <button data-tab="compare">比較</button>
+    <button data-tab="select">教師データの選択</button>
+    <button data-tab="train">教師データ</button>
+  </nav>
+  <div id="compareHead">
   <div class="bar">
     <h1>商品認識の比較</h1>
     <span id="stats">読み込み中…</span>
@@ -46,8 +70,43 @@
   </div>
   <div id="notice" hidden></div>
   <div class="heads" id="heads"></div>
+  </div>
 </header>
-<main class="grid" id="grid"></main>
+<section id="tab-compare"><main class="grid" id="grid"></main></section>
+
+<section id="tab-select" hidden>
+  <div class="tools">
+    <input id="sQ" type="search" placeholder="商品名で絞り込み">
+    <select id="sCat"><option value="">すべてのカテゴリ</option></select>
+    <select id="sShow"><option value="all">すべて</option><option value="off">未選択だけ</option><option value="on">選択済みだけ</option></select>
+    <button id="sAll">このページを全部選ぶ</button>
+    <button id="sNone">このページを全部外す</button>
+    <span class="count" id="sCount"></span>
+    <div class="pager"><button id="sPrev">前へ</button><span id="sPage"></span><button id="sNext">次へ</button></div>
+  </div>
+  <div class="cards" id="sCards"></div>
+</section>
+
+<section id="tab-train" hidden>
+  <div class="tools">
+    <h2>コンビニDB</h2>
+    <input id="dQ" type="search" placeholder="商品名で絞り込み">
+    <select id="dCat"><option value="">すべてのカテゴリ</option><option value="-">対象外</option></select>
+    <select id="dChain"><option value="">すべてのチェーン</option></select>
+    <label><input id="dImg" type="checkbox"> 画像があるものだけ</label>
+    <span class="count" id="dCount"></span>
+    <div class="pager"><button id="dPrev">前へ</button><span id="dPage"></span><button id="dNext">次へ</button></div>
+  </div>
+  <div class="cards" id="dCards"></div>
+  <div class="tools">
+    <h2>選択した教師データ</h2>
+    <input id="tQ" type="search" placeholder="商品名で絞り込み">
+    <span class="count" id="tCount"></span>
+    <span class="count" style="color:var(--muted)">クリックで選択を外します</span>
+    <div class="pager"><button id="tPrev">前へ</button><span id="tPage"></span><button id="tNext">次へ</button></div>
+  </div>
+  <div class="cards" id="tCards"></div>
+</section>
 <div id="zoom"><div><img alt=""><canvas></canvas></div></div>
 <div id="ztitle" hidden></div>
 
@@ -157,6 +216,121 @@ $("#heads").innerHTML = `<div>1. 店内画像<small>元の写真</small></div>` 
   S = await (await fetch("/api/state")).json();
   if (!S.weights) { const n = $("#notice"); n.hidden = false; n.textContent = "まだ切り出しを実行していません。products/sku26n/detect.py を実行すると緑の枠が表示されます。"; }
   stats(); render();
+})();
+
+// ------------------------------------------------------------ タブ
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+const SEL_PER_PAGE = 200, DB_PER_PAGE = 100, TRAIN_PER_PAGE = 100;
+let crops = null, selected = new Set(), db = null;
+const sel = { page:0 }, dbs = { page:0 }, tr = { page:0 };
+
+async function showTab(name) {
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === name));
+  for (const t of ["compare", "select", "train"]) $("#tab-" + t).hidden = t !== name;
+  $("#compareHead").hidden = name !== "compare";
+  document.documentElement.style.setProperty("--h", $("#top").offsetHeight + "px");
+  location.hash = name;
+  scrollTo(0, 0);
+  if (name === "compare") visible.forEach(redraw);
+  if (name === "select") { await loadCrops(); renderSelect(); }
+  if (name === "train") { await loadCrops(); await loadDb(); renderDb(); renderTrain(); }
+}
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
+
+async function loadCrops() {
+  if (crops) return;
+  const d = await (await fetch("/api/crops")).json();
+  crops = d.crops; selected = new Set(d.selected);
+  const cats = [...new Set(crops.map(r => r[2]))].sort();
+  $("#sCat").insertAdjacentHTML("beforeend", cats.map(c => `<option>${esc(c)}</option>`).join(""));
+}
+
+async function loadDb() {
+  db = await (await fetch("/api/konbinidb")).json();
+  if ($("#dChain").options.length > 1) return;
+  const chains = [...new Set(db.items.map(r => r[2]).filter(Boolean))].sort();
+  $("#dChain").insertAdjacentHTML("beforeend", chains.map(c => `<option>${esc(c)}</option>`).join(""));
+  $("#dCat").insertAdjacentHTML("beforeend", Object.entries(S.cats).filter(([k]) => k !== "NP").map(([k, v]) => `<option value="${k}">${k} ${esc(v)}</option>`).join(""));
+}
+
+function pager(prefix, state, n, per) {
+  const last = Math.max(0, Math.ceil(n / per) - 1);
+  state.page = Math.min(state.page, last);
+  $(`#${prefix}Page`).textContent = `${state.page + 1} / ${last + 1}`;
+  $(`#${prefix}Prev`).disabled = state.page === 0;
+  $(`#${prefix}Next`).disabled = state.page === last;
+}
+
+async function setSelected(ids, on) {
+  const before = new Set(selected);
+  ids.forEach(id => on ? selected.add(id) : selected.delete(id));
+  const r = await fetch("/api/select", { method:"POST", body:JSON.stringify({ ids, on }) });
+  if (!r.ok) { selected = before; alert("保存できませんでした"); renderSelect(); }
+}
+
+function cropCard(r, cls) {
+  return `<div class="card pick ${cls}" data-id="${esc(r[0])}"><div class="ph"><img loading="lazy" src="/crop/${encodeURIComponent(r[0])}.jpg" alt=""></div>` +
+    `<div class="t" title="${esc(r[1])}">${esc(r[1])}</div><div class="c">${esc(r[2])}</div></div>`;
+}
+
+let selRows = [];
+function renderSelect() {
+  const q = $("#sQ").value.trim(), cat = $("#sCat").value, show = $("#sShow").value;
+  const all = crops.filter(r => (!q || r[1].includes(q)) && (!cat || r[2] === cat) && (show === "all" || selected.has(r[0]) === (show === "on")));
+  pager("s", sel, all.length, SEL_PER_PAGE);
+  selRows = all.slice(sel.page * SEL_PER_PAGE, (sel.page + 1) * SEL_PER_PAGE);
+  $("#sCount").textContent = `${all.length.toLocaleString()} 個を表示 / 選択済み ${selected.size.toLocaleString()} 個`;
+  $("#sCards").innerHTML = selRows.map(r => cropCard(r, selected.has(r[0]) ? "on" : "")).join("");
+}
+
+$("#sCards").onclick = e => {
+  const c = e.target.closest(".card"); if (!c) return;
+  const on = !selected.has(c.dataset.id);
+  c.classList.toggle("on", on);
+  setSelected([c.dataset.id], on);
+  $("#sCount").textContent = $("#sCount").textContent.replace(/選択済み [\d,]+ 個/, `選択済み ${selected.size.toLocaleString()} 個`);
+};
+const pageAll = on => { setSelected(selRows.map(r => r[0]), on); renderSelect(); };
+$("#sAll").onclick = () => pageAll(true);
+$("#sNone").onclick = () => pageAll(false);
+
+function renderDb() {
+  const q = $("#dQ").value.trim(), cat = $("#dCat").value, chain = $("#dChain").value, img = $("#dImg").checked;
+  const all = db.items.filter(r => (!q || r[1].includes(q)) && (!cat || (cat === "-" ? !r[3] : r[3] === cat)) && (!chain || r[2] === chain) && (!img || r[5]));
+  pager("d", dbs, all.length, DB_PER_PAGE);
+  $("#dCount").textContent = `${all.length.toLocaleString()} 件（全 ${db.items.length.toLocaleString()} 件、画像 ${db.images.toLocaleString()} 枚）`;
+  $("#dCards").innerHTML = all.slice(dbs.page * DB_PER_PAGE, (dbs.page + 1) * DB_PER_PAGE).map(r =>
+    `<div class="card"><div class="ph">${r[5] ? `<img loading="lazy" src="/db/${r[0]}.webp" alt="">` : '<span class="none">画像未取得</span>'}</div>` +
+    `<div class="t" title="${esc(r[1])}">${esc(r[1])}</div><div class="c">${esc(r[3] ? S.cats[r[3]] : "対象外")}・${esc(r[2] || "ナチュラルローソン")}</div></div>`).join("");
+}
+
+function renderTrain() {
+  const q = $("#tQ").value.trim();
+  const all = crops.filter(r => selected.has(r[0]) && (!q || r[1].includes(q)));
+  pager("t", tr, all.length, TRAIN_PER_PAGE);
+  $("#tCount").textContent = `${all.length.toLocaleString()} 個`;
+  $("#tCards").innerHTML = all.length ? all.slice(tr.page * TRAIN_PER_PAGE, (tr.page + 1) * TRAIN_PER_PAGE).map(r => cropCard(r, "on")).join("")
+    : '<span class="none">まだ選択されていません。「教師データの選択」タブで選んでください。</span>';
+}
+
+$("#tCards").onclick = async e => {
+  const c = e.target.closest(".card"); if (!c) return;
+  await setSelected([c.dataset.id], false);
+  renderTrain();
+};
+
+const bind = (ids, state, render) => ids.forEach(id => $(id).oninput = () => { state.page = 0; render(); });
+bind(["#sQ", "#sCat", "#sShow"], sel, renderSelect);
+bind(["#dQ", "#dCat", "#dChain", "#dImg"], dbs, renderDb);
+bind(["#tQ"], tr, renderTrain);
+for (const [p, state, render] of [["s", sel, renderSelect], ["d", dbs, renderDb], ["t", tr, renderTrain]]) {
+  $(`#${p}Prev`).onclick = () => { state.page--; render(); };
+  $(`#${p}Next`).onclick = () => { state.page++; render(); };
+}
+
+(function waitForState() {  // カテゴリ名（S.cats）が読めてからタブを開く
+  if (S) showTab(["select", "train"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "compare");
+  else setTimeout(waitForState, 50);
 })();
 </script>
 </body>
