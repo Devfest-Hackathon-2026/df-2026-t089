@@ -6,6 +6,7 @@ import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * RANSAC の前に、ガラス越しに奥行きを誤った点を直す。同じ視点から同じ方位を見ているのに奥行きが大きくばらつくなら、
@@ -16,7 +17,7 @@ internal object MirrorCorrection {
     private const val VIEWPOINT_M = 0.35
     private val SECTOR_RAD = Math.toRadians(10.0)
     private const val MIN_RAYS = 6
-    private const val SPREAD_LIMIT_M = 1.0   // 実データの棚の帯はここまで広がらない
+    private const val STD_LIMIT_M = 2.0   // 奥行きの標準偏差がこれ未満なら、棚の帯や通路越しの見え方として補正しない
     private const val NEAR_QUANTILE = 0.15
     private const val MIN_DEPTH_M = 0.2
 
@@ -44,7 +45,7 @@ internal object MirrorCorrection {
                 fun trend(r: Ray) = meanDepth + slope * (r.bearing - meanBearing)
                 val residuals = sector.map { it.depth - trend(it) }.sorted()
                 fun quantile(q: Double) = residuals[min(residuals.size - 1, (q * residuals.size).toInt())]
-                if (quantile(0.9) - quantile(0.1) < SPREAD_LIMIT_M) continue
+                if (sqrt(residuals.sumOf { it * it } / residuals.size) < STD_LIMIT_M) continue
                 val near = quantile(NEAR_QUANTILE)
                 for (r in sector) {
                     val depth = trend(r) + near

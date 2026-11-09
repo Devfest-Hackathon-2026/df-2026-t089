@@ -23,7 +23,7 @@ class MirrorCorrectionTest {
 
     @Test fun `scatter along one bearing is pulled back along the same ray`() {
         val rng = Random(5)
-        val rays = (0 until 40).map { ray(0.3 + rng.nextDouble() * 0.1, 1.5 + rng.nextDouble() * 3.0) }
+        val rays = (0 until 40).map { ray(0.3 + rng.nextDouble() * 0.1, 1.5 + rng.nextDouble() * 9.0) }
         val result = MirrorCorrection.correct(rays)
         assertTrue(result.moved.size > 20)
         for (m in result.moved) {
@@ -35,7 +35,9 @@ class MirrorCorrectionTest {
 
     @Test fun `different viewpoints are judged separately and cell means thin the points`() {
         val tight = (0 until 10).map { doubleArrayOf(0.0, 0.0, 2.0, 0.01 * it) }
-        val elsewhere = (0 until 10).map { doubleArrayOf(5.0, 5.0, 8.0 + it * 0.5, 5.0) }
+        val elsewhere = (0 until 10).map { doubleArrayOf(5.0, 5.0, 8.0 + it * 2.0 * (if (it % 2 == 0) 1 else 0), 5.0) }
+        val mild = (0 until 10).map { ray(0.3, 1.0 + it * 0.3) }   // standard deviation below 2 m stays as measured
+        assertEquals(0, MirrorCorrection.correct(mild).moved.size)
         assertEquals(0, MirrorCorrection.correct(tight).moved.size)
         assertTrue(MirrorCorrection.correct(elsewhere).moved.isNotEmpty())
         val cells = MirrorCorrection.cellMeans(listOf(doubleArrayOf(0.01, 0.01), doubleArrayOf(0.03, 0.03), doubleArrayOf(1.0, 1.0)))

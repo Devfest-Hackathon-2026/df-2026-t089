@@ -7,42 +7,48 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
-/** 点の集まりに、直線を 1 本ずつ RANSAC で当てては内点を取り除く（逐次型の multi-model RANSAC）。向きは軸に揃えない。 */
+/** 局所 RANSAC。各点の周囲だけを見て 1 m 未満の短い線分を当て、内点を取り除いて次の点へ進む。向きは軸に揃えない。 */
 internal object MultiLineRansac {
-    const val MAX_LINES = 24
-    private const val ITERATIONS = 400
+    const val MAX_LINES = 256
+    private const val ITERATIONS = 60
+    private const val RADIUS_M = 0.5   // 直径が線分の上限の 1 m になる
     private const val INLIER_M = 0.1
-    private const val MIN_INLIERS = 12
-    private const val GAP_M = 0.6
-    private const val MIN_LENGTH_M = 0.5
+    private const val MIN_INLIERS = 6
+    private const val MIN_INLIER_SHARE = 0.35   // 周囲の点の大半が線に乗らないなら、ただの散らばり
+    private const val GAP_M = 0.3
+    private const val MIN_LENGTH_M = 0.25
+    private const val MAX_LENGTH_M = 1.0
 
-    /** @return 線分 (x0, z0, x1, z1) の一覧。内点の多い順。[points] は (x, z)。 */
+    /** @return 線分 (x0, z0, x1, z1) の一覧。[points] は (x, z)。 */
     fun fit(points: List<DoubleArray>, seed: Long = 1L): List<DoubleArray> {
         val rng = Random(seed)
         val out = ArrayList<DoubleArray>()
-        var left = points
-        while (out.size < MAX_LINES && left.size >= MIN_INLIERS) {
+        val used = HashSet<DoubleArray>()
+        for (center in points.shuffled(rng)) {
+            if (out.size == MAX_LINES) break
+            if (center in used) continue
+            val local = points.filter { it !in used && hypot(it[0] - center[0], it[1] - center[1]) <= RADIUS_M }
+            if (local.size < MIN_INLIERS) continue
             var best = emptyList<DoubleArray>()
             repeat(ITERATIONS) {
-                val a = left[rng.nextInt(left.size)]
-                val b = left[rng.nextInt(left.size)]
+                val a = local[rng.nextInt(local.size)]
+                val b = local[rng.nextInt(local.size)]
                 val length = hypot(b[0] - a[0], b[1] - a[1])
-                if (length < 0.2) return@repeat
+                if (length < 0.1) return@repeat
                 val dx = (b[0] - a[0]) / length
                 val dz = (b[1] - a[1]) / length
-                val inliers = left.filter { abs((it[0] - a[0]) * -dz + (it[1] - a[1]) * dx) <= INLIER_M }
+                val inliers = local.filter { abs((it[0] - a[0]) * -dz + (it[1] - a[1]) * dx) <= INLIER_M }
                 val run = longestRun(inliers, a, dx, dz)
                 if (run.size > best.size) best = run
             }
-            if (best.size < MIN_INLIERS) break
+            if (best.size < MIN_INLIERS || best.size < local.size * MIN_INLIER_SHARE) continue
             segment(best)?.let { out += it }
-            val used = best.toHashSet()
-            left = left.filter { it !in used }
+            used += best
         }
         return out
     }
 
-    /** 線に沿って途切れない、いちばん点の多い区間（離れた棚を 1 本の線にしない）。 */
+    /** 線に沿って途切れない、いちばん点の多い区間。 */
     private fun longestRun(inliers: List<DoubleArray>, origin: DoubleArray, dx: Double, dz: Double): List<DoubleArray> {
         val sorted = inliers.sortedBy { (it[0] - origin[0]) * dx + (it[1] - origin[1]) * dz }
         var best = emptyList<DoubleArray>()
@@ -57,7 +63,7 @@ internal object MultiLineRansac {
         return best
     }
 
-    /** 内点に主成分で直線を当て直し、両端の線分にする。短すぎれば null。 */
+    /** 内点に主成分で直線を当て直し、両端の線分にする。長さが範囲の外なら null。 */
     private fun segment(points: List<DoubleArray>): DoubleArray? {
         val mx = points.sumOf { it[0] } / points.size
         val mz = points.sumOf { it[1] } / points.size
@@ -70,7 +76,7 @@ internal object MultiLineRansac {
         val t = points.map { (it[0] - mx) * dx + (it[1] - mz) * dz }
         val lo = t.min()
         val hi = t.max()
-        if (hi - lo < MIN_LENGTH_M) return null
+        if (hi - lo < MIN_LENGTH_M || hi - lo >= MAX_LENGTH_M) return null
         return doubleArrayOf(mx + lo * dx, mz + lo * dz, mx + hi * dx, mz + hi * dz)
     }
 }
