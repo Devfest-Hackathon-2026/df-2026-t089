@@ -19,6 +19,14 @@ from gpu_two_models import app, predict_top5, volume  # noqa: E402
 ARCHIVE = WORK / "named_crops.zip"
 
 
+def split_top5(model: str, text: str):
+    """ダッシュボードがホバーした画像の分だけ読めるよう、画像ごとのファイルに分ける"""
+    folder = WORK / "top5" / model
+    folder.mkdir(parents=True, exist_ok=True)
+    for name, boxes in json.loads(text).items():
+        (folder / name).write_text(json.dumps(boxes, separators=(",", ":")), encoding="utf-8")
+
+
 def main():
     ids = [r[0] for r in named_crops()]
     with zipfile.ZipFile(ARCHIVE, "w", compression=zipfile.ZIP_STORED) as z:
@@ -34,6 +42,7 @@ def main():
         for e in predict_top5.remote_gen():
             if e["type"] == "top5":
                 (WORK / f"top5_{e['model']}.json").write_text(e["json"], encoding="utf-8")
+                split_top5(e["model"], e["json"])
             elif e["type"] == "named":
                 (WORK / "named_top5.json").write_text(e["json"], encoding="utf-8")
                 np.save(WORK / "named_emb.npy", np.frombuffer(e["emb"], np.float16).reshape(len(ids), -1))
