@@ -1,10 +1,12 @@
 """店モデルの推定を、作った点で確かめる。  python products/test_store_model.py"""
-import random
+import json, random
 
-from store_model import StoreModel, text
+from common import ROOT
+from store_model import THEMES, StoreModel, text
 from store_sim import calib, simulate
 
 rng = random.Random(0)
+calib_tax = json.loads((ROOT / "products/konbinidb/taxonomy.json").read_text(encoding="utf-8"))
 m = StoreModel()
 
 
@@ -26,6 +28,28 @@ assert kinds == ["case", "island", "wall"], (kinds, text(m.estimate()))
 island = next(f for f in m.estimate()["fixtures"] if f["kind"] == "island")
 assert abs(island["c"] - 2.0) < 0.1 and abs((island["b"] - island["a"]) - 3.6) < 0.01, island
 assert island["faces"]["+"][0][0][0] == "カップ" and island["faces"]["-"][0][0][0] == "菓子", island
+
+# テーマの表と分類表がずれていない（taxonomy.json を変えたら store_themes.json も直す）
+tax = {v[0] for g in calib_tax.values() for v in g.values()}
+listed = {c for t in THEMES for c in t["cats"]}
+assert listed == tax, {"表にない": sorted(tax - listed), "分類にない": sorted(listed - tax)}
+
+# テーマ: 生理用品の面に読み違いの充電器やピラフが混ざっても、テーマで外れる
+m = StoreModel()
+face(9.0, 0, 2.4, 7.8, "生理用品", "日用品・衛生用品", 300)
+face(9.0, 0, 2.4, 7.8, "ティッシュ", "日用品・衛生用品", 120)
+face(9.0, 0, 2.4, 7.8, "電池・充電器・ケーブル", "スマホ用品・雑貨", 60)
+face(9.0, 0, 2.4, 7.8, "チャーハン・ピラフ", "弁当・おにぎり", 50)
+f = m.estimate()["fixtures"][0]
+side = next(iter(f["faces"]))   # 棚が 1 列だけだと店の向きは 90 度ごとに定まらないので、面の符号は決め打ちしない
+assert f["themes"][side][0] == "紙・衛生・ケア用品", f
+named = {c for mod in f["faces"][side] for c, _ in mod}
+assert "生理用品" in named and not named & {"電池・充電器・ケーブル", "チャーハン・ピラフ"}, named
+assert "[紙・衛生・ケア用品]" in text(m.estimate())
+m = StoreModel(themes=[])   # 制約なしなら残る
+face(9.0, 0, 2.4, 7.8, "生理用品", "日用品・衛生用品", 300)
+face(9.0, 0, 2.4, 7.8, "電池・充電器・ケーブル", "スマホ用品・雑貨", 200)
+assert any(c == "電池・充電器・ケーブル" for faces in m.estimate()["fixtures"][0]["faces"].values() for mod in faces for c, _ in mod)
 
 # 全体: 認識が完璧・ずれなしなら、店をほぼ再現できるはず
 r = simulate({"recog": "perfect", "drift": 0, "depth": 0.3, "seed": 3}, calib())["metrics"]

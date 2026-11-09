@@ -96,6 +96,11 @@ def store_sim_view(q):
             if q[k][0] not in ok:
                 raise ValueError(f"bad {k}")
             cfg[k] = q[k][0]
+    for k in ("use_themes", "themed"):
+        if k in q:
+            if q[k][0] not in ("0", "1"):
+                raise ValueError(f"bad {k}")
+            cfg[k] = q[k][0] == "1"
     route = None
     if "route" in q:
         route = [tuple(float(x) for x in p.split(",")) for p in q["route"][0].split(";")]

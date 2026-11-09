@@ -18,22 +18,16 @@ import argparse, json, math, random, sys
 from math import atan2, cos, hypot, pi, radians, sin
 
 from common import ROOT, WORK, read_json, write_json
-from store_model import CASE_DEPTH, END_DEPTH, GONDOLA_DEPTH, ISLAND_DEPTH, StoreModel, text
+from store_model import CASE_DEPTH, END_DEPTH, GONDOLA_DEPTH, ISLAND_DEPTH, THEMES, StoreModel, text
 
-DEFAULTS = {"seed": 1, "mode": "scan", "recall": 0.9, "px50": 30.0, "acc": None, "geo": "all", "drift": 1.0, "depth": 1.0, "recog": "real", "speed": 0.25, "snap": 6}
+DEFAULTS = {"seed": 1, "mode": "scan", "recall": 0.9, "px50": 30.0, "acc": None, "geo": "all", "use_themes": True, "themed": True, "drift": 1.0, "depth": 1.0, "recog": "real", "speed": 0.25, "snap": 6}
 F_PX = 943.0         # 実機の records.jsonl の intrinsics（fx 1415 / 1920x1080）を長辺 1280 px に換算
 HFOV, VFOV = radians(41.8), radians(68.3)   # 同じく実機の値（縦持ち）
 FACE_W, ROW_H = 0.09, 0.3
 ROWS = (0.35, 0.65, 0.95, 1.25, 1.55)
 MAX_NAMED, MAX_RANGE = 20, 3.5
-ZONES = {"island": ["お菓子・スナック", "即席食品・常温食品"], "drinks": ["飲料"],
-         "chilled": ["パン・米飯・軽食", "冷蔵・冷凍食品・デザート"], "goods": ["日用品・その他"]}
-# taxonomy の「追加」は寄せ集めなので、売り場の近い大分類に入れる
-EXTRA = {"ビール類": "飲料", "チューハイ・サワー・ハイボール": "飲料", "日本酒・焼酎・ワイン・洋酒": "飲料", "ココア・ラテ系飲料": "飲料",
-         "ホットスナック": "パン・米飯・軽食", "おでん": "パン・米飯・軽食", "中華まん": "パン・米飯・軽食", "お好み焼き・たこ焼き": "パン・米飯・軽食", "スープ・汁物": "即席食品・常温食品",
-         "漬物・キムチ": "冷蔵・冷凍食品・デザート", "卵・豆腐・納豆": "冷蔵・冷凍食品・デザート", "ハム・ソーセージ・サラダチキン": "冷蔵・冷凍食品・デザート", "チーズ・バター": "冷蔵・冷凍食品・デザート", "冷凍食材・氷": "冷蔵・冷凍食品・デザート",
-         "調味料・ふりかけ・ジャム": "即席食品・常温食品", "レトルト惣菜・即席鍋": "即席食品・常温食品",
-         "肌着・靴下": "日用品・その他", "台所・掃除・洗濯用品": "日用品・その他", "理美容・ボディケア": "日用品・その他", "ペット用品": "日用品・その他"}
+ZONES = {"island": ["お菓子・スナック", "即席・常温食品"], "drinks": ["飲料", "お酒"],
+         "chilled": ["パン・米飯・軽食", "冷蔵・冷凍・デザート・惣菜"], "goods": ["日用品"]}
 PROXY_ACC = 0.52     # 仮の正解率: 今の埋め込みの top-1（実物の 120 分類の結果が出るまで）
 SKU = WORK / "sku26n"
 
@@ -43,7 +37,7 @@ def calib():
     tax = read_json(ROOT / "products" / "konbinidb" / "taxonomy.json")
     if not tax:
         raise ValueError("konbinidb/taxonomy.json がありません")
-    genre = {v[0]: EXTRA.get(v[0], g) for g, cs in tax.items() for v in cs.values()}
+    genre = {v[0]: g for g, cs in tax.items() for v in cs.values()}
     name = {k: v[0] for cs in tax.values() for k, v in cs.items()}
     gemini = read_json(SKU / "pred_gemini.json", {"images": {}})["images"]
     boxes = [b for v in gemini.values() for b in v]
@@ -68,7 +62,14 @@ def pools(cal):
     return out
 
 
-def make_store(seed, cal):
+ZONE_THEMES = {"island": ["カップ麺・スープ・レトルト", "常温の食材・調味料", "スナック・おつまみ", "チョコ・ビスケット", "グミ・飴・ガム"],
+               "drinks": ["お茶・水", "コーヒー・乳飲料", "炭酸・ジュース・エナジー", "お酒"],
+               "chilled": ["弁当・おにぎり・麺", "パン・サンドイッチ", "惣菜・サラダ・日配", "デザート", "冷凍・アイス"],
+               "goods": ["紙・衛生・ケア用品", "雑貨"]}
+THEME_CATS = {t["name"]: [c for c in t["cats"]] for t in THEMES}
+
+
+def make_store(seed, cal, themed=True):
     """店の正解を作る。u, v は店の座標で、(0,0) が部屋の角"""
     rng = random.Random(seed)
     W, D = round(rng.uniform(9.0, 13.0), 1), round(rng.uniform(7.5, 11.0), 1)
@@ -76,6 +77,10 @@ def make_store(seed, cal):
     every = [c for cs in pool.values() for c in cs]
     fixtures = []
     confusers = {}
+
+    def known(theme):
+        """分類表が変わっても落ちないよう、今の分類にあるカテゴリだけ使う（ずれは test_store_model.py が知らせる）"""
+        return [c for c in THEME_CATS[theme] if c in cal["genre"]]
 
     def confuser(cat):
         """カテゴリごとに決まった間違い先。実際の誤認識は「カップ麺をカップうどんに」のように偏る（商品ごとに散らすと多数決で消えて甘く出る）"""
@@ -88,9 +93,21 @@ def make_store(seed, cal):
         names = [g for g in ZONES[zone] if g in pool] or list(pool)
         return [rng.choice(pool[rng.choice(names)]) for _ in range(n)]
 
+    def themed_face(zone, n):
+        """面ごとのテーマと主な商品。隣のモジュールは同じテーマのことが多い"""
+        names, cats = [], []
+        for i in range(n):
+            names.append(names[-1] if names and rng.random() < 0.6 else rng.choice(ZONE_THEMES[zone]))
+            cats.append(rng.choice(known(names[-1])))
+        return cats, names
+
+    def face_plan(zone, n):
+        return themed_face(zone, n) if themed else (cats_for(zone, n), [None] * n)
+
     def add(kind, axis, c, a, n, w, depth, signs, zone):
+        plans = {("+" if s == 1 else "-"): face_plan(zone, n) for s in signs}
         fixtures.append({"kind": kind, "axis": axis, "c": c, "a": a, "b": a + n * w, "d": depth, "n": n, "w": w,
-                         "faces": {("+" if s == 1 else "-"): cats_for(zone, n) for s in signs}})
+                         "faces": {k: v[0] for k, v in plans.items()}, "themes": {k: v[1] for k, v in plans.items()}})
 
     def row(kind, axis, c, start, stop, depth, sign, zone, w):
         n = int((stop - start) / w)
@@ -101,7 +118,7 @@ def make_store(seed, cal):
     row("case", 0, W - CASE_DEPTH / 2, 1.8, D - 1.6, CASE_DEPTH, -1, "chilled", 0.9)         # 右の壁: 弁当など
     row("wall", 0, GONDOLA_DEPTH / 2, 0.6, D - 1.2, GONDOLA_DEPTH, 1, "goods", 1.2)          # 左の壁: 日用品
     reg_len = 2.4
-    reg = {"kind": "register", "axis": 1, "c": 1.5, "a": W - 0.8 - reg_len, "b": W - 0.8, "d": 0.7, "n": 1, "w": reg_len, "faces": {}}
+    reg = {"kind": "register", "axis": 1, "c": 1.5, "a": W - 0.8 - reg_len, "b": W - 0.8, "d": 0.7, "n": 1, "w": reg_len, "faces": {}, "themes": {}}
     fixtures.append(reg)
 
     # 島: 手前の通路と奥の通路を残し、列のあいだに 1.1〜1.4 m の通路をとる
@@ -128,7 +145,12 @@ def make_store(seed, cal):
                 for y in ROWS:   # 段ごとに商品がまとまっていて、4 分の 1 は同じジャンルの別カテゴリ
                     t = f["a"] + m * f["w"] + FACE_W / 2
                     while t < f["a"] + (m + 1) * f["w"]:
-                        cat = main if rng.random() < 0.75 else rng.choice(pool.get(cal["genre"][main]) or every)
+                        theme = f["themes"][sign][m]
+                        r = rng.random()
+                        if theme:   # テーマの中で主な商品が半分、残りも同じテーマ。別のテーマの商品が少しだけ混ざる
+                            cat = main if r < 0.5 else rng.choice(known(theme)) if r < 0.95 else rng.choice(every)
+                        else:
+                            cat = main if r < 0.75 else rng.choice(pool.get(cal["genre"][main]) or every)
                         wrong = confuser(cat) if rng.random() < 0.8 else rng.choice([c for c in every if c != cat])
                         for _ in range(rng.randint(2, 4)):
                             if t < f["a"] + (m + 1) * f["w"]:
@@ -206,7 +228,7 @@ def simulate(cfg, cal=None, route=None):
     if cfg["acc"] is None:
         cfg["acc"] = cal["acc"]
     rng = random.Random(cfg["seed"] * 7919 + 11)
-    store = make_store(cfg["seed"], cal)
+    store = make_store(cfg["seed"], cal, cfg["themed"])
     rects = [rect_of(f) for f in store["fixtures"]]
     route = route or auto_route(store)
     steps = walk(route, cfg["speed"], cfg["mode"])
@@ -217,7 +239,7 @@ def simulate(cfg, cal=None, route=None):
     cw, sw = cos(w0), sin(w0)
     ou, ov = steps[0][0], steps[0][1]
     to_world = lambda u, v: ((u - ou) * cw - (v - ov) * sw, (u - ou) * sw + (v - ov) * cw)
-    model = StoreModel()
+    model = StoreModel(themes=None if cfg["use_themes"] else [])
     du = dv = de = 0.0   # ARCore の位置と向きのずれ
     genre = cal["genre"]
     frames, snaps = [], []
@@ -332,7 +354,7 @@ def modules(f, yaw, w0, ou, ov):
             k = 1 if sign == "+" else -1
             wx, wz = (nu * c - nv * s) * k, (nu * s + nv * c) * k
             cw, sw = cos(w0), sin(w0)
-            faces.append({"n": [round(wx * cw + wz * sw, 3), round(-wx * sw + wz * cw, 3)], "cats": [[c, round(v, 3)] for c, v in ms[i]] if i < len(ms) else []})
+            faces.append({"n": [round(wx * cw + wz * sw, 3), round(-wx * sw + wz * cw, 3)], "cats": [[c, round(v, 3)] for c, v in ms[i]] if i < len(ms) else [], "theme": f["themes"][sign][i] if i < len(f["themes"][sign]) else None})
         out.append({"u": round(x, 3), "v": round(z, 3), "w": f["w"], "faces": faces})
     return out
 
@@ -349,7 +371,7 @@ def evaluate(est, store, seen, w0, ou, ov):
             t0, t1 = f["a"] + m * f["w"], f["a"] + (m + 1) * f["w"]
             lo, hi = f["c"] - f["d"] / 2, f["c"] + f["d"] / 2
             r = (lo, t0, hi, t1) if f["axis"] == 0 else (t0, lo, t1, hi)
-            gt.append({"f": fi, "m": m, "r": r, "kind": f["kind"], "faces": f["faces"], "axis": f["axis"], "seen": sum(seen.get((fi, s, m), 0) for s in (1, -1)) >= 5})
+            gt.append({"f": fi, "m": m, "r": r, "kind": f["kind"], "faces": f["faces"], "themes": f["themes"], "axis": f["axis"], "seen": sum(seen.get((fi, s, m), 0) for s in (1, -1)) >= 5})
     pred = []
     for f in est["fixtures"]:
         for i, m in enumerate(modules(f, est["yaw"], w0, ou, ov)):
@@ -376,7 +398,7 @@ def evaluate(est, store, seen, w0, ou, ov):
             used_g.add(gi)
             used_p.add(pi_)
             matched.append((gi, pi_, iou))
-    kind_ok = err = faces = cat_ok = genre_ok = 0
+    kind_ok = err = faces = cat_ok = genre_ok = theme_n = theme_ok = 0
     cal = store_genre()
     rows = []
     for gi, pi_, iou in matched:
@@ -392,6 +414,9 @@ def evaluate(est, store, seen, w0, ou, ov):
                 truth, top = cats[g["m"]], face["cats"][0][0]
                 cat_ok += top == truth
                 genre_ok += cal.get(top) == cal.get(truth)
+                if g["themes"][sign][g["m"]]:
+                    theme_n += 1
+                    theme_ok += face["theme"] == g["themes"][sign][g["m"]]
                 rows.append([g["kind"], truth, top, top == truth])
     seen_n = sum(g["seen"] for g in gt)
     seen_hit = sum(gt[gi]["seen"] for gi, _, _ in matched)
@@ -405,7 +430,7 @@ def evaluate(est, store, seen, w0, ou, ov):
     return {"gt": len(gt), "pred": len(pred), "matched": len(matched), "precision": round(precision, 3), "recall": round(recall, 3),
             "f1": round(2 * precision * recall / max(precision + recall, 1e-9), 3), "seen_gt": seen_n, "seen_recall": round(seen_hit / max(seen_n, 1), 3),
             "kind_acc": round(kind_ok / n, 3), "pos_err": round(err / n, 3), "faces": faces, "cat_acc": round(cat_ok / max(faces, 1), 3),
-            "genre_acc": round(genre_ok / max(faces, 1), 3), "by_kind": by_kind, "rows": rows}
+            "genre_acc": round(genre_ok / max(faces, 1), 3), "theme_acc": round(theme_ok / theme_n, 3) if theme_n else None, "by_kind": by_kind, "rows": rows}
 
 
 _genre = {}
@@ -418,6 +443,9 @@ def store_genre():
 
 
 CONDITIONS = [("実際の認識・棚を見回して歩く", {}),
+              ("テーマの制約を使わない", {"use_themes": False}),
+              ("テーマのない店に制約を使う（前提が外れたとき）", {"themed": False}),
+              ("テーマのない店で制約なし", {"themed": False, "use_themes": False}),
               ("実際の認識・前を向いたまま", {"mode": "forward"}),
               ("分類が完璧", {"recog": "perfect"}),
               ("分類の正解率 70%", {"acc": 0.7}),
@@ -437,6 +465,7 @@ def batch(n):
             ms.append(r)
         keys = ("precision", "recall", "f1", "seen_recall", "kind_acc", "pos_err", "cat_acc", "genre_acc")
         out.append({"name": name, "n": n, **{k: round(sum(m[k] for m in ms) / n, 3) for k in keys}, "f1_min": min(m["f1"] for m in ms),
+                    "theme_acc": (lambda v: round(sum(v) / len(v), 3) if any(v) else None)([m["theme_acc"] for m in ms if m["theme_acc"] is not None]),   # テーマを出さない条件は「-」
                     "by_kind": {k: round(sum(m["by_kind"].get(k, [0, 0])[0] for m in ms) / max(sum(m["by_kind"].get(k, [0, 0])[1] for m in ms), 1), 3) for k in ("island", "wall", "case", "end", "register")}})
         print(out[-1], flush=True)
     write_json(WORK / "store_sim_batch.json", {"rows": out, "seeds": n, "acc": round(cal["acc"], 3), "source": cal["source"], "np": round(cal["np"], 3), "np_n": cal["np_n"]})

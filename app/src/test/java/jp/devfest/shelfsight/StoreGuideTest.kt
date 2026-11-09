@@ -65,5 +65,7 @@ class StoreGuideTest {
         assertTrue(text, "日清 カップヌードル: 前 1.0m、2 分前" in text)
         assertTrue(text, "最後に利用者へ話したこと" in text)
         assertTrue("位置はまだ" in StoreGuide.context(null, null, emptyList(), emptyList(), 0L, ""))
+        val themed = StoreView(0.0, null, listOf(StoreFixture("island", 0, -2.0, -0.6, 0.6, 0.88, 1.8, 1, 1.2, mapOf("+" to listOf(listOf("カップ麺" to 1.0))), mapOf("+" to listOf("カップ麺・スープ・レトルト")))))
+        assertTrue("テーマ: カップ麺・スープ・レトルト" in StoreGuide.context(themed, alongAisle, emptyList(), emptyList(), 0L, ""))
     }
 }

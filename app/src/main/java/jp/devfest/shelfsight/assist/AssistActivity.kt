@@ -107,7 +107,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     /** 1 秒ごとの商品認識の結果を、AR 空間の壁の上に貯めたもの（アプリを閉じると消える）。 */
     private val shelfMap = ShelfMap()
     /** 認識した商品の位置から推定する店のモデル。[sceneWorker] からだけ触る。 */
-    private val storeModel = StoreModel()
+    private val storeModel by lazy { StoreModel(StoreModel.parseThemes(assets.open("store_themes.json").bufferedReader().readText())) }
     @Volatile private var storeView: StoreView? = null
     private var lastStoreEstimate = 0L
     private lateinit var storeRenderer: StoreModelRenderer

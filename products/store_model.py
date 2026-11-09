@@ -4,7 +4,9 @@
   店 = 部屋（床と壁の長方形）＋ 什器の並び。座標は店の向き yaw で回した u, v（棚は壁に平行か垂直なので軸に揃う）。
     store yaw=<度> room=<u0>,<v0>..<u1>,<v1>
     <種類> axis=<u|v> c=<正面方向の中心> span=<a>..<b> d=<奥行き> h=<高さ> mods=<個数>x<幅>
-      m<番号> <+|-><カテゴリ>:<割合>,...      ← 什器の単位（モジュール）ごと・面（+ は軸の正の向き）ごとの主な商品
+      m<番号> <+|->[<テーマ>]<カテゴリ>:<割合>,...      ← 什器の単位（モジュール）ごと・面（+ は軸の正の向き）ごとのテーマと主な商品
+  テーマ: ゴンドラの片面には決まった組み合わせの商品が並ぶ（カップ麺とスープとレトルトは一緒、充電器と生理用品とピラフは一緒にならない）。
+    定型は app/src/main/assets/store_themes.json（アプリと共有）。[...] はテーマを決められない面では出ない。
   種類:
     island   島ゴンドラ。奥行き 片面 0.44 m（背中合わせで 0.88）、高さ 1.8 m、幅 0.9 か 1.2 m を並べる
     wall     壁面ゴンドラ。壁を背にする
@@ -19,12 +21,20 @@
   3. 軸に平行な線（棚の面）を長い順に取り出す。面の向きは、カメラがどちら側にいたかで決める
   4. 背中合わせの面 = 島、後ろを歩いていない外側の面 = 壁、島の端で直交する短い面 = エンド
   5. 幅を 0.9 / 1.2 m の倍数に揃え、モジュールごとに多数決で主な商品を決める
+  6. 面ごとに観測に一番合うテーマを選び（隣のモジュールも少し参考にする）、テーマに合わないカテゴリは読み違いとして外す
 
 アプリの jp.devfest.shelfsight.assist.StoreModel は同じ処理の移植。text() が一致することを StoreModelTest で確かめる
 （直したら python products/store_sim.py --fixture でテストデータを作り直す）。
 """
-from math import cos, floor, hypot, radians, sin
+import json
+from math import cos, floor, hypot, log, radians, sin
+from pathlib import Path
 
+THEMES = json.loads((Path(__file__).resolve().parents[1] / "app/src/main/assets/store_themes.json").read_text(encoding="utf-8"))
+THEME_IN = 0.9            # 面の商品がテーマの中のカテゴリである確率
+THEME_NEIGHBOR = 0.3      # 隣のモジュールの観測をどれだけ参考にするか
+MIN_THEME_OBS = 3         # 名前付きの観測がこれ未満ならテーマを決めない
+MIN_THEME_SHARE = 0.5     # テーマに合う観測がこの割合に届かない面は、定型にない面として何も外さない
 CELL = 0.1
 BAND = 0.18        # 面とみなす厚みの半分（深度の誤差を吸収する）
 GAP = 0.5          # これより長く点が途切れたら別の面
@@ -39,7 +49,7 @@ WIDTHS = (0.9, 1.2)
 HEIGHT = {"island": 1.8, "wall": 1.8, "case": 2.0, "end": 1.5, "register": 1.0}
 CHILLED = {"ソフトドリンク", "栄養・エナジードリンク", "紙パック飲料・乳製品", "酒", "冷凍食品", "アイス",
            "弁当・おにぎり", "サンドイッチ・サラダ・惣菜", "チルドデザート",
-           "飲料", "パン・米飯・軽食", "冷蔵・冷凍食品・デザート"}   # 上は今のアプリの 26 分類、この行は 120 カテゴリの大分類
+           "飲料", "お酒", "パン・米飯・軽食", "冷蔵・冷凍・デザート・惣菜"}   # 上は今のアプリの 26 分類、この行は 120 カテゴリの大分類
 
 
 def _median(values):
@@ -58,7 +68,8 @@ def _overlap(a0, a1, b0, b1):
 
 
 class StoreModel:
-    def __init__(self):
+    def __init__(self, themes=None):
+        self.themes = THEMES if themes is None else themes
         self.cells = {}      # (i, k) -> [回数, x の和, z の和, カメラ方向 x の和, カメラ方向 z の和, {カテゴリ: 回数}]
         self.counters = {}   # 腰の高さの水平面の格子 -> 回数
         self.trail = []      # 歩いた跡（30 cm ごと）
@@ -235,6 +246,29 @@ class StoreModel:
         n, w = max(((max(1, round(length / w)), w) for w in WIDTHS), key=lambda x: -abs(x[0] * x[1] - length))
         return mid - n * w / 2, n, w
 
+    def _in_theme(self, theme, cat):
+        return cat in theme["cats"] or self.genre.get(cat) in theme["genres"]
+
+    def _assign_themes(self, mods):
+        """モジュールごとに、観測に一番合うテーマを選ぶ（決められなければ None）"""
+        if not self.themes:
+            return [None] * len(mods)
+        n = len({c for t in self.themes for c in t["cats"]})
+        scores = [[sum(v * (log(THEME_IN / len(t["cats"]) + (1 - THEME_IN) / n) if self._in_theme(t, c) else log((1 - THEME_IN) / n)) for c, v in m.items())
+                   for t in self.themes] for m in mods]
+        out = []
+        for i, m in enumerate(mods):
+            total = sum(m.values())
+            if total < MIN_THEME_OBS:
+                out.append(None)
+                continue
+            near = [scores[j] for j in (i - 1, i + 1) if 0 <= j < len(mods)]
+            s = [scores[i][k] + THEME_NEIGHBOR * sum(x[k] for x in near) for k in range(len(self.themes))]
+            theme = self.themes[s.index(max(s))]
+            share = sum(v for c, v in m.items() if self._in_theme(theme, c)) / total
+            out.append(theme if share >= MIN_THEME_SHARE else None)
+        return out
+
     def _register(self, cs, sn):
         if len(self.counters) < 6:
             return None
@@ -244,7 +278,7 @@ class StoreModel:
         u0, u1, v0, v1 = us[cut], us[-1 - cut], vs[cut], vs[-1 - cut]
         axis = 0 if u1 - u0 < v1 - v0 else 1
         c, a, b = ((u0 + u1) / 2, v0, v1) if axis == 0 else ((v0 + v1) / 2, u0, u1)
-        return {"kind": "register", "axis": axis, "c": c, "a": a, "b": b, "d": max(0.5, (u1 - u0) if axis == 0 else (v1 - v0)), "h": HEIGHT["register"], "n": 1, "w": b - a, "faces": {}, "obs": sum(self.counters.values())}
+        return {"kind": "register", "axis": axis, "c": c, "a": a, "b": b, "d": max(0.5, (u1 - u0) if axis == 0 else (v1 - v0)), "h": HEIGHT["register"], "n": 1, "w": b - a, "faces": {}, "themes": {}, "obs": sum(self.counters.values())}
 
     def estimate(self):
         """今の観測から店のモデルを作る"""
@@ -256,7 +290,7 @@ class StoreModel:
         fixtures = []
         for kind, axis, c, a, b, depth, faces in self._classify(runs, trail):
             a, n, w = self._snap(a, b, kind)
-            per = {}
+            per, theme_of = {}, {}
             for sign in (1, -1):   # 什器の軸の正の向きを見ている面が +
                 sides = [r for r in faces if r["s"] == sign]
                 if sides:
@@ -266,8 +300,11 @@ class StoreModel:
                             m = mods[min(n - 1, max(0, floor((p[1 - r["ax"]] - a) / w)))]
                             for cat, v in p[5].items():
                                 m[cat] = m.get(cat, 0) + v
-                    per["+" if sign == 1 else "-"] = [[[cat, v / (sum(m.values()) or 1)] for cat, v in sorted(m.items(), key=lambda x: (-x[1], x[0]))[:3]] for m in mods]
-            fixtures.append({"kind": kind, "axis": axis, "c": c, "a": a, "b": a + n * w, "d": depth, "h": HEIGHT[kind], "n": n, "w": w, "faces": per, "obs": sum(r["w"] for r in faces)})
+                    side = "+" if sign == 1 else "-"
+                    theme_of[side] = self._assign_themes(mods)
+                    kept = [{c: v for c, v in m.items() if t is None or self._in_theme(t, c)} for m, t in zip(mods, theme_of[side])]
+                    per[side] = [[[cat, v / (sum(m.values()) or 1)] for cat, v in sorted(m.items(), key=lambda x: (-x[1], x[0]))[:3]] for m in kept]
+            fixtures.append({"kind": kind, "axis": axis, "c": c, "a": a, "b": a + n * w, "d": depth, "h": HEIGHT[kind], "n": n, "w": w, "faces": per, "themes": {k: [t["name"] if t else None for t in v] for k, v in theme_of.items()}, "obs": sum(r["w"] for r in faces)})
         reg = self._register(cos(self.yaw), sin(self.yaw))
         if reg:
             fixtures.append(reg)
@@ -304,7 +341,8 @@ def text(model):
     for f in model["fixtures"]:
         lines.append(f"{f['kind']} axis={'uv'[f['axis']]} c={_fmt(f['c'])} span={_fmt(f['a'])}..{_fmt(f['b'])} d={_fmt(f['d'])} h={_fmt(f['h'], 1)} mods={f['n']}x{_fmt(f['w'])}")
         for i in range(f["n"]):
-            parts = [sign + ",".join(f"{c}:{_fmt(s)}" for c, s in faces[i]) for sign, faces in sorted(f["faces"].items()) if i < len(faces) and faces[i]]
+            parts = [sign + (f"[{f['themes'][sign][i]}]" if f["themes"][sign][i] else "") + ",".join(f"{c}:{_fmt(s)}" for c, s in faces[i])
+                     for sign, faces in sorted(f["faces"].items()) if i < len(faces) and faces[i]]
             if parts:
                 lines.append(f"  m{i} " + " ".join(parts))
     return chr(10).join(lines)

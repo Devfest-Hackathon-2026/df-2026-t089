@@ -134,7 +134,9 @@ object StoreGuide {
                 val at = Vec3((cu * cs - cv * sn).toFloat(), l.position.y, (cu * sn + cv * cs).toFloat())
                 val goods = f.faces.values.flatten().flatten().groupBy { it.first }.entries
                     .sortedByDescending { e -> e.value.sumOf { it.second } }.take(4).joinToString("、") { it.key }
-                Triple(hypot(at.x - l.position.x, at.z - l.position.z), at, "${KIND_NAMES[f.kind] ?: f.kind}" + if (goods.isEmpty()) "" else ": $goods")
+                val themes = f.themes.values.flatten().filterNotNull().distinct().joinToString("、")
+                val label = (KIND_NAMES[f.kind] ?: f.kind) + if (themes.isEmpty()) "" else "（テーマ: $themes）"
+                Triple(hypot(at.x - l.position.x, at.z - l.position.z), at, label + if (goods.isEmpty()) "" else ": $goods")
             }.sortedBy { it.first }
             if (shelves.isNotEmpty()) {
                 appendLine("- 店の地図（近い順）:")

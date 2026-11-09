@@ -5,6 +5,7 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.hypot
+import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
@@ -13,6 +14,8 @@ import kotlin.math.sin
 class StoreFixture(
     val kind: String, val axis: Int, val c: Double, val a: Double, val b: Double, val d: Double, val h: Double,
     val n: Int, val w: Double, val faces: Map<String, List<List<Pair<String, Double>>>>,
+    /** 面ごと・モジュールごとのテーマ（決められなければ null）。 */
+    val themes: Map<String, List<String?>> = emptyMap(),
 )
 
 /** 推定した店。[room] は (u0, v0, u1, v1)。[yaw] は世界 → 店の座標の回転（ラジアン）。 */
@@ -23,7 +26,10 @@ class StoreView(val yaw: Double, val room: DoubleArray?, val fixtures: List<Stor
  * 記述言語の定義と推定の手順はそちらに書いてある。同じ入力で text() が一致することを StoreModelTest で確かめる。
  * 1 つのスレッドから使う。
  */
-class StoreModel {
+/** ゴンドラのテーマの定型 1 つ（assets/store_themes.json）。[cats] は 120 カテゴリの名前、[genres] は今のアプリの 26 分類。 */
+class Theme(val name: String, val cats: Set<String>, val genres: Set<String>)
+
+class StoreModel(private val themes: List<Theme> = emptyList()) {
     private class Cell(var w: Double = 0.0, var sx: Double = 0.0, var sz: Double = 0.0, var nx: Double = 0.0, var nz: Double = 0.0, val cats: LinkedHashMap<String, Double> = LinkedHashMap())
     private class Pt(val p: DoubleArray, val w: Double, val nu: Double, val nv: Double, val cats: Map<String, Double>)
     private class Run(val ax: Int, var c: Double, val a: Double, var b: Double, val s: Int, var w: Double, var pts: List<Pt>)
@@ -191,6 +197,39 @@ class StoreModel {
         return islands + out
     }
 
+    private fun inTheme(t: Theme, cat: String) = cat in t.cats || genre[cat] in t.genres
+
+    /** モジュールごとに、観測に一番合うテーマを選ぶ（決められなければ null）。 */
+    private fun assignThemes(mods: List<Map<String, Double>>): List<Theme?> {
+        if (themes.isEmpty()) return List(mods.size) { null }
+        val n = themes.flatMap { it.cats }.toSet().size
+        val scores = mods.map { m ->
+            themes.map { t ->
+                var s = 0.0
+                for ((c, v) in m) s += v * (if (inTheme(t, c)) ln(THEME_IN / t.cats.size + (1 - THEME_IN) / n) else ln((1 - THEME_IN) / n))
+                s
+            }
+        }
+        return mods.indices.map { i ->
+            val m = mods[i]
+            val total = m.values.sum()
+            if (total < MIN_THEME_OBS) return@map null
+            val near = listOf(i - 1, i + 1).filter { it in mods.indices }.map { scores[it] }
+            var best = 0
+            var top = Double.NEGATIVE_INFINITY
+            for (k in themes.indices) {
+                var s = scores[i][k]
+                var sum = 0.0
+                for (x in near) sum += x[k]
+                s += THEME_NEIGHBOR * sum
+                if (s > top) { top = s; best = k }
+            }
+            val theme = themes[best]
+            val share = m.entries.filter { inTheme(theme, it.key) }.sumOf { it.value } / total
+            theme.takeIf { share >= MIN_THEME_SHARE }
+        }
+    }
+
     private fun build(d: Draft): StoreFixture {
         val mid = (d.a + d.b) / 2; val length = d.b - d.a
         var n = 1; var w = 0.9
@@ -204,6 +243,7 @@ class StoreModel {
         }
         val a = if (d.kind == "end") mid - 0.45 else mid - n * w / 2
         val faces = LinkedHashMap<String, List<List<Pair<String, Double>>>>()
+        val themeOf = LinkedHashMap<String, List<String?>>()
         for (sign in listOf(1, -1)) {
             val sides = d.faces.filter { it.s == sign }
             if (sides.isEmpty()) continue
@@ -212,12 +252,17 @@ class StoreModel {
                 val m = mods[min(n - 1, max(0, floorI((p.p[1 - r.ax] - a) / w)))]
                 for ((cat, v) in p.cats) m[cat] = (m[cat] ?: 0.0) + v
             }
-            faces[if (sign == 1) "+" else "-"] = mods.map { m ->
-                val total = m.values.sum().let { if (it == 0.0) 1.0 else it }
-                m.entries.sortedWith(compareBy({ -it.value }, { it.key })).take(3).map { it.key to it.value / total }
+            val side = if (sign == 1) "+" else "-"
+            val assigned = assignThemes(mods)
+            themeOf[side] = assigned.map { it?.name }
+            faces[side] = mods.indices.map { i ->
+                val theme = assigned[i]
+                val kept = mods[i].entries.filter { theme == null || inTheme(theme, it.key) }
+                val total = kept.sumOf { it.value }.let { if (it == 0.0) 1.0 else it }
+                kept.sortedWith(compareBy({ -it.value }, { it.key })).take(3).map { it.key to it.value / total }
             }
         }
-        return StoreFixture(d.kind, d.axis, d.c, a, a + n * w, d.d, HEIGHT.getValue(d.kind), n, w, faces)
+        return StoreFixture(d.kind, d.axis, d.c, a, a + n * w, d.d, HEIGHT.getValue(d.kind), n, w, faces, themeOf)
     }
 
     private fun register(cs: Double, sn: Double): StoreFixture? {
@@ -261,6 +306,10 @@ class StoreModel {
     }
 
     companion object {
+        private const val THEME_IN = 0.9
+        private const val THEME_NEIGHBOR = 0.3
+        private const val MIN_THEME_OBS = 3.0
+        private const val MIN_THEME_SHARE = 0.5
         private const val CELL = 0.1
         private const val BAND = 0.18
         private const val GAP = 0.5
@@ -273,7 +322,7 @@ class StoreModel {
         private const val CASE_DEPTH = 0.8
         private val WIDTHS = listOf(0.9, 1.2)
         private val HEIGHT = mapOf("island" to 1.8, "wall" to 1.8, "case" to 2.0, "end" to 1.5, "register" to 1.0)
-        private val CHILLED = setOf("ソフトドリンク", "栄養・エナジードリンク", "紙パック飲料・乳製品", "酒", "冷凍食品", "アイス", "弁当・おにぎり", "サンドイッチ・サラダ・惣菜", "チルドデザート", "飲料", "パン・米飯・軽食", "冷蔵・冷凍食品・デザート")
+        private val CHILLED = setOf("ソフトドリンク", "栄養・エナジードリンク", "紙パック飲料・乳製品", "酒", "冷凍食品", "アイス", "弁当・おにぎり", "サンドイッチ・サラダ・惣菜", "チルドデザート", "飲料", "お酒", "パン・米飯・軽食", "冷蔵・冷凍・デザート・惣菜")
 
         private fun floorI(v: Double) = floor(v).toInt()
         private fun overlap(a0: Double, a1: Double, b0: Double, b1: Double) = min(a1, b1) - max(a0, b0)
@@ -291,6 +340,15 @@ class StoreModel {
             return String.format(Locale.ROOT, "%.${digits}f", floor(v * k + 0.5) / k)
         }
 
+        fun parseThemes(json: String): List<Theme> {
+            val a = org.json.JSONArray(json)
+            fun strings(o: org.json.JSONArray) = (0 until o.length()).map { o.getString(it) }.toSet()
+            return (0 until a.length()).map { i ->
+                val o = a.getJSONObject(i)
+                Theme(o.getString("name"), strings(o.getJSONArray("cats")), strings(o.getJSONArray("genres")))
+            }
+        }
+
         /** 記述言語の文字列にする。 */
         fun text(m: StoreView): String {
             if (m.fixtures.isEmpty()) return "store (empty)"
@@ -301,7 +359,7 @@ class StoreModel {
                     append("\n${f.kind} axis=${"uv"[f.axis]} c=${fmt(f.c)} span=${fmt(f.a)}..${fmt(f.b)} d=${fmt(f.d)} h=${fmt(f.h, 1)} mods=${f.n}x${fmt(f.w)}")
                     for (i in 0 until f.n) {
                         val parts = f.faces.entries.sortedBy { it.key }.filter { i < it.value.size && it.value[i].isNotEmpty() }
-                            .map { (sign, faces) -> sign + faces[i].joinToString(",") { (c, s) -> "$c:${fmt(s)}" } }
+                            .map { (sign, faces) -> sign + (f.themes[sign]?.getOrNull(i)?.let { "[$it]" } ?: "") + faces[i].joinToString(",") { (c, s) -> "$c:${fmt(s)}" } }
                         if (parts.isNotEmpty()) append("\n  m$i ${parts.joinToString(" ")}")
                     }
                 }

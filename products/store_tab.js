@@ -1,5 +1,5 @@
 // ⑤ 店モデル: 歩いて店を再現できるかのシミュレーション（dashboard.html のタブ。計算は store_sim.py）
-const STORE = { cfg:{ seed:1, mode:"scan", recog:"real", drift:1, depth:1, px50:30, speed:0.25 }, res:null, batch:null, i:0, draw:false, route:[], yaw:-0.6, pitch:0.95, zoom:1, timer:null };
+const STORE = { cfg:{ seed:1, mode:"scan", recog:"real", drift:1, depth:1, px50:30, speed:0.25, use_themes:"1", themed:"1" }, res:null, batch:null, i:0, draw:false, route:[], yaw:-0.6, pitch:0.95, zoom:1, timer:null };
 const KIND = { island:["島ゴンドラ",0], wall:["壁面ゴンドラ",1], case:["冷蔵・冷凍ケース",2], end:["エンド什器",3], register:["レジ",4] };
 const PAL = { light:["#2a78d6","#eb6834","#1baf7a","#eda100","#e87ba4"], dark:["#3987e5","#d95926","#199e70","#c98500","#d55181"] };
 const scheme = () => matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
@@ -20,6 +20,8 @@ function store(m) {
     ${num("depth", "深度の誤差 倍", 0, 5, 0.5)}
     ${num("px50", "検出できる大きさ px", 10, 120, 5)}
     ${num("acc", "分類の正解率", 0, 1, 0.05)}
+    ${sel("use_themes", "テーマ制約", [["1", "使う"], ["0", "使わない"]])}
+    ${sel("themed", "店のテーマ", [["1", "あり"], ["0", "なし"]])}
     <button id="sim-run">実行</button>
     <button id="sim-draw">ルートを描く</button>
     <span class="mute" id="sim-note"></span></div>`));
@@ -95,7 +97,8 @@ function simDraw() {
     tile("什器の種類の正解", pct(m.kind_acc), `対応づいた ${m.matched} 個`),
     tile("位置の誤差", m.pos_err.toFixed(2) + " m", "モジュール中心の平均"),
     tile("主な商品 カテゴリ一致", pct(m.cat_acc), `1 枠ごとの認識は ${pct(r.named_acc)}（120 分類）`),
-    tile("主な商品 大分類一致", pct(m.genre_acc), `6 分類 · ${m.faces} 面`),
+    tile("主な商品 大分類一致", pct(m.genre_acc), `7 分類 · ${m.faces} 面`),
+    tile("ゴンドラのテーマ一致", STORE.cfg.themed == "0" ? "-" : pct(m.theme_acc), "面ごと · 17 テーマ"),
   ].join("");
   sim3d(s, f); simPlanDraw(s, f);
 }
@@ -176,7 +179,7 @@ function simPlan(cv) {
     if (!STORE.res) return;
     const [u, v] = at(e);
     const hit = simSnap().model.find(m => { const [a0, a1] = simBox(m.c.map(c => c[0])), [b0, b1] = simBox(m.c.map(c => c[1])); return u >= a0 && u <= a1 && v >= b0 && v <= b1; });
-    cv.title = hit ? `${KIND[hit.kind][0]}（${hit.n}×${hit.w} m）\n` + hit.mods.map((m, i) => `${i + 1}: ` + (m.faces.map(f => f.cats.slice(0, 2).map(c => `${c[0]} ${Math.round(c[1] * 100)}%`).join("・")).filter(Boolean).join(" ／ ") || "（名前なし）")).join("\n") : "";
+    cv.title = hit ? `${KIND[hit.kind][0]}（${hit.n}×${hit.w} m）\n` + hit.mods.map((m, i) => `${i + 1}: ` + (m.faces.map(f => (f.theme ? `[${f.theme}] ` : "") + f.cats.slice(0, 2).map(c => `${c[0]} ${Math.round(c[1] * 100)}%`).join("・")).filter(Boolean).join(" ／ ") || "（名前なし）")).join("\n") : "";
   };
 }
 
@@ -219,5 +222,5 @@ function simBatch() {
   if (!b || !b.rows) { el.textContent = "まだありません（python products/store_sim.py --batch）"; return; }
   document.getElementById("sim-bnote").textContent = `${b.seeds} 店の平均 · 検出は sku110k-2 の実測に合わせた · 分類の正解率 ${pct(b.acc)}: ${b.source} · 商品でない枠 ${pct(b.np)}（${b.np_n} 枠の Gemini）`;
   const acc = document.querySelector('[data-k="acc"]'); if (acc) acc.placeholder = b.acc;
-  el.innerHTML = `<table><tr><th>条件</th><th class="num">F1</th><th class="num">最悪の店</th><th class="num">種類</th>${Object.values(KIND).map(k => `<th class="num">${k[0].replace("ゴンドラ", "").replace("冷蔵・冷凍", "").replace("什器", "")}</th>`).join("")}<th class="num">位置誤差</th><th class="num">カテゴリ</th><th class="num">大分類</th></tr>${b.rows.map(r => `<tr><td>${esc(r.name)}</td><td class="num">${pct(r.f1)}</td><td class="num">${pct(r.f1_min)}</td><td class="num">${pct(r.kind_acc)}</td>${Object.keys(KIND).map(k => `<td class="num">${pct(r.by_kind[k])}</td>`).join("")}<td class="num">${r.pos_err.toFixed(2)} m</td><td class="num">${pct(r.cat_acc)}</td><td class="num">${pct(r.genre_acc)}</td></tr>`).join("")}</table>`;
+  el.innerHTML = `<table><tr><th>条件</th><th class="num">F1</th><th class="num">最悪の店</th><th class="num">種類</th>${Object.values(KIND).map(k => `<th class="num">${k[0].replace("ゴンドラ", "").replace("冷蔵・冷凍", "").replace("什器", "")}</th>`).join("")}<th class="num">位置誤差</th><th class="num">カテゴリ</th><th class="num">大分類</th><th class="num">テーマ</th></tr>${b.rows.map(r => `<tr><td>${esc(r.name)}</td><td class="num">${pct(r.f1)}</td><td class="num">${pct(r.f1_min)}</td><td class="num">${pct(r.kind_acc)}</td>${Object.keys(KIND).map(k => `<td class="num">${pct(r.by_kind[k])}</td>`).join("")}<td class="num">${r.pos_err.toFixed(2)} m</td><td class="num">${pct(r.cat_acc)}</td><td class="num">${pct(r.genre_acc)}</td><td class="num">${pct(r.theme_acc)}</td></tr>`).join("")}</table>`;
 }

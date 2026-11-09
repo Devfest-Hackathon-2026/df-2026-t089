@@ -10,7 +10,8 @@ class StoreModelTest {
     fun matchesThePythonEstimator() {
         val all = javaClass.classLoader!!.getResource("store_model_trace.tsv")!!.readText(Charsets.UTF_8).replace("\r\n", "\n")
         val (input, expected) = all.split("\n===\n")
-        val m = StoreModel()
+        val root = generateSequence(java.io.File("").absoluteFile) { it.parentFile }.first { java.io.File(it, "settings.gradle.kts").exists() }
+        val m = StoreModel(StoreModel.parseThemes(java.io.File(root, "app/src/main/assets/store_themes.json").readText()))
         for (line in input.lines()) {
             val p = line.split("\t")
             when (p[0]) {
