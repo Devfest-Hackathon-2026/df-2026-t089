@@ -85,10 +85,14 @@ def main():
     ap.add_argument("--conf", type=float, default=0.25)
     ap.add_argument("--out", type=Path, default=WORK / "label_all.json")
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--images", default="", help="対象の画像名（カンマ区切り）")
     a = ap.parse_args()
     images = [x for x in json.loads((WORK / "det.json").read_text(encoding="utf-8"))["images"] if any(b[4] >= a.conf for b in x["boxes"])]
     random.Random(a.seed).shuffle(images)
-    if a.boxes:
+    if a.images:
+        wanted = a.images.split(",")
+        images = [x for x in images if x["name"] in wanted]
+    elif a.boxes:
         picked, count = [], 0
         for x in images:
             if count >= a.boxes:
