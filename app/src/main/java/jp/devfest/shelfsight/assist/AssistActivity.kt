@@ -18,9 +18,14 @@ import android.util.Log
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.WindowManager
+import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
 import com.example.store3d.CameraBackground
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.CameraConfigFilter
@@ -36,6 +41,7 @@ import jp.devfest.shelfsight.ar.FrameCapture
 import jp.devfest.shelfsight.ar.JpegEncoder
 import jp.devfest.shelfsight.ar.Unprojector
 import jp.devfest.shelfsight.cloud.GeminiClient
+import jp.devfest.shelfsight.mapping.OrbitCamera
 import jp.devfest.shelfsight.model.NormalizedBox
 import jp.devfest.shelfsight.model.Vec3
 import jp.devfest.shelfsight.perception.MediaPipePersonDetector
@@ -100,6 +106,18 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private val judge = SceneJudge()
     /** 1 秒ごとの商品認識の結果を、AR 空間の壁の上に貯めたもの（アプリを閉じると消える）。 */
     private val shelfMap = ShelfMap()
+    /** 認識した商品の位置から推定する店のモデル。[sceneWorker] からだけ触る。 */
+    private val storeModel = StoreModel()
+    @Volatile private var storeView: StoreView? = null
+    private var lastStoreEstimate = 0L
+    private lateinit var storeRenderer: StoreModelRenderer
+    private val orbit = OrbitCamera()
+    @Volatile private var showModel = false
+    @Volatile private var deviceAt: Vec3? = null
+    private lateinit var modelText: ScrollView
+    private lateinit var modelLabel: TextView
+    private lateinit var debugOverlay: DebugOverlay
+    private lateinit var tabs: List<Button>
     private val recorder by lazy { Recorder(java.io.File(getExternalFilesDir(null), "records")) }
     /** 商品のジャンル（26 種類）→ 歩行中の判別と同じ 7 分類。場違いな商品を外すのに使う。 */
     private val groups by lazy { ShelfDescriber.Groups.parse(assets.open("coarse/categories.json").bufferedReader().readText()) }
@@ -138,7 +156,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         })
         val touch = object : View(this) {
             @android.annotation.SuppressLint("ClickableViewAccessibility")
-            override fun onTouchEvent(event: MotionEvent): Boolean = gestures.onTouchEvent(event)
+            override fun onTouchEvent(event: MotionEvent): Boolean = if (showModel) orbitTouch(event) else gestures.onTouchEvent(event)
         }.apply {
             contentDescription = "長押しで調べる。2回たたくと質問"
             isClickable = true
@@ -147,11 +165,32 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             setOnClickListener { startListening() }
             setOnLongClickListener { onLongPressed(); true }
         }
+        debugOverlay = DebugOverlay(this, debug)
+        modelLabel = TextView(this).apply {
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 11f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setPadding(16, 8, 16, 8)
+            text = "歩くと店のモデルができます"
+        }
+        modelText = ScrollView(this).apply {
+            setBackgroundColor(0xAA000000.toInt())
+            visibility = View.GONE
+            addView(modelLabel)
+        }
+        val names = listOf("案内", "3D モデル")
+        tabs = names.indices.map { i -> Button(this).apply { text = names[i]; setOnClickListener { selectTab(i == 1) } } }
+        val tabBar = LinearLayout(this).apply {
+            tabs.forEach { addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
+        }
         setContentView(FrameLayout(this).apply {
             addView(gl)
-            addView(DebugOverlay(this@AssistActivity, debug), FrameLayout.LayoutParams(-1, -1))
+            addView(debugOverlay, FrameLayout.LayoutParams(-1, -1))
             addView(touch, FrameLayout.LayoutParams(-1, -1))
+            addView(modelText, FrameLayout.LayoutParams(-1, resources.displayMetrics.heightPixels / 3, Gravity.BOTTOM))
+            addView(tabBar, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
         })
+        selectTab(false)
         updateSettings()
     }
 
@@ -170,7 +209,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             }
             session = Session(this).also { s ->
                 useHighResolutionCameraImage(s)
-                val config = Config(s).setFocusMode(Config.FocusMode.AUTO).setPlaneFindingMode(Config.PlaneFindingMode.VERTICAL)
+                val config = Config(s).setFocusMode(Config.FocusMode.AUTO).setPlaneFindingMode(Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL)
                 if (s.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) config.depthMode = Config.DepthMode.AUTOMATIC
                 s.configure(config)
                 val cm = getSystemService(CameraManager::class.java)
@@ -216,6 +255,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     override fun onSurfaceCreated(g: GL10?, c: EGLConfig?) {
         glClearColor(0f, 0f, 0f, 1f)
         background.init()
+        storeRenderer = StoreModelRenderer()
     }
 
     override fun onSurfaceChanged(g: GL10?, w: Int, h: Int) {
@@ -229,8 +269,10 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         s.setCameraTextureName(background.texId)
         if (geometryChanged) { s.setDisplayGeometry(display!!.rotation, viewW, viewH); geometryChanged = false }
         val frame = try { s.update() } catch (e: Exception) { return }
-        background.draw(frame)
         val camera = frame.camera
+        // 3D モデルを見ている間も、下の認識と地図づくりは止めない
+        if (showModel) storeRenderer.draw(storeView, orbit, viewW, viewH, deviceAt, (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M)
+        else background.draw(frame)
         // 画面の表示用: センサー画像の正規化座標が、画面のどこに来るか
         val corners = FloatArray(6)
         frame.transformCoordinates2d(Coordinates2d.IMAGE_NORMALIZED, floatArrayOf(0f, 0f, 1f, 0f, 0f, 1f), Coordinates2d.VIEW_NORMALIZED, corners)
@@ -245,6 +287,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
 
         // 聞く人の向き: スマホを胸の前に立てて持つので、カメラの前（-z）を水平にしたもの
         val pose = camera.pose
+        deviceAt = Vec3(pose.tx(), pose.ty(), pose.tz())
         val z = pose.zAxis
         val fx = -z[0]
         val fz = -z[2]
@@ -280,8 +323,9 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                         val n = c.yAxis
                         Wall(Vec3(c.tx(), c.ty(), c.tz()), Vec3(n[0], n[1], n[2]), maxOf(pl.extentX, pl.extentZ) / 2)
                     }
+                val counters = counterPoints(s, pose.ty())
                 val heading = debug.headingDeg
-                sceneWorker.execute { try { runScene(f, walls, heading) } finally { sceneBusy.set(false) } }
+                sceneWorker.execute { try { runScene(f, walls, counters, heading) } finally { sceneBusy.set(false) } }
             }
         }
     }
@@ -291,7 +335,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     /**
      * 1 秒ごと: 商品の枠を出して写っているものを判定し、商品に名前を付けて地図（壁の上）に置き、画像と姿勢と結果を記録する。
      */
-    private fun runScene(f: CapturedFrame, walls: List<Wall>, heading: Float?) {
+    private fun runScene(f: CapturedFrame, walls: List<Wall>, counters: List<Vec3>, heading: Float?) {
         val image = JpegEncoder.toUprightBitmap(f, SCENE_LONG_SIDE)
         try {
             val now = SystemClock.elapsedRealtime()
@@ -301,6 +345,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             val products = recognizer.recognize(image, boxes)
             val recognizeMs = SystemClock.elapsedRealtime() - now - detectMs
             val placed = products.map { p -> Recorder.Product(p, placeOnMap(p, f, walls, now)) }
+            updateStoreModel(boxes, placed, counters, f, now)
             recorder.record(System.currentTimeMillis(), image, f.geometry, heading, walls.size, placed)
             debug.productBoxes = boxes
             debug.scene = judge.scene
@@ -553,6 +598,76 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         return pos
     }
 
+    /** 店のモデルに今の 1 枚を足す。名前が付かなかった枠も、棚の形の手がかりとして位置だけ使う。 */
+    private fun updateStoreModel(boxes: List<FloatArray>, placed: List<Recorder.Product>, counters: List<Vec3>, f: CapturedFrame, now: Long) {
+        val cam = cameraPosition(f)
+        val cx = cam.x.toDouble()
+        val cz = cam.z.toDouble()
+        storeModel.addCamera(cx, cz)
+        for (pr in placed) pr.position?.let { storeModel.addProduct(cx, cz, it.x.toDouble(), it.z.toDouble(), pr.p.name, pr.p.genre ?: "") }
+        for (b in boxes) {
+            if (placed.any { it.p.left == b[0] && it.p.top == b[1] }) continue
+            val depth = Unprojector.medianDepthMeters(NormalizedBox(b[0], b[1], b[2], b[3]), f.geometry) ?: continue
+            if (depth > ShelfMap.MAX_DEPTH_M) continue
+            val p = Unprojector.worldAt((b[0] + b[2]) / 2f, (b[1] + b[3]) / 2f, depth, f.geometry)
+            storeModel.addProduct(cx, cz, p.x.toDouble(), p.z.toDouble(), "", "")
+        }
+        for (c in counters) storeModel.addCounter(c.x.toDouble(), c.z.toDouble())
+        if (now - lastStoreEstimate < STORE_ESTIMATE_MS) return
+        lastStoreEstimate = now
+        val view = storeModel.estimate()
+        storeView = view
+        val description = StoreModel.text(view)
+        runOnUiThread { modelLabel.text = description }
+    }
+
+    /** 腰の高さの水平面（レジの天板）の上の点。商品の棚の段は商品に隠れるので、ほぼレジだけが残る。 */
+    private fun counterPoints(s: Session, deviceY: Float): List<Vec3> = s.getAllTrackables(Plane::class.java)
+        .filter { it.type == Plane.Type.HORIZONTAL_UPWARD_FACING && it.trackingState == TrackingState.TRACKING && it.subsumedBy == null }
+        .filter { it.centerPose.ty() - deviceY in COUNTER_BELOW_DEVICE_M && it.extentX * it.extentZ >= MIN_COUNTER_AREA_M2 }
+        .flatMap { pl ->
+            val x = pl.extentX / 2
+            val z = pl.extentZ / 2
+            listOf(0f to 0f, x to z, -x to z, x to -z, -x to -z).map { (dx, dz) ->
+                val w = pl.centerPose.transformPoint(floatArrayOf(dx, 0f, dz))
+                Vec3(w[0], w[1], w[2])
+            }
+        }
+
+    private fun selectTab(model: Boolean) {
+        showModel = model
+        tabs.forEachIndexed { i, b -> b.alpha = if ((i == 1) == model) 1f else 0.55f }
+        debugOverlay.visibility = if (model) View.GONE else View.VISIBLE
+        modelText.visibility = if (model) View.VISIBLE else View.GONE
+        if (model) storeView?.let { fitOrbit(it) }
+    }
+
+    private fun fitOrbit(v: StoreView) {
+        val r = v.room ?: return
+        val cu = (r[0] + r[2]) / 2
+        val cv = (r[1] + r[3]) / 2
+        val cs = kotlin.math.cos(v.yaw)
+        val sn = kotlin.math.sin(v.yaw)
+        orbit.fit(Vec3((cu * cs - cv * sn).toFloat(), (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, (cu * sn + cv * cs).toFloat()), maxOf(r[2] - r[0], r[3] - r[1]).toFloat() / 2)
+    }
+
+    private val orbitScale by lazy {
+        ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(d: ScaleGestureDetector): Boolean { orbit.zoom(d.scaleFactor); return true }
+        })
+    }
+    private var orbitX = 0f
+    private var orbitY = 0f
+
+    /** 3D タブの操作: 1 本指で回転、2 本指でつまんで拡大。 */
+    private fun orbitTouch(e: MotionEvent): Boolean {
+        orbitScale.onTouchEvent(e)
+        if (e.actionMasked == MotionEvent.ACTION_MOVE && e.pointerCount == 1) orbit.rotate(e.x - orbitX, e.y - orbitY)
+        orbitX = e.x
+        orbitY = e.y
+        return true
+    }
+
     private fun updateSettings() {
         val ok = { b: Boolean -> if (b) "○" else "×" }
         debug.settings = "Gemini${ok(narrator.available)} Vision${ok(lookup.configured)} 自動のお知らせ${ok(auto)}"
@@ -598,6 +713,11 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         const val PERSON_HOLD_S = 1.0
         const val APPROACH_ALERT_M = 6f
         const val CLOSE_ALERT_M = 1.5f
+        const val STORE_ESTIMATE_MS = 3000L
+        const val DEVICE_HEIGHT_M = 1.3f
+        /** スマホ（胸の高さ）から見たレジの天板の高さ。 */
+        val COUNTER_BELOW_DEVICE_M = -0.6f..-0.1f
+        const val MIN_COUNTER_AREA_M2 = 0.1f
 
         fun horizontal(a: Vec3, b: Vec3): Float {
             val dx = a.x - b.x
