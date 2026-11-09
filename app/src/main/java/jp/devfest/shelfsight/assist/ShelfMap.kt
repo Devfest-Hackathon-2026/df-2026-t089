@@ -41,6 +41,18 @@ class ShelfMap {
             if (items.size > MAX_ITEMS) items.remove(items.minBy { it.lastSeen })
             return
         }
+        merge(same, position, widthM, heightM, now, cameraAt)
+    }
+
+    /** 判定済みの商品がこの場所にあれば、見えたことだけ記録する。なければ false（新しい点なので判定がいる）。 */
+    @Synchronized
+    fun touch(position: Vec3, widthM: Float, heightM: Float, now: Long, cameraAt: Vec3?): Boolean {
+        val same = items.filter { it.position.distanceTo(position) < SAME_SPOT_M }.minByOrNull { it.position.distanceTo(position) } ?: return false
+        merge(same, position, widthM, heightM, now, cameraAt)
+        return true
+    }
+
+    private fun merge(same: MapItem, position: Vec3, widthM: Float, heightM: Float, now: Long, cameraAt: Vec3?) {
         val k = 1f / (same.seen + 1)
         same.position = Vec3(
             same.position.x + (position.x - same.position.x) * k,

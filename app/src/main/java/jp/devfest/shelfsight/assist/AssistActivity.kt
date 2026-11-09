@@ -91,6 +91,9 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private val listening by lazy { Listening(this) }
 
     private val sceneWorker = Executors.newSingleThreadExecutor()
+    private val identifyWorker = Executors.newSingleThreadExecutor()
+    /** 点ごとの切り抜き。[identifyLoop] が優先度の高いものから MobileCLIP で判定する。 */
+    private val cropQueue = CropQueue<Bitmap>(MAX_PENDING_CROPS)
     private val personWorker = Executors.newSingleThreadExecutor()
     private val lookupWorker = Executors.newSingleThreadExecutor()
     private val sceneBusy = AtomicBoolean(false)
@@ -180,6 +183,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             precomputed = playback?.let { PrecomputedRecognition.load(it.directory, ProductRecognizer.version(this)) }
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        identifyWorker.execute(::identifyLoop)
         gl = GLSurfaceView(this).apply {
             preserveEGLContextOnPause = true
             setEGLContextClientVersion(2)
@@ -324,7 +328,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
 
     override fun onDestroy() {
         super.onDestroy()
-        for (w in listOf(sceneWorker, personWorker, lookupWorker)) w.shutdownNow()
+        for (w in listOf(sceneWorker, personWorker, lookupWorker, identifyWorker)) w.shutdownNow()
         listening.close()
         voice.close()
         mixer.close()
@@ -451,7 +455,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     // ---------------------------------------------------------------- ①② 写っているものの判定
 
     /**
-     * 1 秒ごと: 商品の枠を出して写っているものを判定し、商品に名前を付けて地図（壁の上）に置き、画像と姿勢と結果を記録する。
+     * 1 秒ごと: 商品の枠を出して写っているものを判定し、枠ごとの切り抜きを判定待ちに入れ、画像と姿勢を記録する。
+     * 事前計算のトグルが ON のときは、保存済みの名前をすぐ地図に置く。
      */
     private fun runScene(f: CapturedFrame, walls: List<Wall>, counters: List<Vec3>, heading: Float?, cached: PrecomputedRecognition.Entry? = null) {
         val image = JpegEncoder.toUprightBitmap(f, SCENE_LONG_SIDE)
@@ -462,13 +467,14 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             debug.productBoxes = boxes  // 名前付けに数秒かかるので、枠は先に出す
             debug.sceneAt = SystemClock.elapsedRealtime()
             val switched = judge.update(SceneEvidence(0, boxes))
-            val products = cached?.match(boxes) ?: recognizer.recognize(image, boxes)
+            val products = cached?.match(boxes).orEmpty()
+            if (cached == null) queueCrops(image, boxes, f, walls, now)
             val recognizeMs = SystemClock.elapsedRealtime() - now - detectMs
             val placed = products.map { p -> Recorder.Product(p, placeOnMap(p, f, walls, now)) }
             updateStoreModel(boxes, placed, counters, f, now)
             recorder.record(System.currentTimeMillis(), image, f.geometry, heading, walls.size, placed)
             debug.scene = judge.scene
-            debug.sceneMs = "枠 ${detectMs}ms / 名前 ${recognizeMs}ms${if (cached != null) "（事前計算 ${products.size}/${boxes.size}）" else ""} / 壁 ${walls.size}"
+            debug.sceneMs = "枠 ${detectMs}ms / ${if (cached != null) "名前 ${recognizeMs}ms（事前計算 ${products.size}/${boxes.size}）" else "切り抜き ${recognizeMs}ms・判定待ち ${cropQueue.size}"} / 壁 ${walls.size}"
             debug.mapView = shelfMap.visible(f.geometry)
             debug.mapInfo = "${shelfMap.size} 個（今見えている ${debug.mapView.size}、この 1 枚で置いた ${placed.count { it.position != null }}/${products.size}）"
             val main = SceneJudge.mainProduct(boxes)
@@ -673,16 +679,57 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     // ---------------------------------------------------------------- 補助
 
     /** 名前の付いた商品を地図の上に置く。深度か壁から位置が決まらなければ置かない。 */
-    private fun placeOnMap(p: RecognizedProduct, f: CapturedFrame, walls: List<Wall>, now: Long): Vec3? {
+    private class Located(val position: Vec3, val widthM: Float, val heightM: Float)
+
+    /** 正立画像の枠の 3D の位置と実際の大きさ。深度も壁もなければ null。 */
+    private fun locate(left: Float, top: Float, right: Float, bottom: Float, f: CapturedFrame, walls: List<Wall>): Located? {
         val g = f.geometry
-        val box = NormalizedBox(p.left, p.top, p.right, p.bottom)
-        val depth = Unprojector.medianDepthMeters(box, g)
-        val along = Unprojector.worldAt(p.cx, p.cy, 1f, g)
-        val pos = ShelfMap.place(cameraPosition(f), along, depth?.let { Unprojector.worldAt(p.cx, p.cy, it, g) }, walls) ?: return null
-        val dist = pos.distanceTo(cameraPosition(f))
-        val (w, h) = ShelfMap.sizeInMeters(p.right - p.left, p.bottom - p.top, dist, g)
-        shelfMap.add(p.name, p.genre, p.fine, pos, w, h, now, cameraPosition(f))
-        return pos
+        val cx = (left + right) / 2f
+        val cy = (top + bottom) / 2f
+        val depth = Unprojector.medianDepthMeters(NormalizedBox(left, top, right, bottom), g)
+        val along = Unprojector.worldAt(cx, cy, 1f, g)
+        val pos = ShelfMap.place(cameraPosition(f), along, depth?.let { Unprojector.worldAt(cx, cy, it, g) }, walls) ?: return null
+        val (w, h) = ShelfMap.sizeInMeters(right - left, bottom - top, pos.distanceTo(cameraPosition(f)), g)
+        return Located(pos, w, h)
+    }
+
+    private fun placeOnMap(p: RecognizedProduct, f: CapturedFrame, walls: List<Wall>, now: Long): Vec3? {
+        val at = locate(p.left, p.top, p.right, p.bottom, f, walls) ?: return null
+        shelfMap.add(p.name, p.genre, p.fine, at.position, at.widthM, at.heightM, now, cameraPosition(f))
+        return at.position
+    }
+
+    /** まだ判定していない点の切り抜きを、判定待ちに入れる。判定済みの場所は見えたことだけ記録する。 */
+    private fun queueCrops(image: Bitmap, boxes: List<FloatArray>, f: CapturedFrame, walls: List<Wall>, now: Long) {
+        val camera = cameraPosition(f)
+        for (b in boxes) {
+            val at = locate(b[0], b[1], b[2], b[3], f, walls) ?: continue
+            if (shelfMap.touch(at.position, at.widthM, at.heightM, now, camera)) continue
+            cropQueue.add(CropQueue.Entry(recognizer.cropOf(image, b), b, at.position, camera, at.widthM, at.heightM, SceneJudge.area(b), now)).forEach { it.recycle() }
+        }
+    }
+
+    /** 判定待ちの切り抜きを、優先度の高いものから 1 枚ずつ判定して地図に置く。 */
+    private fun identifyLoop() {
+        try {
+            while (!Thread.currentThread().isInterrupted) {
+                val e = cropQueue.take(deviceAt, SystemClock.elapsedRealtime())
+                if (e == null) { Thread.sleep(IDENTIFY_IDLE_MS); continue }
+                try {
+                    val p = recognizer.judge(e.crop, e.box) ?: continue
+                    shelfMap.add(p.name, p.genre, p.fine, e.position, e.widthM, e.heightM, e.time, e.camera)
+                    sceneWorker.execute { storeModel.addProduct(e.camera.x.toDouble(), e.camera.z.toDouble(), e.position.x.toDouble(), e.position.z.toDouble(), p.name, p.genre ?: "") }
+                } catch (err: InterruptedException) {
+                    throw err
+                } catch (err: Exception) {
+                    Log.e(TAG, "crop identification failed", err)
+                } finally {
+                    e.crop.recycle()
+                }
+            }
+        } catch (_: InterruptedException) {
+            // 画面を閉じた
+        }
     }
 
     /** GL スレッドで記録を始める・止める。 */
@@ -927,6 +974,9 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         const val STORE_ESTIMATE_MS = 3000L
         const val RECORD_LABEL = "● 記録"
         const val DEMO_TICK_MS = 50L
+        /** 256px の切り抜きは 1 枚 262 KB なので、判定待ちは 60 MB ほどで頭打ちにする。 */
+        const val MAX_PENDING_CROPS = 240
+        const val IDENTIFY_IDLE_MS = 30L
         val DEMO_LISTENER = Listener(Vec3(0f, 0f, 0f), 0f, -1f)
         const val EXTRA_PLAYBACK = "jp.devfest.shelfsight.PLAYBACK_RECORDING"
         const val EXTRA_PRECOMPUTED = "jp.devfest.shelfsight.PLAYBACK_PRECOMPUTED"

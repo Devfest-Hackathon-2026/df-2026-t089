@@ -89,16 +89,7 @@ class ProductRecognizer(context: Context) : AutoCloseable {
         if (boxes.isEmpty()) return emptyList()
         val emb = boxes.chunked(EMBED_BATCH).flatMap { part ->
             val crops = part.map { crop(image, it) }
-            try {
-                OnnxTensor.createTensor(env, chw(crops, embSize), longArrayOf(crops.size.toLong(), 3, embSize.toLong(), embSize.toLong())).use { t ->
-                    embedder.run(mapOf(embInput to t)).use { r ->
-                        @Suppress("UNCHECKED_CAST")
-                        (r[0].value as Array<FloatArray>).toList()
-                    }
-                }
-            } finally {
-                crops.forEach { it.recycle() }
-            }
+            try { embed(crops) } finally { crops.forEach { it.recycle() } }
         }
 
         val cands = emb.map { e -> topProducts(normalize(e)) }
@@ -118,6 +109,24 @@ class ProductRecognizer(context: Context) : AutoCloseable {
             RecognizedProduct(b[0], b[1], b[2], b[3], prod.name, prod.genre, prod.fine, p.sim)
         }
     }
+
+    /** 枠の切り抜き。[judge] にそのまま渡せる大きさで、解放は呼ぶ側で行う。 */
+    fun cropOf(image: Bitmap, box: FloatArray): Bitmap = crop(image, box)
+
+    /** 切り抜き 1 枚に、いちばん近い商品の名前を付ける。 */
+    fun judge(crop: Bitmap, box: FloatArray): RecognizedProduct? {
+        val best = topProducts(normalize(embed(listOf(crop)).single())).firstOrNull() ?: return null
+        val product = byKey[best.key] ?: return null
+        return RecognizedProduct(box[0], box[1], box[2], box[3], product.name, product.genre, product.fine, best.sim)
+    }
+
+    private fun embed(crops: List<Bitmap>): List<FloatArray> =
+        OnnxTensor.createTensor(env, chw(crops, embSize), longArrayOf(crops.size.toLong(), 3, embSize.toLong(), embSize.toLong())).use { t ->
+            embedder.run(mapOf(embInput to t)).use { r ->
+                @Suppress("UNCHECKED_CAST")
+                (r[0].value as Array<FloatArray>).toList()
+            }
+        }
 
     /** 商品ごとの最大類似度の上位 [TOP_K]。 */
     private fun topProducts(e: FloatArray): List<ContextAdjust.Candidate> {
