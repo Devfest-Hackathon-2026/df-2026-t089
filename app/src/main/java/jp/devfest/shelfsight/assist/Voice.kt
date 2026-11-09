@@ -88,7 +88,14 @@ class Voice(context: Context, private val mixer: SpatialMixer) : AutoCloseable {
 
     val speaking: Boolean get() = mixer.speaking
 
-    private fun synth(text: String): FloatArray? {
+    private fun synth(text: String): FloatArray? = try {
+        synthNow(text)
+    } catch (e: InterruptedException) {   // close() が合成の待ちを止めたとき
+        Thread.currentThread().interrupt()
+        null
+    }
+
+    private fun synthNow(text: String): FloatArray? {
         cache.get(text)?.let { return it }
         if (!ready.await(5, TimeUnit.SECONDS)) return null
         val id = "u${nextId++}"
