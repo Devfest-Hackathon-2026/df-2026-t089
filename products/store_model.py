@@ -256,15 +256,16 @@ class StoreModel:
         for kind, axis, c, a, b, depth, faces in self._classify(runs, trail):
             a, n, w = self._snap(a, b, kind)
             per = {}
-            for r in faces:
-                mods = [{} for _ in range(n)]
-                for p in r["pts"]:
-                    m = mods[min(n - 1, max(0, floor((p[1 - r["ax"]] - a) / w)))]
-                    for cat, v in p[5].items():
-                        m[cat] = m.get(cat, 0) + v
-                total = [sum(m.values()) or 1 for m in mods]
-                # 面の向き（什器の軸の正なら +）: エンドは面の法線が軸なので r["s"] がそのまま使える
-                per["+" if r["s"] == 1 else "-"] = [[[cat, round(v / t, 3)] for cat, v in sorted(m.items(), key=lambda x: (-x[1], x[0]))[:3]] for m, t in zip(mods, total)]
+            for sign in (1, -1):   # 什器の軸の正の向きを見ている面が +
+                sides = [r for r in faces if r["s"] == sign]
+                if sides:
+                    mods = [{} for _ in range(n)]
+                    for r in sides:
+                        for p in r["pts"]:
+                            m = mods[min(n - 1, max(0, floor((p[1 - r["ax"]] - a) / w)))]
+                            for cat, v in p[5].items():
+                                m[cat] = m.get(cat, 0) + v
+                    per["+" if sign == 1 else "-"] = [[[cat, v / (sum(m.values()) or 1)] for cat, v in sorted(m.items(), key=lambda x: (-x[1], x[0]))[:3]] for m in mods]
             fixtures.append({"kind": kind, "axis": axis, "c": c, "a": a, "b": a + n * w, "d": depth, "h": HEIGHT[kind], "n": n, "w": w, "faces": per, "obs": sum(r["w"] for r in faces)})
         reg = self._register(cos(self.yaw), sin(self.yaw))
         if reg:
@@ -287,16 +288,22 @@ class StoreModel:
         return [min(low[0]), min(low[1]), max(high[0]), max(high[1])]
 
 
+def _fmt(v, digits=2):
+    """四捨五入の桁そろえ。書式の丸めは言語で違う（0.125 が Python は 0.12、Java は 0.13）のでアプリと揃える"""
+    k = 10 ** digits
+    return f"{floor(v * k + 0.5) / k:.{digits}f}"
+
+
 def text(model):
     """記述言語の文字列にする（cm の桁まで）"""
     if not model["fixtures"]:
         return "store (empty)"
     r = model["room"]
-    lines = [f"store yaw={model['yaw'] * 180 / 3.141592653589793:.1f} room={r[0]:.2f},{r[1]:.2f}..{r[2]:.2f},{r[3]:.2f}"]
+    lines = [f"store yaw={_fmt(model['yaw'] * 180 / 3.141592653589793, 1)} room={_fmt(r[0])},{_fmt(r[1])}..{_fmt(r[2])},{_fmt(r[3])}"]
     for f in model["fixtures"]:
-        lines.append(f"{f['kind']} axis={'uv'[f['axis']]} c={f['c']:.2f} span={f['a']:.2f}..{f['b']:.2f} d={f['d']:.2f} h={f['h']:.1f} mods={f['n']}x{f['w']:.2f}")
+        lines.append(f"{f['kind']} axis={'uv'[f['axis']]} c={_fmt(f['c'])} span={_fmt(f['a'])}..{_fmt(f['b'])} d={_fmt(f['d'])} h={_fmt(f['h'], 1)} mods={f['n']}x{_fmt(f['w'])}")
         for i in range(f["n"]):
-            parts = [sign + ",".join(f"{c}:{s:.2f}" for c, s in faces[i]) for sign, faces in sorted(f["faces"].items()) if i < len(faces) and faces[i]]
+            parts = [sign + ",".join(f"{c}:{_fmt(s)}" for c, s in faces[i]) for sign, faces in sorted(f["faces"].items()) if i < len(faces) and faces[i]]
             if parts:
                 lines.append(f"  m{i} " + " ".join(parts))
-    return "\n".join(lines)
+    return chr(10).join(lines)

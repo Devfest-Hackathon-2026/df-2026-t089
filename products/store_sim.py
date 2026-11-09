@@ -294,7 +294,7 @@ def modules(f, yaw, w0, ou, ov):
             k = 1 if sign == "+" else -1
             wx, wz = (nu * c - nv * s) * k, (nu * s + nv * c) * k
             cw, sw = cos(w0), sin(w0)
-            faces.append({"n": [round(wx * cw + wz * sw, 3), round(-wx * sw + wz * cw, 3)], "cats": ms[i] if i < len(ms) else []})
+            faces.append({"n": [round(wx * cw + wz * sw, 3), round(-wx * sw + wz * cw, 3)], "cats": [[c, round(v, 3)] for c, v in ms[i]] if i < len(ms) else []})
         out.append({"u": round(x, 3), "v": round(z, 3), "w": f["w"], "faces": faces})
     return out
 
@@ -403,36 +403,28 @@ def batch(n):
 
 
 def fixture():
-    """同じ観測列を流したときの text() が Python とアプリで同じかを確かめるデータ"""
-    rng = random.Random(5)
-    model = StoreModel()
+    """同じ観測列を流したときの text() が Python とアプリで同じかを確かめるデータ。実際のシミュレーションの観測をそのまま使う"""
     lines = []
 
-    def obs(cx, cz, x, z, cat, genre):
-        model.add_product(cx, cz, x, z, cat, genre)
-        lines.append(f"P\t{cx}\t{cz}\t{x}\t{z}\t{cat}\t{genre}")
+    class Recording(StoreModel):
+        def add_product(self, cx, cz, x, z, cat, genre):
+            lines.append(f"P	{cx}	{cz}	{x}	{z}	{cat}	{genre}")
+            super().add_product(cx, cz, x, z, cat, genre)
 
-    yaw = radians(17)
-    w = lambda u, v: (u * cos(yaw) - v * sin(yaw), u * sin(yaw) + v * cos(yaw))
-    for i in range(1800):
-        side = rng.choice([(1.0, 2.0, 0.0, 1, "A", "G1"), (1.88, 2.8, 0.0, -1, "B", "G2"), (6.0, 5.0, 2.0, -1, "D", "酒")])
-        c, lane, a, s, cat, genre = side
-        t = rng.uniform(a, a + 3.6)
-        x, z = w(c + rng.gauss(0, 0.05), t)
-        cx, cz = w(c + s * 1.2 if c != 6.0 else 5.0, t + rng.uniform(-1, 1))
-        obs(round(cx, 4), round(cz, 4), round(x, 4), round(z, 4), cat, genre)
-    for k in range(40):
-        x, z = w(0.5 + k * 0.15, -1.0 + (k % 4) * 0.2)
-        model.add_counter(round(x, 4), round(z, 4))
-        lines.append(f"C\t{round(x, 4)}\t{round(z, 4)}")
-    for k in range(30):
-        x, z = w(3.2, k * 0.2)
-        model.add_camera(round(x, 4), round(z, 4))
-        lines.append(f"T\t{round(x, 4)}\t{round(z, 4)}")
+        def add_counter(self, x, z):
+            lines.append(f"C	{x}	{z}")
+            super().add_counter(x, z)
+
+        def add_camera(self, x, z):
+            lines.append(f"T	{x}	{z}")
+            super().add_camera(x, z)
+
+    globals()["StoreModel"] = Recording
+    r = simulate({"seed": 2, "snap": 10 ** 6})  # エンド什器も出る店
     out = ROOT / "app/src/test/resources/store_model_trace.tsv"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("\n".join(lines) + "\n===\n" + text(model.estimate()) + "\n", encoding="utf-8", newline="\n")
-    print(text(model.estimate()))
+    out.write_text("\n".join(lines) + "\n===\n" + r["text"] + "\n", encoding="utf-8", newline="\n")
+    print(r["text"])
 
 
 if __name__ == "__main__":
