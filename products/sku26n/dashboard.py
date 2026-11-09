@@ -18,6 +18,7 @@ WORK = HERE.parent / "work" / "sku26n"
 CROPS = HERE.parent / "work" / "crops"
 NAMES = HERE.parent / "work" / "names.json"
 SELECTED = WORK / "selected_crops.json"
+SELECTED_DB = WORK / "selected_db.json"
 TAXONOMY = HERE.parent / "konbinidb" / "taxonomy.json"
 METHODS = ["gemini", "m1"]
 
@@ -53,16 +54,27 @@ def read_selected() -> set:
     return set(json.loads(SELECTED.read_text(encoding="utf-8"))) if SELECTED.exists() else set()
 
 
-def select(ids: list, on: bool):
-    named_crops()
-    if not isinstance(ids, list) or not isinstance(on, bool) or not set(ids) <= _crop_ids:
+def read_selected_db() -> set:
+    return set(json.loads(SELECTED_DB.read_text(encoding="utf-8"))) if SELECTED_DB.exists() else set()
+
+
+def select(ids: list, on: bool, source: str = "crops"):
+    if source == "crops":
+        named_crops()
+        allowed, path, read = _crop_ids, SELECTED, read_selected
+    elif source == "db":
+        allowed = {r[0] for r in konbinidb_view()["items"] if r[3] and r[5]}
+        path, read = SELECTED_DB, read_selected_db
+    else:
+        raise ValueError("bad source")
+    if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids) or not isinstance(on, bool) or not set(ids) <= allowed:
         raise ValueError("bad selection")
     with _lock:
-        s = read_selected()
+        s = read()
         s = s | set(ids) if on else s - set(ids)
-        tmp = SELECTED.with_suffix(".tmp")
+        tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(sorted(s)), encoding="utf-8")
-        tmp.replace(SELECTED)
+        tmp.replace(path)
 
 
 def konbinidb_view() -> dict:
@@ -78,7 +90,9 @@ def konbinidb_view() -> dict:
         cat = None if excluded(x) or labels.get(x["id"]) == "000" else labels.get(x["id"])
         rows.append([x["id"], x["name"], x["chain"], cat, x["category"].rsplit("/", 1)[-1], x["id"] in have])
     rows.sort(key=lambda r: not r[5])
-    return {"items": rows, "images": len(have)}
+    selectable = {r[0] for r in rows if r[3] and r[5]}
+    return {"items": rows, "images": len(have), "labeled": sum(bool(r[3]) for r in rows),
+            "candidates": len(selectable), "selected": sorted(read_selected_db() & selectable)}
 
 
 def store_sim_view(q):
@@ -159,6 +173,19 @@ def replay_get(path):
     m = re.fullmatch(r"/api/replay/file/(\d{8}_\d{6})/(frames/\d{5}\.jpg)", path)
     if m and (replay.RECORDINGS / m[1] / m[2]).exists():
         return (replay.RECORDINGS / m[1] / m[2]).read_bytes(), "image/jpeg"
+    m = re.fullmatch(r"/api/replay/audio/(\d{8}_\d{6})\.wav", path)
+    if m:
+        import io
+        import wave
+        pcm = replay.RECORDINGS / m[1] / "audio.pcm"
+        if pcm.exists():
+            out = io.BytesIO()
+            with wave.open(out, "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(16000)
+                wav.writeframes(pcm.read_bytes())
+            return out.getvalue(), "audio/wav"
     m = re.fullmatch(r"/api/replay/depth/(\d{8}_\d{6})/(\d+)\.png", path)
     if m:
         import io
@@ -239,7 +266,7 @@ def handler(det: Path, pred_dir: Path):
                 return self.send_error(404)
             try:
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
-                select(body.get("ids"), body.get("on"))
+                select(body.get("ids"), body.get("on"), body.get("source", "crops"))
             except (ValueError, TypeError, AttributeError) as e:
                 return self.send_error(400, str(e))
             self.send(b"{}", "application/json")

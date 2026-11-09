@@ -544,7 +544,10 @@ def replay(name, detector="app", hz=1.0, recognize=None):
                "ms_per_step": round(stats["ms"] / max(stats["frames"], 1)), "items": len(shelf.items), "fixtures": len(view["fixtures"]),
                "planes": len(planes), "keyframes": len(keyframes), "poses": len(jsonl(d / "poses.jsonl"))}
     timed = [{**e, "at": round((e["t"] - t0) / 1e9, 2)} for e in events]
-    result = {"name": name, "detector": detector, "hz": hz, "meta": read_json(d / "meta.json", {}), "summary": summary, "steps": steps, "events": timed,
+    meta = read_json(d / "meta.json", {})
+    audio_offset = max(0.0, (keyframes[0].get("wall_ms", 0) - meta.get("audio_start_ms", 0)) / 1000) if meta.get("audio_start_ms") and keyframes[0].get("wall_ms") else 0.0
+    result = {"name": name, "detector": detector, "hz": hz, "meta": meta, "has_audio": (d / "audio.pcm").exists(), "audio_offset": audio_offset,
+              "summary": summary, "steps": steps, "events": timed,
               "text": store_text(view), "final_model": light_model(view)}
     write_json(d / f"replay_{detector}.json", result)
     set_status(state="done", job="replay", msg=f"{name} ({detector}) を再生しました", done=len(chosen), total=len(chosen))
@@ -559,6 +562,7 @@ def recordings():
             if p.is_dir() and NAME.match(p.name):
                 mp4 = p / "session.mp4"
                 out.append({"name": p.name, "keyframes": len(list((p / "frames").glob("*.jpg"))), "mp4_mb": round(mp4.stat().st_size / 1e6) if mp4.exists() else 0,
+                            "audio": (p / "audio.pcm").exists(),
                             "pulled": (p / ".pulled").exists(), "replays": [d for d in DETECTORS if (p / f"replay_{d}.json").exists()]})
     return out
 

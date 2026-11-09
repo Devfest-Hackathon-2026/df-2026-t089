@@ -6,6 +6,9 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.media.Image
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.util.Log
@@ -42,6 +45,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   planes.jsonl   更新された平面（毎フレーム、更新分だけ）
  *   keyframes.jsonl / frames/ depth/ points/   KEYFRAME_MS ごとのカメラ画像、深度（補完済み・生・信頼度）、特徴点
  *   sensors.csv    端末の各センサーの生の値
+ *   audio.pcm      マイクの 16 kHz・16 bit・モノラル音声（音声認識の再試験用）
  *   events.jsonl   記録中の操作（タップ・ダブルタップ・長押し・聞き取った言葉）
  *
  * onFrame は GL スレッドから、書き込みは 1 本の別スレッドで行う。
@@ -61,6 +65,10 @@ class SessionRecorder(private val context: Context, root: File) : SensorEventLis
     private var keyframeCount = 0
     private var startMs = 0L
     private var lastStatus = 0L
+    private var audioRecord: AudioRecord? = null
+    private var audioThread: Thread? = null
+    @Volatile private var audioRunning = false
+    private var audioStartMs: Long? = null
     @Volatile private var lastFrameT = 0L
     @Volatile var hasMp4 = false
         private set
@@ -78,6 +86,7 @@ class SessionRecorder(private val context: Context, root: File) : SensorEventLis
         }
         val c = session.cameraConfig
         val config = session.config
+        startAudio()
         File(dir, "meta.json").writeText(
             JSONObject().put("name", name).put("start_ms", startMs).put("model", Build.MODEL).put("sdk", Build.VERSION.SDK_INT)
                 .put("mp4", hasMp4).put("camera_id", c.cameraId).put("image", JSONArray(listOf(c.imageSize.width, c.imageSize.height)))
@@ -85,6 +94,8 @@ class SessionRecorder(private val context: Context, root: File) : SensorEventLis
                 .put("plane_finding_mode", config.planeFindingMode.name).put("depth_mode", config.depthMode.name)
                 .put("light_estimation_mode", config.lightEstimationMode.name).put("focus_mode", config.focusMode.name)
                 .put("update_mode", config.updateMode.name)
+                .put("audio_sample_rate", if (audioRecord != null) AUDIO_HZ else JSONObject.NULL)
+                .put("audio_start_ms", audioStartMs ?: JSONObject.NULL)
                 .put("sensor_rotation", sensorRotation).put("keyframe_ms", KEYFRAME_MS).put("long_side", LONG_SIDE).toString(1),
         )
         for (s in SENSOR_TYPES.mapNotNull { sensorManager.getDefaultSensor(it) }) sensorManager.registerListener(this, s, SensorManager.SENSOR_DELAY_GAME)
@@ -208,8 +219,44 @@ class SessionRecorder(private val context: Context, root: File) : SensorEventLis
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 
+    private fun startAudio() {
+        var record: AudioRecord? = null
+        try {
+            val size = maxOf(AudioRecord.getMinBufferSize(AUDIO_HZ, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT), 4096)
+            record = AudioRecord(MediaRecorder.AudioSource.MIC, AUDIO_HZ, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, size)
+            if (record.state != AudioRecord.STATE_INITIALIZED) throw IllegalStateException("microphone unavailable")
+            record.startRecording()
+            val mic: AudioRecord = record
+            audioRecord = record
+            audioStartMs = System.currentTimeMillis()
+            audioRunning = true
+            audioThread = Thread({
+                try {
+                    File(dir, "audio.pcm").outputStream().buffered().use { out ->
+                        val buf = ByteArray(size)
+                        while (audioRunning) {
+                            val n = mic.read(buf, 0, buf.size, AudioRecord.READ_BLOCKING)
+                            if (n > 0) out.write(buf, 0, n) else if (n < 0) break
+                        }
+                    }
+                } catch (e: IOException) {
+                    Log.w(TAG, "audio write failed", e)
+                } catch (e: RuntimeException) {
+                    Log.w(TAG, "audio capture stopped", e)
+                }
+            }, "SessionAudio").apply { start() }
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "audio recording unavailable", e)
+            record?.release()
+        }
+    }
+
     /** ファイルを閉じる。ARCore の録画は呼ぶ側が止める（一時停止なら自動で止まる）。 */
     fun close() {
+        audioRunning = false
+        audioRecord?.let { try { it.stop() } catch (e: IllegalStateException) { Log.w(TAG, "audio stop failed", e) } }
+        try { audioThread?.join(3000) } catch (e: InterruptedException) { Thread.currentThread().interrupt() }
+        audioRecord?.release()
         sensorManager.unregisterListener(this)
         io.shutdown()
         if (!io.awaitTermination(5, TimeUnit.SECONDS)) Log.w(TAG, "writer did not finish in time")
@@ -243,6 +290,7 @@ class SessionRecorder(private val context: Context, root: File) : SensorEventLis
         const val LONG_SIDE = 1280
         private const val POINT_BYTES = 20
         private const val MIN_FREE_BYTES = 1_000_000_000L
+        private const val AUDIO_HZ = 16_000
         private val SENSOR_TYPES = listOf(
             Sensor.TYPE_ACCELEROMETER, Sensor.TYPE_GYROSCOPE, Sensor.TYPE_MAGNETIC_FIELD, Sensor.TYPE_GRAVITY, Sensor.TYPE_LINEAR_ACCELERATION,
             Sensor.TYPE_ROTATION_VECTOR, Sensor.TYPE_GAME_ROTATION_VECTOR, Sensor.TYPE_ACCELEROMETER_UNCALIBRATED, Sensor.TYPE_GYROSCOPE_UNCALIBRATED,

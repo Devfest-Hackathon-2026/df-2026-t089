@@ -20,6 +20,7 @@ $("main").innerHTML = `
 </div>
 <div id="body" hidden>
   <div class="card row"><button id="play">▶</button><input id="t" type="range" min="0" value="0" style="flex:1"><span id="clock"></span></div>
+  <div class="card row" id="audio-row" hidden><b>記録中のマイク音声</b><audio id="audio" controls preload="metadata" style="flex:1"></audio></div>
   <div class="tiles" id="tiles"></div>
   <div class="cols">
     <div class="card"><div class="row"><b>カメラと認識</b><label class="mute small"><input type="checkbox" id="depth"> 深度を表示</label></div>
@@ -43,11 +44,18 @@ $("detector").onchange = (e) => { R.detector = e.target.value; load(); };
 $("hz").onchange = (e) => { R.hz = +e.target.value; };
 $("pull").onclick = () => job("/api/replay/pull", {});
 $("run").onclick = () => R.name && job("/api/replay/run", { name:R.name, detector:R.detector, hz:R.hz });
-$("t").oninput = (e) => { R.i = +e.target.value; draw(); };
+$("t").oninput = (e) => { R.i = +e.target.value; draw(); syncAudio(); };
 $("play").onclick = play;
 $("depth").onchange = (e) => { R.depth = e.target.checked; draw(); };
 $("ask").onclick = askAi;
 R.img.onload = paintCam;
+$("audio").ontimeupdate = () => {
+  if (!R.data || R.timer) return;
+  const at = $("audio").currentTime - R.data.audio_offset;
+  let best = 0;
+  R.data.steps.forEach((s, k) => { if (Math.abs(s.t - at) < Math.abs(R.data.steps[best].t - at)) best = k; });
+  if (best !== R.i) { R.i = best; $("t").value = best; draw(); }
+};
 refresh();
 
 async function refresh() {
@@ -64,6 +72,8 @@ async function load() {
   if (!r.ok) { R.data = null; $("body").hidden = true; if (!R.job) $("status").textContent = "「認識を実行」を押すと、この記録で認識を動かします"; return; }
   R.data = await r.json(); R.i = 0;
   $("body").hidden = false; if (!R.job) $("status").textContent = "";
+  $("audio-row").hidden = !R.data.has_audio;
+  $("audio").src = R.data.has_audio ? `/api/replay/audio/${R.name}.wav` : "";
   $("t").max = R.data.steps.length - 1; $("t").value = 0;
   $("text").textContent = R.data.text;
   const s = R.data.summary;
@@ -81,7 +91,7 @@ function seek(at, speech) {
   steps.forEach((s, k) => { if (Math.abs(s.t - at) < Math.abs(steps[best].t - at)) best = k; });
   R.i = best; $("t").value = best;
   if (speech) { const m = speech.match(/「(.*)」/); if (m) $("q").value = m[1]; }
-  draw();
+  draw(); syncAudio();
 }
 
 async function job(url, body) {
@@ -101,9 +111,15 @@ function play() {
   if (R.timer) return stopPlay();
   if (R.i >= R.data.steps.length - 1) R.i = 0;
   $("play").textContent = "⏸";
+  syncAudio();
+  if (R.data.has_audio) { $("audio").playbackRate = 2; $("audio").play().catch(() => {}); }
   R.timer = setInterval(() => { if (R.i >= R.data.steps.length - 1) return stopPlay(); R.i++; $("t").value = R.i; draw(); }, Math.max(100, 1000 / R.data.hz / 2));
 }
-function stopPlay() { clearInterval(R.timer); R.timer = null; $("play").textContent = "▶"; }
+function stopPlay() { clearInterval(R.timer); R.timer = null; $("audio").pause(); $("play").textContent = "▶"; }
+function syncAudio() {
+  if (!R.data?.has_audio || $("audio").readyState < 1) return;
+  $("audio").currentTime = Math.max(0, R.data.audio_offset + step().t);
+}
 
 const step = () => R.data.steps[R.i];
 function lastModel() { for (let k = R.i; k >= 0; k--) if (R.data.steps[k].model) return R.data.steps[k].model; return []; }
