@@ -108,9 +108,9 @@ class DebugOverlay(context: Context, private val d: AssistDebug) : View(context)
 
     private fun drawImageLayer(canvas: Canvas, now: Long) {
         // 商品の枠（最後の解析）
-        if (now - d.sceneAt < STALE_MS) for (b in d.productBoxes) rect(canvas, b[0], b[1], b[2], b[3], GRAY)
+        if (now - d.sceneAt < SCENE_MS) for (b in d.productBoxes) rect(canvas, b[0], b[1], b[2], b[3], GRAY)
         // 地図に貯めた、今見えている商品（青、数字は見えた回数）
-        if (now - d.sceneAt < STALE_MS) for (p in d.mapView) rect(canvas, p.left, p.top, p.right, p.bottom, BLUE, "${short(p.name)} ${p.sim.toInt()}")
+        if (now - d.sceneAt < SCENE_MS) for (p in d.mapView) rect(canvas, p.left, p.top, p.right, p.bottom, BLUE, "${short(p.name)} ${p.sim.toInt()}")
         // 説明に使った商品と、外した商品
         if (now - d.productsAt < PRODUCTS_MS) {
             for (p in d.kept) rect(canvas, p.left, p.top, p.right, p.bottom, GREEN, short(p.name))
@@ -168,6 +168,8 @@ class DebugOverlay(context: Context, private val d: AssistDebug) : View(context)
     private companion object {
         const val REFRESH_MS = 100L
         const val STALE_MS = 3000L
+        /** 全枠に名前を付けると 1 周 30 秒ほどかかるので、次の結果が出るまで枠を残す。 */
+        const val SCENE_MS = 40000L
         const val PRODUCTS_MS = 8000L
         const val GRAY = 0xFF9E9E9E.toInt()
         const val BLUE = 0xFF448AFF.toInt()

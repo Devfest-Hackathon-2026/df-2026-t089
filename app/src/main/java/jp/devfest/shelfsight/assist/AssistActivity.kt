@@ -357,16 +357,16 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             val now = SystemClock.elapsedRealtime()
             val boxes = recognizer.detect(image).map { it.first }
             val detectMs = SystemClock.elapsedRealtime() - now
+            debug.productBoxes = boxes  // 名前付けに 30 秒ほどかかるので、枠は先に出す
+            debug.sceneAt = SystemClock.elapsedRealtime()
             val switched = judge.update(SceneEvidence(0, boxes))
             val products = recognizer.recognize(image, boxes)
             val recognizeMs = SystemClock.elapsedRealtime() - now - detectMs
             val placed = products.map { p -> Recorder.Product(p, placeOnMap(p, f, walls, now)) }
             updateStoreModel(boxes, placed, counters, f, now)
             recorder.record(System.currentTimeMillis(), image, f.geometry, heading, walls.size, placed)
-            debug.productBoxes = boxes
             debug.scene = judge.scene
             debug.sceneMs = "枠 ${detectMs}ms / 名前 ${recognizeMs}ms / 壁 ${walls.size}"
-            debug.sceneAt = now
             debug.mapView = shelfMap.visible(f.geometry)
             debug.mapInfo = "${shelfMap.size} 個（今見えている ${debug.mapView.size}、この 1 枚で置いた ${placed.count { it.position != null }}/${products.size}）"
             val main = SceneJudge.mainProduct(boxes)
