@@ -110,7 +110,7 @@ function render() {
   $("#prev").disabled = page === 0; $("#next").disabled = page === last;
   const frag = document.createDocumentFragment();
   S.images.slice(page * PER_PAGE, (page + 1) * PER_PAGE).forEach((im, r) => {
-    const i = page * PER_PAGE + r, row = r + 1, src = `/thumb/${encodeURIComponent(im.name)}`;
+    const i = page * PER_PAGE + r, row = r + 1, src = `/view/${encodeURIComponent(im.name)}`;
     const ratio = im.w && im.h ? `style="aspect-ratio:${im.w}/${im.h}"` : "";
     frag.append(cell(`<div class="pic"><img loading="lazy" src="${src}" alt="" ${ratio}></div><figcaption><span>${im.name}</span></figcaption>`, 1, row));
     COLS.forEach((col, c) => {
