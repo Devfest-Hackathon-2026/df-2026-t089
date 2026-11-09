@@ -17,16 +17,15 @@ from label_gemini import CATALOG, GEMINI, MODEL, TAX, WORK, gemini_key, inline, 
 
 PER_REQUEST = 20
 CROP_SIDE = 512
-SHELF_SIDE = 768
 MARGIN = 0.05
 STATUS = ("ok", "not_product", "unsure", "multiple")
 PROMPT = f"""コンビニの店内の写真から切り出した商品を分類してください。
-最初の画像は棚全体です。続く画像が切り抜きで、それぞれの前に番号があります。
+画像は切り抜きで、それぞれの前に番号があります。周りの商品からの推測はせず、その切り抜きに写っているものだけで判断してください。
 
 status は次のどれか 1 つ:
-- "ok": 主役の商品が 1 種類に絞れて、カテゴリを断定できる。同じ商品が並んでいたり積み重なっていたりするのは問題ない。
+- "ok": 主役の商品が 1 種類に絞れて、切り抜きの中の文字・ブランド・特徴的なパッケージのデザインのどれかからカテゴリを確定できる。同じ商品が並んでいたり積み重なっていたりするのは問題ない。容器の形や色だけでは "ok" にしない。
 - "multiple": 別の種類の商品（同じブランドの味違いも別の種類とする）が 2 つ以上あり、どれも全体が写っている。主役以外の種類が小さく写っているだけ、または一部しか写っていないだけなら "multiple" にせず、メインの 1 つで判定する。
-- "unsure": カテゴリを断定できない（ぼやけている、暗い、一部しか写っていない）。少しでも迷ったら "unsure" にする。棚全体の様子だけから推測しない。
+- "unsure": カテゴリを断定できない（ぼやけている、暗い、白飛びしている、一部しか写っていない、文字が読めない）。少しでも迷ったら "unsure" にする。
 - "not_product": 値札、POP、棚、人など商品でないもの。
 
 "ok" のときだけ cat に下のカテゴリ番号を入れる。
@@ -43,7 +42,7 @@ def crop(im, b):
 
 
 def ask(im, boxes):
-    parts = [{"text": PROMPT}, inline(im, SHELF_SIDE)]
+    parts = [{"text": PROMPT}]
     for i, b in enumerate(boxes):
         parts += [{"text": f"切り抜き {i}:"}, inline(crop(im, b), CROP_SIDE)]
     body = {"contents": [{"parts": parts}], "generationConfig": {"temperature": 0, "responseMimeType": "application/json", "mediaResolution": "MEDIA_RESOLUTION_MEDIUM", "thinkingConfig": {"thinkingLevel": "low"}}}
