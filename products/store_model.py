@@ -46,20 +46,35 @@ END_DEPTH = 0.44
 GONDOLA_DEPTH = 0.45
 CASE_DEPTH = 0.8
 HEIGHT = {"island": 1.8, "wall": 1.8, "case": 2.0, "glass": 2.0, "end": 1.5, "register": 1.0}
+FRONT = 0.85       # 面の前面とみなす、奥から数えた点の割合
+EXPLAIN = 0.25     # 棚の箱からこの距離までの点は、その棚の商品として説明できる
+TOUCH = 0.01       # 棚どうしが重なったとみなす食い込み
+SHELF_COST = 16    # 棚を 1 つ増やすのに必要な点の数（少ない棚で説明するための罰則）
+MODULE_COST = 3
+CORNER_BONUS = 12
+GLASS_GAP = 1.2    # ガラスの散らばりは疎なので、棚の面より遠くまで 1 つの塊とみなす
+GLASS_SPREAD = 0.6 # 視線方向の厚みがこれ以上なら面ではなく散らばり（棚の帯は 0.4 m ほど）
+GLASS_MIN = 8
+GLASS_BONUS = 12
 CHILLED = {"ソフトドリンク", "栄養・エナジードリンク", "紙パック飲料・乳製品", "酒", "冷凍食品", "アイス",
            "弁当・おにぎり", "サンドイッチ・サラダ・惣菜", "チルドデザート",
            "飲料", "お酒", "パン・米飯・軽食", "冷蔵・冷凍・デザート・惣菜"}   # 上は今のアプリの 26 分類、この行は 120 カテゴリの大分類
 
 
-def _median(values):
-    """(値, 重み) の重み付き中央値"""
+def _quantile(values, q):
+    """(値, 重み) の重み付き分位点"""
     values = sorted(values)
-    half, s = sum(w for _, w in values) / 2, 0.0
+    limit, s = sum(w for _, w in values) * q, 0.0
     for v, w in values:
         s += w
-        if s >= half:
+        if s >= limit:
             return v
     return values[-1][0]
+
+
+def _front(pts, ax, sign):
+    """面の前面の位置。点は棚の段と深度の誤差で奥行き方向に帯になるので、中央ではなくカメラ側の端を使う"""
+    return _quantile([(p[ax], p[2]) for p in pts], FRONT if sign > 0 else 1 - FRONT)
 
 
 def _overlap(a0, a1, b0, b1):
@@ -168,7 +183,7 @@ class StoreModel:
                     a, b, w = seg[0][1 - axis], seg[-1][1 - axis], sum(q[2] for q in seg)
                     if b - a >= MIN_LEN and w >= MIN_OBS:
                         sign = 1 if sum(q[3 + axis] for q in seg) >= 0 else -1
-                        runs.append({"ax": axis, "c": _median([(q[axis], q[2]) for q in seg]), "a": a, "b": b, "s": sign, "w": w, "pts": seg})
+                        runs.append({"ax": axis, "c": _front(seg, axis, sign), "a": a, "b": b, "s": sign, "w": w, "pts": seg})
                     seg = []
                 if p is not None:
                     seg.append(p)
@@ -183,8 +198,8 @@ class StoreModel:
             if hit is None:
                 out.append(r)
             else:
-                hit["c"] = (hit["c"] * hit["w"] + r["c"] * r["w"]) / (hit["w"] + r["w"])
                 hit["b"], hit["w"], hit["pts"] = max(hit["b"], r["b"]), hit["w"] + r["w"], hit["pts"] + r["pts"]
+                hit["c"] = _front(hit["pts"], hit["ax"], hit["s"])
         return out
 
     @staticmethod
@@ -418,37 +433,46 @@ class StoreModel:
                         count += 1
         return count
 
-    @staticmethod
-    def _glass_hit(p, cam, f):
-        signs = f["faces"]
-        if len(signs) != 1:
-            return False
-        sign = 1 if "+" in signs else -1
-        ax, along = f["axis"], 1 - f["axis"]
-        face = f["c"] + sign * f["d"] / 2
-        delta = p[ax] - cam[ax]
-        if abs(delta) < 1e-6 or (cam[ax] - face) * sign < 0.3 or (face - p[ax]) * sign < 0.35:
-            return False
-        t = (face - cam[ax]) / delta
-        if not 0.1 <= t <= 0.85:
-            return False
-        at = cam[along] + t * (p[along] - cam[along])
-        return f["a"] + 0.1 < at < f["b"] - 0.1
-
-    def _glass_evidence(self, f, pts):
-        if f["kind"] not in ("case", "wall"):
-            return 0
-        scattered = [p for p in pts if any(self._glass_hit(p, cam, f) for cam in p[6])]
-        if len(scattered) < max(8, len(pts) // 100):
-            return 0
-        spread = max(p[f["axis"]] for p in scattered) - min(p[f["axis"]] for p in scattered)
-        return len(scattered) if spread > 0.6 else 0
-
-    @staticmethod
-    def _glass_fixture(f):
-        sign = 1 if "+" in f["faces"] else -1
-        face = f["c"] + sign * f["d"] / 2
-        return {**f, "kind": "glass", "c": face - sign * CASE_DEPTH / 2, "d": CASE_DEPTH, "h": HEIGHT["glass"]}
+    def _glass_candidates(self, rest):
+        """どの棚でも説明できない点の塊のうち、視線方向に大きくばらけたものはガラス越しの深度の失敗とみなす。
+        ガラスは塊のカメラ側の端にあるとして、各点をカメラからの視線に沿ってガラス面へ戻す"""
+        groups, left = [], list(rest)
+        while left:
+            group, frontier = [], [left.pop(0)]
+            while frontier:
+                p = frontier.pop()
+                group.append(p)
+                near = [q for q in left if hypot(p[0] - q[0], p[1] - q[1]) <= GLASS_GAP]
+                left = [q for q in left if hypot(p[0] - q[0], p[1] - q[1]) > GLASS_GAP]
+                frontier += near
+            groups.append(group)
+        out = []
+        for group in groups:
+            views = [(p, cam) for p in group for cam in p[6]]
+            if len(group) < GLASS_MIN or not views:
+                continue
+            ax = 0 if sum(abs(p[0] - c[0]) for p, c in views) >= sum(abs(p[1] - c[1]) for p, c in views) else 1
+            sign = 1 if sum(c[ax] - p[ax] for p, c in views) >= 0 else -1
+            values = [(p[ax], p[2]) for p in group]
+            if _quantile(values, 0.9) - _quantile(values, 0.1) < GLASS_SPREAD:
+                continue
+            face = _quantile(values, 0.9 if sign > 0 else 0.1)
+            moved = []
+            for p in group:
+                hits = [restored_along(c[ax], c[1 - ax], p[ax], p[1 - ax], face, sign) for c in p[6]]
+                hits = [h for h in hits if h is not None]
+                if hits:
+                    along = sum(hits) / len(hits)
+                    moved.append([face, along, *p[2:]] if ax == 0 else [along, face, *p[2:]])
+            if len(moved) < GLASS_MIN:
+                continue
+            a, b = min(p[1 - ax] for p in moved), max(p[1 - ax] for p in moved)
+            if b - a < MIN_LEN:
+                continue
+            run = {"ax": ax, "c": face, "a": a, "b": b, "s": sign, "w": sum(p[2] for p in moved), "pts": moved}
+            draft = ("glass", ax, face - sign * CASE_DEPTH / 2, a, b, CASE_DEPTH, [run])
+            out.append({"draft": draft, "fixture": self._build(draft), "explains": {id(p) for p in group}, "bonus": GLASS_BONUS})
+        return out
 
     def _valid(self, fixture, draft, pts, trail):
         rect = self._rect(fixture)
@@ -465,9 +489,13 @@ class StoreModel:
         if views >= 4 and wrong_side * 4 > views:
             return False
         own = {id(p) for face in draft[6] for p in face["pts"]}
+        # 正面側のカメラから見えた点は、その棚の奥行きの誤差なので矛盾しない
         core = sum(id(p) not in own and rect[0] + 0.15 < p[0] < rect[2] - 0.15 and
-                   rect[1] + 0.15 < p[1] < rect[3] - 0.15 for p in pts)
-        if fixture["kind"] != "glass" and core > max(6, len(pts) // 50):
+                   rect[1] + 0.15 < p[1] < rect[3] - 0.15 and
+                   not any((cam[face["ax"]] - face["c"]) * face["s"] > 0 for face in draft[6] for cam in p[6]) for p in pts)
+        if fixture["kind"] == "glass":   # ガラスの奥に点があるのは当然なので、下の 2 つは調べない
+            return True
+        if core > max(6, len(pts) // 50):
             return False
         across = fixture["axis"]
         blocked = 0
@@ -476,32 +504,95 @@ class StoreModel:
             for cam in p[6]:
                 through = (cam[across] < fixture["c"] - fixture["d"] / 2 - 0.2 and target[across] > fixture["c"] + fixture["d"] / 2 + 0.2) or (
                     cam[across] > fixture["c"] + fixture["d"] / 2 + 0.2 and target[across] < fixture["c"] - fixture["d"] / 2 - 0.2)
-                explained_by_glass = fixture["kind"] == "glass" and (
-                    not p[5] or any(self.genre.get(cat) in CHILLED for cat in p[5])) and self._glass_hit(p, cam, fixture)
-                if through and not explained_by_glass and self._crosses(cam, target, rect, 0.1):
+                if through and self._crosses(cam, target, rect, 0.1):
                     blocked += 1
                     break
-            if blocked > max(4, len(pts) // 100):
+            if blocked > max(4, len(own) // 4):   # 深度の外れ値が少し抜けるだけなら、棚の裏付けのほうを信じる
                 return False
         return True
 
-    def _compatible(self, f, accepted):
-        rect = self._rect(f)
-        for other in accepted:
-            q = self._rect(other)
-            if min(rect[2], q[2]) - max(rect[0], q[0]) > 0.15 and min(rect[3], q[3]) - max(rect[1], q[1]) > 0.15:
-                return False
-        if f["kind"] == "end":
-            contacts = 0
-            for other in accepted:
-                if other["kind"] != "island":
-                    continue
-                q = self._rect(other)
-                if rect[0] <= q[2] + 0.15 and rect[2] >= q[0] - 0.15 and rect[1] <= q[3] + 0.15 and rect[3] >= q[1] - 0.15:
-                    contacts += 1
-            if contacts != 1:
-                return False
+    def _overlaps(self, f, g):
+        r, q = self._rect(f), self._rect(g)
+        return min(r[2], q[2]) - max(r[0], q[0]) > TOUCH and min(r[3], q[3]) - max(r[1], q[1]) > TOUCH
+
+    def _trim(self, candidate, other):
+        """棚を長手方向に削って other に当たらないようにする。エンドは幅が決まっているので削らない"""
+        kind, axis, c, a, b, depth, faces = candidate["draft"]
+        if kind == "end":
+            return False
+        r, along = self._rect(other), 1 - axis
+        lo, hi = r[along], r[along + 2]
+        a2, b2 = (a, min(b, lo)) if (a + b) / 2 < (lo + hi) / 2 else (max(a, hi), b)
+        if b2 - a2 < MIN_LEN or (a2, b2) == (a, b):
+            return False
+        candidate["draft"] = (kind, axis, c, a2, b2, depth, faces)
+        candidate["fixture"] = self._build(candidate["draft"])
         return True
+
+    def _end_touches_one_island(self, f, accepted):
+        """エンドは島 1 つの端に付く。2 つの列をつなぐと通路がふさがる"""
+        if f["kind"] != "end":
+            return True
+        rect, contacts = self._rect(f), 0
+        for other in accepted:
+            if other["fixture"]["kind"] == "island":
+                q = self._rect(other["fixture"])
+                contacts += rect[0] <= q[2] + 0.15 and rect[2] >= q[0] - 0.15 and rect[1] <= q[3] + 0.15 and rect[3] >= q[1] - 0.15
+        return contacts == 1
+
+    def _place(self, candidate, accepted):
+        """棚は重なれないので、当たる棚を削る。削っても解けないなら置かない"""
+        for _ in range(4):
+            other = next((o for o in accepted if self._overlaps(candidate["fixture"], o["fixture"])), None)
+            if other is None:
+                return self._end_touches_one_island(candidate["fixture"], accepted)
+            if not (self._trim(candidate, other["fixture"]) or self._trim(other, candidate["fixture"])):
+                return False
+        return False
+
+    def _choose(self, candidates, accepted):
+        """新しく説明できる点が棚のコストを上回る間だけ、いちばん得な棚を足す。点を説明できる最も少ない棚の組を選ぶため"""
+        explained = set().union(*(c["explains"] for c in accepted))
+        left = list(candidates)
+
+        def gain(c):
+            return len(c["explains"] - explained) + c["bonus"] - SHELF_COST - MODULE_COST * c["fixture"]["n"]
+
+        while left:
+            best = max(left, key=lambda c: (gain(c), c["fixture"]["kind"] != "end", -c["fixture"]["c"]))
+            left.remove(best)
+            if gain(best) <= 0:
+                break
+            if self._place(best, accepted):
+                accepted.append(best)
+                explained |= best["explains"]
+        return accepted
+
+    def _build(self, draft):
+        kind, axis, c, a, b, depth, faces = draft
+        a, widths = self._layout(a, b, kind, faces, axis)
+        n = len(widths)
+        w = sum(widths) / n
+        edges = [a]
+        for width in widths:
+            edges.append(edges[-1] + width)
+        per, theme_of = {}, {}
+        for sign in (1, -1):   # 什器の軸の正の向きを見ている面が +
+            sides = [r for r in faces if r["s"] == sign]
+            if sides:
+                mods = [{} for _ in range(n)]
+                for r in sides:
+                    for p in r["pts"]:
+                        coord = p[1 - r["ax"]]
+                        index = next((i for i in range(n - 1) if coord < edges[i + 1]), n - 1)
+                        m = mods[index]
+                        for cat, v in p[5].items():
+                            m[cat] = m.get(cat, 0) + v
+                side = "+" if sign == 1 else "-"
+                theme_of[side] = self._assign_themes(mods)
+                kept = [{c: v for c, v in m.items() if t is None or self._in_theme(t, c)} for m, t in zip(mods, theme_of[side])]
+                per[side] = [[[cat, v / (sum(m.values()) or 1)] for cat, v in sorted(m.items(), key=lambda x: (-x[1], x[0]))[:3]] for m in kept]
+        return {"kind": kind, "axis": axis, "c": c, "a": a, "b": edges[-1], "d": depth, "h": HEIGHT[kind], "n": n, "w": w, "widths": widths, "faces": per, "themes": {k: [t["name"] if t else None for t in v] for k, v in theme_of.items()}, "obs": sum(r["w"] for r in faces)}
 
     def estimate(self):
         """今の観測から店のモデルを作る"""
@@ -510,46 +601,26 @@ class StoreModel:
         self._fit_yaw()
         pts, trail = self._frame()
         runs = self._merge(self._runs(pts))
-        fixtures = []
         drafts = self._classify(runs, trail)
         candidates = []
         for draft in drafts:
-            kind, axis, c, a, b, depth, faces = draft
-            a, widths = self._layout(a, b, kind, faces, axis)
-            n = len(widths)
-            w = sum(widths) / n
-            edges = [a]
-            for width in widths:
-                edges.append(edges[-1] + width)
-            per, theme_of = {}, {}
-            for sign in (1, -1):   # 什器の軸の正の向きを見ている面が +
-                sides = [r for r in faces if r["s"] == sign]
-                if sides:
-                    mods = [{} for _ in range(n)]
-                    for r in sides:
-                        for p in r["pts"]:
-                            coord = p[1 - r["ax"]]
-                            index = next((i for i in range(n - 1) if coord < edges[i + 1]), n - 1)
-                            m = mods[index]
-                            for cat, v in p[5].items():
-                                m[cat] = m.get(cat, 0) + v
-                    side = "+" if sign == 1 else "-"
-                    theme_of[side] = self._assign_themes(mods)
-                    kept = [{c: v for c, v in m.items() if t is None or self._in_theme(t, c)} for m, t in zip(mods, theme_of[side])]
-                    per[side] = [[[cat, v / (sum(m.values()) or 1)] for cat, v in sorted(m.items(), key=lambda x: (-x[1], x[0]))[:3]] for m in kept]
-            fixture = {"kind": kind, "axis": axis, "c": c, "a": a, "b": edges[-1], "d": depth, "h": HEIGHT[kind], "n": n, "w": w, "widths": widths, "faces": per, "themes": {k: [t["name"] if t else None for t in v] for k, v in theme_of.items()}, "obs": sum(r["w"] for r in faces)}
-            glass = self._glass_evidence(fixture, pts)
-            if glass:
-                fixture = self._glass_fixture(fixture)
-            support = len({id(p) for face in faces for p in face["pts"]})
-            score = support + 12 * self._corner_support(draft, drafts) + 2 * glass - 16 - 3 * fixture["n"]
-            candidates.append((score, draft, fixture))
-        candidates.sort(key=lambda x: (-x[0], x[2]["kind"] == "end", x[2]["c"]))
-        for score, draft, fixture in candidates:
-            if score > 0 and self._valid(fixture, draft, pts, trail) and self._compatible(fixture, fixtures):
-                fixtures.append(fixture)
+            fixture = self._build(draft)
+            if self._valid(fixture, draft, pts, trail):
+                rect = self._rect(fixture)
+                near = {id(p) for p in pts if rect[0] - EXPLAIN <= p[0] <= rect[2] + EXPLAIN and rect[1] - EXPLAIN <= p[1] <= rect[3] + EXPLAIN}
+                own = {id(p) for face in draft[6] for p in face["pts"]}
+                candidates.append({"draft": draft, "fixture": fixture, "explains": near | own, "bonus": CORNER_BONUS * self._corner_support(draft, drafts)})
+        accepted = self._choose(candidates, [])
+        explained = set().union(*(c["explains"] for c in accepted))
+        glass = [c for c in self._glass_candidates([p for p in pts if id(p) not in explained])
+                 if self._valid(c["fixture"], c["draft"], pts, trail)]
+        accepted = self._choose(glass, accepted)
+        fixtures = []
+        for c in accepted:   # 削った棚はモジュール幅を合わせ直すので、最後にもう一度確かめる
+            if not any(self._overlaps(c["fixture"], f) for f in fixtures):
+                fixtures.append(c["fixture"])
         reg = self._register(cos(self.yaw), sin(self.yaw))
-        if reg:
+        if reg and not any(self._overlaps(reg, f) for f in fixtures):
             fixtures.append(reg)
         fixtures.sort(key=lambda f: (f["kind"], f["axis"], f["c"], f["a"]))
         return {"yaw": self.yaw, "room": self._room(fixtures, trail), "fixtures": fixtures}
@@ -567,6 +638,31 @@ class StoreModel:
                 low[ax].append(p[ax] - 0.5)
                 high[ax].append(p[ax] + 0.5)
         return [min(low[0]), min(low[1]), max(high[0]), max(high[1])]
+
+
+def restored_along(cam_ax, cam_along, x_ax, x_along, face, sign):
+    """カメラから点への視線がガラス面 face と交わる位置（面に沿った座標）。視線がガラスに届かない点は None"""
+    if (cam_ax - face) * sign < 0.3 or abs(x_ax - cam_ax) < 1e-6:
+        return None
+    t = (face - cam_ax) / (x_ax - cam_ax)
+    return cam_along + t * (x_along - cam_along) if 0.05 <= t <= 1.3 else None
+
+
+def glass_restored(view, cam_x, cam_z, x, z):
+    """ガラス越しに測った点 (x, z) を、ガラス面の上へ戻した世界座標。ガラスに当たらない点は None（アプリの GlassProjection と同じ）"""
+    cs, sn = cos(view["yaw"]), sin(view["yaw"])
+    cam = (cam_x * cs + cam_z * sn, -cam_x * sn + cam_z * cs)
+    raw = (x * cs + z * sn, -x * sn + z * cs)
+    for f in view["fixtures"]:
+        if f["kind"] != "glass":
+            continue
+        ax, sign = f["axis"], 1 if "+" in f["faces"] else -1
+        face = f["c"] + sign * f["d"] / 2
+        along = restored_along(cam[ax], cam[1 - ax], raw[ax], raw[1 - ax], face, sign)
+        if along is not None and f["a"] <= along <= f["b"]:
+            u, v = (face, along) if ax == 0 else (along, face)
+            return u * cs - v * sn, u * sn + v * cs
+    return None
 
 
 def _fmt(v, digits=2):

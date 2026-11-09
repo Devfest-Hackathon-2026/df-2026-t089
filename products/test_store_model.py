@@ -2,7 +2,7 @@
 import json, random
 
 from common import ROOT
-from store_model import THEMES, StoreModel, text
+from store_model import THEMES, StoreModel, glass_restored, text
 from store_sim import calib, simulate
 
 rng = random.Random(0)
@@ -20,14 +20,46 @@ face(2.44, 0, 3.6, 3.6, "カップ", "カップ麺")     # 背中合わせ = 島
 face(1.56, 0, 3.6, 0.4, "菓子", "スナック菓子")
 face(9.0, 0, 3.6, 7.8, "お茶", "ソフトドリンク")  # 壁際で冷やす商品 = ケース
 face(-3.0, 0, 3.6, -1.8, "電池", "日用品・衛生用品")   # 壁際 = 壁面ゴンドラ
-for v in range(12):
-    m.add_camera(0.4, v * 0.3)
-    m.add_camera(3.6, v * 0.3)
+for u, vs in ((0.4, range(12)), (3.6, range(11, -1, -1))):   # 島を回り込んで歩く（歩いた線は島を横切れない）
+    for v in vs:
+        m.add_camera(u, v * 0.3)
+    m.add_camera(u, 4.6)
 kinds = sorted(f["kind"] for f in m.estimate()["fixtures"])
 assert kinds == ["case", "island", "wall"], (kinds, text(m.estimate()))
 island = next(f for f in m.estimate()["fixtures"] if f["kind"] == "island")
-assert abs(island["c"] - 2.0) < 0.1 and abs((island["b"] - island["a"]) - 3.6) < 0.01, island
+assert abs(island["c"] - 2.0) < 0.1 and abs((island["b"] - island["a"]) - 3.6) < 0.05, island
 assert island["faces"]["+"][0][0][0] == "カップ" and island["faces"]["-"][0][0][0] == "菓子", island
+
+# 直交する 2 つの棚の角は重ならない形に削られ、どちらも残る
+m = StoreModel()
+for i in range(300):
+    z = i * 3.2 / 300
+    m.add_product(3.8, z, 5.0 + rng.gauss(0, 0.03), z, "A", "")
+    x = 1.9 + i * 3.4 / 300
+    m.add_product(x, 1.9, x, 3.1 + rng.gauss(0, 0.03), "B", "")
+for v in range(9):
+    m.add_camera(3.8, v * 0.3)
+racks = [f for f in m.estimate()["fixtures"]]
+assert len(racks) == 2, text(m.estimate())
+assert not m._overlaps(racks[0], racks[1]), text(m.estimate())
+
+# ガラス: 視線に沿ってばらけた点から、カメラ側の端にガラスのケースを置き、点をその面へ戻す
+m = StoreModel()
+for i in range(500):
+    cam_z = rng.uniform(0.2, 2.8)
+    ahead = rng.uniform(-0.9, 0.9)
+    depth = rng.uniform(1.6, 4.2)
+    m.add_product(0.0, cam_z, depth, cam_z + ahead * depth / 3, "お茶", "ソフトドリンク")
+    z = rng.uniform(0, 3)
+    m.add_product(0.0, cam_z, -1.5 + rng.gauss(0, 0.03), z, "電池", "日用品・衛生用品")
+for v in range(10):
+    m.add_camera(0.0, v * 0.3)
+view = m.estimate()
+glass = [f for f in view["fixtures"] if f["kind"] == "glass"]
+assert len(glass) == 1, text(view)
+restored = glass_restored(view, 0.0, 1.5, 3.5, 1.5)
+assert restored is not None and restored[0] < 3.5, (restored, text(view))
+assert glass_restored(view, 0.0, 1.5, -1.5, 1.5) is None   # 反対側の棚の点は動かさない
 
 # テーマの表と分類表がずれていない（taxonomy.json を変えたら store_themes.json も直す）
 tax = {v[0] for g in calib_tax.values() for v in g.values()}

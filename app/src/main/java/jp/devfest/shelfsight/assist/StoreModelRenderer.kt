@@ -24,6 +24,7 @@ internal class StoreModelRenderer {
     private val circleLines = GlUtil.floatBuffer(CIRCLE_LINES)
     private val uprightLine = GlUtil.floatBuffer(UPRIGHT_LINE)
     private val pointBuffer = GlUtil.floatBuffer(FloatArray(ShelfMap.MAX_ITEMS * 3))
+    private val restoreLineBuffer = GlUtil.floatBuffer(FloatArray(ShelfMap.MAX_ITEMS * 6))
     private val productArrowBuffer = GlUtil.floatBuffer(FloatArray(ShelfMap.MAX_ITEMS * ProductViewArrow.FLOATS))
     private val viewProjection = FloatArray(16)
     private val model = FloatArray(16)
@@ -43,16 +44,19 @@ internal class StoreModelRenderer {
                 val lo = f.c - f.d / 2; val hi = f.c + f.d / 2
                 for (i in 0 until f.n) {
                     val a = f.moduleStart(i); val b = f.moduleEnd(i)
-                    if (f.axis == 0) box(view.yaw, lo, a, hi, b, floorY, f.h.toFloat(), SHELF)
-                    else box(view.yaw, a, lo, b, hi, floorY, f.h.toFloat(), SHELF)
+                    val col = if (f.kind == "glass") GLASS else SHELF
+                    if (f.axis == 0) box(view.yaw, lo, a, hi, b, floorY, f.h.toFloat(), col)
+                    else box(view.yaw, a, lo, b, hi, floorY, f.h.toFloat(), col)
                 }
             }
         }
         if (phone != null) drawPhone(phone)
         for (p in people) drawPerson(p.position.x, floorY, p.position.z, if (p.motion == PersonMotion.APPROACHING) APPROACHING else OTHER_PERSON)
         drawProductViewArrows(items)
+        val restored = items.map { GlassProjection.corrected(it, view) }
+        drawRestoreLines(items, restored)
         GLES20.glDisableVertexAttribArray(position)
-        drawPoints(items)
+        drawPoints(items, restored)
         return personLabels(people, phone, floorY, width, height) + labels(view, items, e, floorY, width, height)
     }
 
@@ -133,13 +137,41 @@ internal class StoreModelRenderer {
         GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 0, lines)
     }
 
-    private fun drawPoints(items: List<MapItem>) {
+    /** ガラス越しの元の点は薄いオレンジ、ガラス面へ戻した点はふつうの色で描く。 */
+    private fun drawPoints(items: List<MapItem>, restored: List<Vec3?>) {
         val n = minOf(items.size, ShelfMap.MAX_ITEMS)
-        if (n == 0) return
-        pointBuffer.clear()
-        for (i in 0 until n) items[i].position.let { pointBuffer.put(it.x).put(it.y).put(it.z) }
-        pointBuffer.position(0)
-        drawPointBuffer(n, POINT, POINT_SIZE)
+        fun draw(col: FloatArray, at: (Int) -> Vec3?) {
+            pointBuffer.clear()
+            var count = 0
+            for (i in 0 until n) at(i)?.let { pointBuffer.put(it.x).put(it.y).put(it.z); count++ }
+            pointBuffer.position(0)
+            if (count > 0) drawPointBuffer(count, col, POINT_SIZE)
+        }
+        draw(POINT) { i -> items[i].position.takeIf { restored[i] == null } }
+        draw(RAW_POINT) { i -> items[i].position.takeIf { restored[i] != null } }
+        draw(POINT) { i -> restored[i] }
+    }
+
+    /** 元の点と、ガラス面へ戻した点を細い線でつなぐ。 */
+    private fun drawRestoreLines(items: List<MapItem>, restored: List<Vec3?>) {
+        restoreLineBuffer.clear()
+        var lines = 0
+        for (i in 0 until minOf(items.size, ShelfMap.MAX_ITEMS)) restored[i]?.let { r ->
+            val p = items[i].position
+            restoreLineBuffer.put(p.x).put(p.y).put(p.z).put(r.x).put(r.y).put(r.z)
+            lines++
+        }
+        if (lines == 0) return
+        restoreLineBuffer.position(0)
+        useLines(restoreLineBuffer)
+        Matrix.setIdentityM(model, 0)
+        Matrix.multiplyMM(result, 0, viewProjection, 0, model, 0)
+        GLES20.glUniformMatrix4fv(mvp, 1, false, result, 0)
+        GLES20.glUniform3fv(color, 1, RESTORE_LINE, 0)
+        GLES20.glLineWidth(THIN_LINE_WIDTH)
+        GLES20.glDrawArrays(GLES20.GL_LINES, 0, lines * 2)
+        GLES20.glLineWidth(LINE_WIDTH)
+        useLines(boxLines)
     }
 
     /** The tip marks the product point; the shaft shows the camera's horizontal look direction. */
@@ -237,8 +269,12 @@ internal class StoreModelRenderer {
         val ME = rgb(0xf0efec)
         val ARROW = rgb(0xff7a45)
         val POINT = rgb(0xffd23f)
+        val RAW_POINT = rgb(0xffd9a8)
+        val RESTORE_LINE = rgb(0xff8c00)
+        val GLASS = rgb(0x4fd1c5)
         val PRODUCT_VIEW = rgb(0x63e6ff)
         const val LINE_WIDTH = 2f
+        const val THIN_LINE_WIDTH = 1f
         const val POINT_SIZE = 12f
         const val NAME_RANGE_M = 3f
         const val SHELF_LABEL_LIFT_M = 0.1f

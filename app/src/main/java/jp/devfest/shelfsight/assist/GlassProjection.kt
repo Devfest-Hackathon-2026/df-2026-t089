@@ -1,7 +1,6 @@
 package jp.devfest.shelfsight.assist
 
 import jp.devfest.shelfsight.model.Vec3
-import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -23,11 +22,9 @@ internal object GlassProjection {
             val ax = f.axis; val along = 1 - ax
             val face = f.c + side * f.d / 2
             val delta = raw[ax] - origin[ax]
-            if (abs(delta) < 1e-6 || (origin[ax] - face) * side < 0.3 || (face - raw[ax]) * side < 0.35) return@mapNotNull null
+            val at = StoreModel.restoredAlong(origin[ax], origin[along], raw[ax], raw[along], face, side) ?: return@mapNotNull null
+            if (at < f.a || at > f.b) return@mapNotNull null
             val t = (face - origin[ax]) / delta
-            if (t !in 0.1..0.85) return@mapNotNull null
-            val at = origin[along] + t * (raw[along] - origin[along])
-            if (at <= f.a + 0.1 || at >= f.b - 0.1) return@mapNotNull null
             val u = origin[0] + t * (raw[0] - origin[0])
             val v = origin[1] + t * (raw[1] - origin[1])
             t to Vec3((u * cs - v * sn).toFloat(),

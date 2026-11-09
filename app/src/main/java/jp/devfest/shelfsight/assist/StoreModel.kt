@@ -45,7 +45,7 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
     private data class ModuleLayout(val start: Double, val widths: List<Double>)
     private data class Pairing(val front: Run, val back: Run, val score: Double)
     private data class Rect(val u0: Double, val v0: Double, val u1: Double, val v1: Double)
-    private data class Candidate(val draft: Draft, val fixture: StoreFixture, val score: Double)
+    private class Candidate(var draft: Draft, var fixture: StoreFixture, val explains: Set<Pt>, val bonus: Double)
 
     private val cells = LinkedHashMap<Pair<Int, Int>, Cell>()
     private val counters = LinkedHashMap<Pair<Int, Int>, Int>()
@@ -134,8 +134,8 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
                 if (seg.isNotEmpty() && (p == null || p.p[t] - seg.last().p[t] > GAP)) {
                     val a = seg.first().p[t]; val b = seg.last().p[t]; val w = seg.sumOf { it.w }
                     if (b - a >= MIN_LEN && w >= MIN_OBS) {
-                        val sum = seg.sumOf { if (ax == 0) it.nu else it.nv }
-                        runs += Run(ax, median(seg.map { it.p[ax] to it.w }), a, b, if (sum >= 0) 1 else -1, w, seg)
+                        val sign = if (seg.sumOf { if (ax == 0) it.nu else it.nv } >= 0) 1 else -1
+                        runs += Run(ax, front(seg, ax, sign), a, b, sign, w, seg)
                     }
                     seg = ArrayList()
                 }
@@ -150,8 +150,8 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
         for (r in runs.sortedWith(compareBy({ it.ax }, { it.s }, { it.a }))) {
             val hit = out.firstOrNull { it.ax == r.ax && it.s == r.s && abs(it.c - r.c) < SAME_FACE && r.a - it.b < 1.0 }
             if (hit == null) out += r else {
-                hit.c = (hit.c * hit.w + r.c * r.w) / (hit.w + r.w)
                 hit.b = max(hit.b, r.b); hit.w += r.w; hit.pts = hit.pts + r.pts
+                hit.c = front(hit.pts, hit.ax, hit.s)
             }
         }
         return out
@@ -403,36 +403,48 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
         }
     }
 
-    /** A raw depth outlier behind a glass front is explained by its camera ray hitting that front. */
-    private fun glassHit(p: Pt, cam: DoubleArray, f: StoreFixture): Boolean {
-        val sign = when {
-            f.faces.containsKey("+") && !f.faces.containsKey("-") -> 1
-            f.faces.containsKey("-") && !f.faces.containsKey("+") -> -1
-            else -> return false
+    /**
+     * どの棚でも説明できない点の塊のうち、視線方向に大きくばらけたものはガラス越しの深度の失敗とみなす。
+     * ガラスは塊のカメラ側の端にあるとして、各点をカメラからの視線に沿ってガラス面へ戻す。
+     */
+    private fun glassCandidates(rest: List<Pt>): List<Candidate> {
+        val groups = ArrayList<List<Pt>>()
+        var left = rest.toMutableList()
+        while (left.isNotEmpty()) {
+            val group = ArrayList<Pt>()
+            val frontier = arrayListOf(left.removeAt(0))
+            while (frontier.isNotEmpty()) {
+                val p = frontier.removeAt(frontier.lastIndex)
+                group += p
+                frontier += left.filter { hypot(p.p[0] - it.p[0], p.p[1] - it.p[1]) <= GLASS_GAP }
+                left = left.filter { hypot(p.p[0] - it.p[0], p.p[1] - it.p[1]) > GLASS_GAP }.toMutableList()
+            }
+            groups += group
         }
-        val ax = f.axis; val along = 1 - ax
-        val face = f.c + sign * f.d / 2
-        val delta = p.p[ax] - cam[ax]
-        if (abs(delta) < 1e-6 || (cam[ax] - face) * sign < 0.3 || (face - p.p[ax]) * sign < 0.35) return false
-        val t = (face - cam[ax]) / delta
-        if (t !in 0.1..0.85) return false
-        val at = cam[along] + t * (p.p[along] - cam[along])
-        return at > f.a + 0.1 && at < f.b - 0.1
-    }
-
-    private fun glassEvidence(f: StoreFixture, pts: List<Pt>): Int {
-        if (f.kind != "case" && f.kind != "wall") return 0
-        val scattered = pts.filter { p -> p.cameras.any { glassHit(p, it, f) } }
-        if (scattered.size < max(8, pts.size / 100)) return 0
-        val spread = scattered.maxOf { it.p[f.axis] } - scattered.minOf { it.p[f.axis] }
-        return scattered.size.takeIf { spread > 0.6 } ?: 0
-    }
-
-    private fun glassFixture(f: StoreFixture): StoreFixture {
-        val sign = if (f.faces.containsKey("+")) 1 else -1
-        val face = f.c + sign * f.d / 2
-        return StoreFixture("glass", f.axis, face - sign * CASE_DEPTH / 2, f.a, f.b, CASE_DEPTH,
-            HEIGHT.getValue("glass"), f.n, f.w, f.faces, f.themes, f.moduleWidths)
+        val out = ArrayList<Candidate>()
+        for (group in groups) {
+            val views = group.flatMap { p -> p.cameras.map { p to it } }
+            if (group.size < GLASS_MIN || views.isEmpty()) continue
+            val ax = if (views.sumOf { (p, c) -> abs(p.p[0] - c[0]) } >= views.sumOf { (p, c) -> abs(p.p[1] - c[1]) }) 0 else 1
+            val along = 1 - ax
+            val sign = if (views.sumOf { (p, c) -> c[ax] - p.p[ax] } >= 0) 1 else -1
+            val values = group.map { it.p[ax] to it.w }
+            if (quantile(values, 0.9) - quantile(values, 0.1) < GLASS_SPREAD) continue
+            val face = quantile(values, if (sign > 0) 0.9 else 0.1)
+            val moved = group.mapNotNull { p ->
+                val hits = p.cameras.mapNotNull { restoredAlong(it[ax], it[along], p.p[ax], p.p[along], face, sign) }
+                if (hits.isEmpty()) null else {
+                    val at = hits.sum() / hits.size
+                    Pt(if (ax == 0) doubleArrayOf(face, at) else doubleArrayOf(at, face), p.w, p.nu, p.nv, p.cats, p.cameras)
+                }
+            }
+            if (moved.size < GLASS_MIN) continue
+            val a = moved.minOf { it.p[along] }; val b = moved.maxOf { it.p[along] }
+            if (b - a < MIN_LEN) continue
+            val draft = Draft("glass", ax, face - sign * CASE_DEPTH / 2, a, b, CASE_DEPTH, listOf(Run(ax, face, a, b, sign, moved.sumOf { it.w }, moved)))
+            out += Candidate(draft, build(draft), group.toHashSet(), GLASS_BONUS)
+        }
+        return out
     }
 
     /** Reject occupied walkways, see-through shelves, back-side observations, and products in the rack core. */
@@ -449,10 +461,13 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
         if (views >= 4 && wrongSide * 4 > views) return false
 
         val own = d.faces.flatMap { it.pts }.toHashSet()
+        if (f.kind == "glass") return true   // ガラスの奥に点があるのは当然なので、下の 2 つは調べない
+        // 正面側のカメラから見えた点は、その棚の奥行きの誤差なので矛盾しない
         val core = pts.count { p -> p !in own &&
             p.p[0] > r.u0 + 0.15 && p.p[0] < r.u1 - 0.15 &&
-            p.p[1] > r.v0 + 0.15 && p.p[1] < r.v1 - 0.15 }
-        if (f.kind != "glass" && core > max(6, pts.size / 50)) return false
+            p.p[1] > r.v0 + 0.15 && p.p[1] < r.v1 - 0.15 &&
+            d.faces.none { face -> p.cameras.any { (it[face.ax] - face.c) * face.s > 0 } } }
+        if (core > max(6, pts.size / 50)) return false
 
         val across = f.axis
         var blocked = 0
@@ -461,34 +476,72 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
             for (cam in p.cameras) {
                 val through = (cam[across] < f.c - f.d / 2 - 0.2 && target[across] > f.c + f.d / 2 + 0.2) ||
                     (cam[across] > f.c + f.d / 2 + 0.2 && target[across] < f.c - f.d / 2 - 0.2)
-                val explainedByGlass = f.kind == "glass" &&
-                    (p.cats.isEmpty() || p.cats.keys.any { genre[it] in CHILLED }) && glassHit(p, cam, f)
-                if (through && !explainedByGlass && crosses(cam, target, r, 0.1)) {
+                if (through && crosses(cam, target, r, 0.1)) {
                     blocked++
                     break
                 }
             }
-            if (blocked > max(4, pts.size / 100)) return false
+            if (blocked > max(4, own.size / 4)) return false   // 深度の外れ値が少し抜けるだけなら、棚の裏付けのほうを信じる
         }
         return true
     }
 
-    private fun compatible(f: StoreFixture, accepted: List<StoreFixture>): Boolean {
-        val r = rect(f)
-        if (accepted.any { other ->
-                val q = rect(other)
-                min(r.u1, q.u1) - max(r.u0, q.u0) > 0.15 &&
-                    min(r.v1, q.v1) - max(r.v0, q.v0) > 0.15
-            }) return false
-        // End caps may join one island; joining two rows would close an aisle.
-        if (f.kind == "end" && accepted.count { other ->
-                if (other.kind != "island") false else {
-                    val q = rect(other)
-                    r.u0 <= q.u1 + 0.15 && r.u1 >= q.u0 - 0.15 &&
-                        r.v0 <= q.v1 + 0.15 && r.v1 >= q.v0 - 0.15
-                }
-            } != 1) return false
+    private fun overlaps(f: StoreFixture, g: StoreFixture): Boolean {
+        val r = rect(f); val q = rect(g)
+        return min(r.u1, q.u1) - max(r.u0, q.u0) > TOUCH && min(r.v1, q.v1) - max(r.v0, q.v0) > TOUCH
+    }
+
+    /** 棚を長手方向に削って [other] に当たらないようにする。エンドは幅が決まっているので削らない。 */
+    private fun trim(c: Candidate, other: StoreFixture): Boolean {
+        val d = c.draft
+        if (d.kind == "end") return false
+        val q = rect(other)
+        val lo = if (d.axis == 1) q.u0 else q.v0
+        val hi = if (d.axis == 1) q.u1 else q.v1
+        val below = (d.a + d.b) / 2 < (lo + hi) / 2
+        val a = if (below) d.a else max(d.a, hi)
+        val b = if (below) min(d.b, lo) else d.b
+        if (b - a < MIN_LEN || (a == d.a && b == d.b)) return false
+        c.draft = Draft(d.kind, d.axis, d.c, a, b, d.d, d.faces)
+        c.fixture = build(c.draft)
         return true
+    }
+
+    /** エンドは島 1 つの端に付く。2 つの列をつなぐと通路がふさがる。 */
+    private fun endTouchesOneIsland(f: StoreFixture, accepted: List<Candidate>): Boolean {
+        if (f.kind != "end") return true
+        val r = rect(f)
+        return accepted.count { other ->
+            if (other.fixture.kind != "island") false else {
+                val q = rect(other.fixture)
+                r.u0 <= q.u1 + 0.15 && r.u1 >= q.u0 - 0.15 && r.v0 <= q.v1 + 0.15 && r.v1 >= q.v0 - 0.15
+            }
+        } == 1
+    }
+
+    /** 棚は重なれないので、当たる棚を削る。削っても解けないなら置かない。 */
+    private fun place(c: Candidate, accepted: List<Candidate>): Boolean {
+        repeat(4) {
+            val other = accepted.firstOrNull { overlaps(c.fixture, it.fixture) } ?: return endTouchesOneIsland(c.fixture, accepted)
+            if (!trim(c, other.fixture) && !trim(other, c.fixture)) return false
+        }
+        return false
+    }
+
+    /** 新しく説明できる点が棚のコストを上回る間だけ、いちばん得な棚を足す。点を説明できる最も少ない棚の組を選ぶため。 */
+    private fun choose(candidates: List<Candidate>, accepted: MutableList<Candidate>) {
+        val explained = accepted.flatMapTo(HashSet()) { it.explains }
+        val left = candidates.toMutableList()
+        fun gain(c: Candidate) = c.explains.count { it !in explained } + c.bonus - SHELF_COST - MODULE_COST * c.fixture.n
+        while (left.isNotEmpty()) {
+            val best = left.maxWithOrNull(compareBy<Candidate>({ gain(it) }, { it.fixture.kind != "end" }, { -it.fixture.c }))!!
+            left.remove(best)
+            if (gain(best) <= 0) break
+            if (place(best, accepted)) {
+                accepted += best
+                explained += best.explains
+            }
+        }
     }
 
     private fun register(cs: Double, sn: Double): StoreFixture? {
@@ -527,19 +580,21 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
         val frameTrail = trail.map { doubleArrayOf(it[0] * cs + it[1] * sn, -it[0] * sn + it[1] * cs) }
         val runs = merge(runsOf(pts))
         val drafts = classify(runs, frameTrail)
-        val fixtures = ArrayList<StoreFixture>()
-        val candidates = drafts.map { d ->
-            val base = build(d)
-            val glass = glassEvidence(base, pts)
-            val f = if (glass > 0) glassFixture(base) else base
-            val support = d.faces.flatMap { it.pts }.toSet().size
-            Candidate(d, f, support + 12.0 * cornerSupport(d, drafts) + 2.0 * glass - 16.0 - 3.0 * f.n)
-        }.sortedWith(compareByDescending<Candidate> { it.score }.thenBy { it.fixture.kind == "end" }.thenBy { it.fixture.c })
-        for (candidate in candidates) {
-            val f = candidate.fixture
-            if (candidate.score > 0 && valid(f, candidate.draft, pts, frameTrail) && compatible(f, fixtures)) fixtures += f
+        val candidates = drafts.mapNotNull { d ->
+            val f = build(d)
+            if (!valid(f, d, pts, frameTrail)) return@mapNotNull null
+            val r = rect(f)
+            val explains = pts.filter { it.p[0] >= r.u0 - EXPLAIN && it.p[0] <= r.u1 + EXPLAIN && it.p[1] >= r.v0 - EXPLAIN && it.p[1] <= r.v1 + EXPLAIN }.toHashSet()
+            explains += d.faces.flatMap { it.pts }
+            Candidate(d, f, explains, CORNER_BONUS * cornerSupport(d, drafts))
         }
-        register(cs, sn)?.let { fixtures += it }
+        val accepted = ArrayList<Candidate>()
+        choose(candidates, accepted)
+        val explained = accepted.flatMapTo(HashSet()) { it.explains }
+        choose(glassCandidates(pts.filter { it !in explained }).filter { valid(it.fixture, it.draft, pts, frameTrail) }, accepted)
+        val fixtures = ArrayList<StoreFixture>()
+        for (c in accepted) if (fixtures.none { overlaps(c.fixture, it) }) fixtures += c.fixture   // 削った棚はモジュール幅を合わせ直すので、最後にもう一度確かめる
+        register(cs, sn)?.let { reg -> if (fixtures.none { overlaps(reg, it) }) fixtures += reg }
         val sorted = fixtures.sortedWith(compareBy({ it.kind }, { it.axis }, { it.c }, { it.a }))
         return StoreView(yaw, roomOf(sorted, frameTrail), sorted)
     }
@@ -559,18 +614,38 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
         private const val END_DEPTH = 0.44
         private const val GONDOLA_DEPTH = 0.45
         private const val CASE_DEPTH = 0.8
+        private const val FRONT = 0.85
+        private const val EXPLAIN = 0.25
+        private const val TOUCH = 0.01
+        private const val SHELF_COST = 16.0
+        private const val MODULE_COST = 3.0
+        private const val CORNER_BONUS = 12.0
+        private const val GLASS_GAP = 1.2
+        private const val GLASS_SPREAD = 0.6
+        private const val GLASS_MIN = 8
+        private const val GLASS_BONUS = 12.0
         private val HEIGHT = mapOf("island" to 1.8, "wall" to 1.8, "case" to 2.0, "glass" to 2.0, "end" to 1.5, "register" to 1.0)
         private val CHILLED = setOf("ソフトドリンク", "栄養・エナジードリンク", "紙パック飲料・乳製品", "酒", "冷凍食品", "アイス", "弁当・おにぎり", "サンドイッチ・サラダ・惣菜", "チルドデザート", "飲料", "お酒", "パン・米飯・軽食", "冷蔵・冷凍・デザート・惣菜")
 
         private fun floorI(v: Double) = floor(v).toInt()
         private fun overlap(a0: Double, a1: Double, b0: Double, b1: Double) = min(a1, b1) - max(a0, b0)
 
-        private fun median(values: List<Pair<Double, Double>>): Double {
+        private fun quantile(values: List<Pair<Double, Double>>, q: Double): Double {
             val v = values.sortedWith(compareBy({ it.first }, { it.second }))
-            val half = v.sumOf { it.second } / 2
+            val limit = v.sumOf { it.second } * q
             var s = 0.0
-            for ((x, w) in v) { s += w; if (s >= half) return x }
+            for ((x, w) in v) { s += w; if (s >= limit) return x }
             return v.last().first
+        }
+
+        /** 面の前面の位置。点は棚の段と深度の誤差で奥行き方向に帯になるので、中央ではなくカメラ側の端を使う。 */
+        private fun front(pts: List<Pt>, ax: Int, sign: Int) = quantile(pts.map { it.p[ax] to it.w }, if (sign > 0) FRONT else 1 - FRONT)
+
+        /** カメラから点への視線がガラス面 [face] と交わる位置（面に沿った座標）。視線がガラスに届かない点は null。 */
+        fun restoredAlong(camAx: Double, camAlong: Double, xAx: Double, xAlong: Double, face: Double, sign: Int): Double? {
+            if ((camAx - face) * sign < 0.3 || abs(xAx - camAx) < 1e-6) return null
+            val t = (face - camAx) / (xAx - camAx)
+            return if (t in 0.05..1.3) camAlong + t * (xAlong - camAlong) else null
         }
 
         private fun fmt(v: Double, digits: Int = 2): String {

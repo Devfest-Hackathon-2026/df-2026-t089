@@ -1,6 +1,9 @@
 package jp.devfest.shelfsight
 
+import jp.devfest.shelfsight.assist.GlassProjection
+import jp.devfest.shelfsight.assist.MapItem
 import jp.devfest.shelfsight.assist.StoreModel
+import jp.devfest.shelfsight.model.Vec3
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -29,6 +32,27 @@ class StoreModelTest {
             model.addProduct(3.6, z, 2.44, z, "B", "")
         }
         assertTrue(model.estimate().fixtures.single { it.kind == "island" }.b > before)
+    }
+
+    @Test
+    fun scatterAlongTheViewRaysBecomesAGlassCaseAndIsRestoredOntoIt() {
+        val model = StoreModel(emptyList())
+        val rng = java.util.Random(1)
+        for (i in 0 until 500) {
+            val camZ = 0.2 + rng.nextDouble() * 2.6
+            val depth = 1.6 + rng.nextDouble() * 2.6
+            model.addProduct(0.0, camZ, depth, camZ + (rng.nextDouble() * 1.8 - 0.9) * depth / 3, "tea", "")
+            model.addProduct(0.0, camZ, -1.5, rng.nextDouble() * 3, "battery", "")
+        }
+        for (v in 0 until 10) model.addCamera(0.0, v * 0.3)
+        val view = model.estimate()
+        assertEquals(StoreModel.text(view), 1, view.fixtures.count { it.kind == "glass" })
+        val cam = Vec3(0f, 1.3f, 1.5f)
+        val item = { x: Float -> MapItem("tea", null, null, Vec3(x, 1.3f, 1.5f), 0.1f, 0.1f, 1, 0L, null, cam) }
+        val restored = GlassProjection.corrected(item(3.5f), view)!!
+        assertTrue(restored.x < 3.5f)
+        assertEquals(1.5f, restored.z, 0.3f)
+        assertEquals(null, GlassProjection.corrected(item(-1.5f), view))
     }
 
     @Test

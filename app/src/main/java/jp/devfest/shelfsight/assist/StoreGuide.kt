@@ -141,7 +141,7 @@ object StoreGuide {
         return "${direction(az)} ${"%.1f".format(java.util.Locale.ROOT, d)}m"
     }
 
-    private val KIND_NAMES = mapOf("island" to "島の棚", "wall" to "壁ぎわの棚", "case" to "冷蔵・冷凍ケース", "end" to "島の端の棚", "register" to "レジ")
+    private val KIND_NAMES = mapOf("glass" to "ガラスのケース", "island" to "島の棚", "wall" to "壁ぎわの棚", "case" to "冷蔵・冷凍ケース", "end" to "島の端の棚", "register" to "レジ")
 
     /** 質問に答える AI に渡す、今分かっていること。方向と距離は今の位置と向きから見たもの。 */
     fun context(view: StoreView?, l: Listener?, items: List<MapItem>, looked: List<LookedUp>, now: Long, lastSpoken: String): String = buildString {
