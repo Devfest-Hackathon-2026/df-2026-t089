@@ -89,7 +89,7 @@ internal class StoreModelRenderer {
             for (s in StoreLabels.shelves(view)) {
                 val x = (s.u * cs - s.v * sn).toFloat()
                 val z = (s.u * sn + s.v * cs).toFloat()
-                screen(x, floorY + s.top.toFloat() + SHELF_LABEL_LIFT_M, z, width, height)?.let { out += ScreenLabel(it[0], it[1], s.text, true) }
+                screen(x, floorY + s.top.toFloat() + SHELF_LABEL_LIFT_M, z, width, height, SHELF_LABEL_REACH)?.let { out += ScreenLabel(it[0], it[1], s.text, true) }
             }
         }
         // 近づいた点だけ名前を出す
@@ -100,14 +100,14 @@ internal class StoreModelRenderer {
         return out
     }
 
-    /** 世界座標の点の画面上の位置（ピクセル）。視点の後ろや画面の外なら null。 */
-    private fun screen(x: Float, y: Float, z: Float, width: Int, height: Int): FloatArray? {
+    /** 世界座標の点の画面上の位置（ピクセル）。視点の後ろや、画面の [reach] 倍の範囲より外なら null。 */
+    private fun screen(x: Float, y: Float, z: Float, width: Int, height: Int, reach: Float = 1f): FloatArray? {
         val m = viewProjection
         val w = m[3] * x + m[7] * y + m[11] * z + m[15]
         if (w <= 0f) return null
         val sx = (m[0] * x + m[4] * y + m[8] * z + m[12]) / w
         val sy = (m[1] * x + m[5] * y + m[9] * z + m[13]) / w
-        if (sx !in -1f..1f || sy !in -1f..1f) return null
+        if (sx !in -reach..reach || sy !in -reach..reach) return null
         return floatArrayOf((sx + 1f) / 2f * width, (1f - sy) / 2f * height)
     }
 
@@ -148,6 +148,8 @@ internal class StoreModelRenderer {
         const val POINT_SIZE = 12f
         const val NAME_RANGE_M = 3f
         const val SHELF_LABEL_LIFT_M = 0.1f
+        /** 中心が少し画面の外に出た棚も、文字を画面の端に寄せて出す。 */
+        const val SHELF_LABEL_REACH = 1.6f
 
         /** 単位立方体の三角形（x, y, z, 明るさ）。上の面を明るく、横の面は向きで明るさを変えて形を見せる。 */
         val CUBE: FloatArray = run {

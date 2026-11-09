@@ -188,6 +188,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             // ステータスバーの下に潜るとタップがシステムに取られる
             setPadding(0, resources.getIdentifier("status_bar_height", "dimen", "android").let { if (it > 0) resources.getDimensionPixelSize(it) else 0 }, 0, 0)
         }
+        tabBar.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ -> storeLabels.topInset = v.bottom }
         setContentView(FrameLayout(this).apply {
             addView(gl)
             addView(debugOverlay, FrameLayout.LayoutParams(-1, -1))

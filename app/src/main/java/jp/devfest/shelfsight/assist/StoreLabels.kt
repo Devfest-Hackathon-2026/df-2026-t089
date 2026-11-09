@@ -39,6 +39,8 @@ internal object StoreLabels {
 /** 3D モデルの上に重ねる文字。GL スレッドが [labels] を入れ、UI スレッドが描く。 */
 internal class StoreLabelsView(context: Context) : View(context) {
     @Volatile var labels: List<ScreenLabel> = emptyList()
+    /** 上のタブの下端。棚のジャンルがタブに隠れないようにする。 */
+    var topInset = 0
     private val density = resources.displayMetrics.scaledDensity
     private val shelfText = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 14 * density; typeface = Typeface.DEFAULT_BOLD }
     private val itemText = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 11 * density }
@@ -55,6 +57,11 @@ internal class StoreLabelsView(context: Context) : View(context) {
             val half = paint.measureText(l.text) / 2 + pad
             val height = paint.textSize + 2 * pad
             val box = RectF(l.x - half, l.y - height, l.x + half, l.y)   // 点や棚のすぐ上に出す
+            if (l.shelf) box.offset(
+                if (box.left < 0) -box.left else minOf(0f, width - box.right),
+                // 下の 3 分の 1 は店の説明の文章で隠れる
+                if (box.top < topInset) topInset - box.top else minOf(0f, this.height * 2f / 3 - box.bottom),
+            )
             if (taken.any { RectF.intersects(it, box) }) continue   // 重なる文字は読めないので描かない
             taken += box
             canvas.drawRoundRect(box, pad, pad, if (l.shelf) shelfBack else itemBack)
