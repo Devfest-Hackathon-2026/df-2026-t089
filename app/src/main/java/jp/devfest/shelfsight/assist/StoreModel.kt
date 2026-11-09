@@ -27,7 +27,9 @@ class StoreFixture(
 /** 推定した店。[room] は (u0, v0, u1, v1)。[yaw] は世界 → 店の座標の回転（ラジアン）。 */
 class StoreView(val yaw: Double, val room: DoubleArray?, val fixtures: List<StoreFixture>,
     /** 点に multi-model RANSAC で当てた線分 (x0, z0, x1, z1)。世界座標。 */
-    val ransac: List<DoubleArray> = emptyList())
+    val ransac: List<DoubleArray> = emptyList(),
+    /** ガラスと判断して動かした点の (元 x, 元 z, 新 x, 新 z)。世界座標。 */
+    val mirror: List<DoubleArray> = emptyList())
 
 /**
  * コンビニ記述言語のモデルを、「商品＋位置」の連続した観測から推定する。products/store_model.py の移植で、
@@ -54,6 +56,8 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
     private val trail = ArrayList<DoubleArray>()
     private val genre = HashMap<String, String>()
     private var obs = 0
+    /** 観測ごとの (カメラ x, カメラ z, 点 x, 点 z)。ガラスの補正は同じ視点の視線どうしを比べるので、格子にまとめる前の形で持つ。 */
+    private val rays = ArrayDeque<DoubleArray>()
     private var yaw = 0.0
     private var yawAt = 0
 
@@ -74,6 +78,8 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
             genre[category] = genreName
         }
         obs++
+        rays.addLast(doubleArrayOf(camX, camZ, x, z))
+        if (rays.size > MAX_RAYS) rays.removeFirst()
     }
 
     fun addCamera(x: Double, z: Double) {
@@ -734,7 +740,8 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
         for (c in accepted) if (fixtures.none { overlaps(c.fixture, it) }) fixtures += c.fixture   // 削った棚はモジュール幅を合わせ直すので、最後にもう一度確かめる
         register(cs, sn)?.let { reg -> if (fixtures.none { overlaps(reg, it) }) fixtures += reg }
         val sorted = fixtures.sortedWith(compareBy({ it.kind }, { it.axis }, { it.c }, { it.a }))
-        return StoreView(yaw, roomOf(sorted, frameTrail), sorted, MultiLineRansac.fit(cells.values.map { doubleArrayOf(it.sx / it.w, it.sz / it.w) }))
+        val mirror = MirrorCorrection.correct(rays.toList())
+        return StoreView(yaw, roomOf(sorted, frameTrail), sorted, MultiLineRansac.fit(MirrorCorrection.cellMeans(mirror.points)), mirror.moved)
     }
 
     companion object {
@@ -752,6 +759,7 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
         private const val END_DEPTH = 0.44
         private const val GONDOLA_DEPTH = 0.45
         private const val CASE_DEPTH = 0.8
+        private const val MAX_RAYS = 20000
         private const val FRONT = 0.85
         private const val EXPLAIN = 0.25
         private const val TOUCH = 0.01

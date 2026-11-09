@@ -56,9 +56,10 @@ internal class StoreModelRenderer {
         drawProductViewArrows(items)
         val restored = items.map { GlassProjection.corrected(it, view) }
         drawRestoreLines(items, restored)
-        if (topView) drawRansac(view, floorY)
+        if (topView) { drawMirrorLines(view, floorY); drawRansac(view, floorY) }
         GLES20.glDisableVertexAttribArray(position)
         drawPoints(items, restored)
+        if (topView) drawMirrorPoints(view, floorY)
         return personLabels(people, phone, floorY, width, height) + labels(view, items, e, floorY, width, height)
     }
 
@@ -163,6 +164,37 @@ internal class StoreModelRenderer {
         draw(POINT) { i -> items[i].position.takeIf { restored[i] == null } }
         draw(RAW_POINT) { i -> items[i].position.takeIf { restored[i] != null } }
         draw(POINT) { i -> restored[i] }
+    }
+
+    /** 2D 表示に、ガラスと判断して動かした点の元の位置と新しい位置を結ぶ細い線を描く。 */
+    private fun drawMirrorLines(view: StoreView?, floorY: Float) {
+        val moved = view?.mirror.orEmpty().take(ShelfMap.MAX_ITEMS)
+        if (moved.isEmpty()) return
+        restoreLineBuffer.clear()
+        for (m in moved) restoreLineBuffer.put(m[0].toFloat()).put(floorY).put(m[1].toFloat()).put(m[2].toFloat()).put(floorY).put(m[3].toFloat())
+        restoreLineBuffer.position(0)
+        useLines(restoreLineBuffer)
+        Matrix.setIdentityM(model, 0)
+        Matrix.multiplyMM(result, 0, viewProjection, 0, model, 0)
+        GLES20.glUniformMatrix4fv(mvp, 1, false, result, 0)
+        GLES20.glUniform3fv(color, 1, RESTORE_LINE, 0)
+        GLES20.glLineWidth(THIN_LINE_WIDTH)
+        GLES20.glDrawArrays(GLES20.GL_LINES, 0, moved.size * 2)
+        GLES20.glLineWidth(LINE_WIDTH)
+        useLines(boxLines)
+    }
+
+    private fun drawMirrorPoints(view: StoreView?, floorY: Float) {
+        val moved = view?.mirror.orEmpty().take(ShelfMap.MAX_ITEMS)
+        if (moved.isEmpty()) return
+        fun draw(col: FloatArray, x: Int, z: Int) {
+            pointBuffer.clear()
+            for (m in moved) pointBuffer.put(m[x].toFloat()).put(floorY).put(m[z].toFloat())
+            pointBuffer.position(0)
+            drawPointBuffer(moved.size, col, POINT_SIZE)
+        }
+        draw(RAW_POINT, 0, 1)
+        draw(MIRROR_POINT, 2, 3)
     }
 
     /** 2D 表示に重ねる、RANSAC の線分。 */
@@ -306,6 +338,7 @@ internal class StoreModelRenderer {
         val RESTORE_LINE = rgb(0xff8c00)
         val GLASS = rgb(0x4fd1c5)
         val RANSAC = rgb(0xff4fd8)
+        val MIRROR_POINT = rgb(0xff5a36)
         val PRODUCT_VIEW = rgb(0x63e6ff)
         const val LINE_WIDTH = 2f
         const val THIN_LINE_WIDTH = 1f
