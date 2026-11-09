@@ -32,9 +32,7 @@ class ProductRecognizer(context: Context) : AutoCloseable {
     private val detSize = meta.getInt("detector_size")
     private val embSize = meta.getInt("embed_size")
     private val dim = meta.getInt("dim")
-    private val detThreshold = meta.optDouble("det_threshold", 0.25).toFloat()
     private val nmsIou = meta.optDouble("nms_iou", 0.5).toFloat()
-    private val matchSim = meta.optDouble("match_sim", 0.5).toFloat()
     // (ジャンル, 細分類, カテゴリそのもの)。古い gallery.json は 2 つだけなので足りない分は 0
     private val lambdas = meta.getJSONArray("context_lambda").let { a -> DoubleArray(3) { if (it < a.length()) a.getDouble(it) else 0.0 } }
     private val pad = meta.getJSONArray("pad_color").let { android.graphics.Color.rgb(it.getInt(0), it.getInt(1), it.getInt(2)) }
@@ -77,33 +75,33 @@ class ProductRecognizer(context: Context) : AutoCloseable {
             }
         }
         val n = out[0].size
-        val cand = (0 until n).filter { out[4][it] >= detThreshold }
-            .map { i ->
-                floatArrayOf(out[0][i] - out[2][i] / 2, out[1][i] - out[3][i] / 2, out[0][i] + out[2][i] / 2, out[1][i] + out[3][i] / 2) to out[4][i]
-            }
+        val cand = (0 until n).map { i ->
+            floatArrayOf(out[0][i] - out[2][i] / 2, out[1][i] - out[3][i] / 2, out[0][i] + out[2][i] / 2, out[1][i] + out[3][i] / 2) to out[4][i]
+        }
         return nms(cand, nmsIou).map { (b, s) ->
             floatArrayOf((b[0] / nw).coerceIn(0f, 1f), (b[1] / nh).coerceIn(0f, 1f), (b[2] / nw).coerceIn(0f, 1f), (b[3] / nh).coerceIn(0f, 1f)) to s
         }
     }
 
-    /** 写っている商品に名前を付ける。照合先にない商品（似ていない）は外す。 */
+    /** 枠のすべてに、いちばん近い商品の名前を付ける（似ていなくても外さない）。 */
     fun recognize(image: Bitmap, boxes: List<FloatArray> = detect(image).map { it.first }): List<RecognizedProduct> {
-        val minW = MIN_CROP_PX.toFloat() / image.width
-        val minH = MIN_CROP_PX.toFloat() / image.height
-        val big = boxes.filter { it[2] - it[0] >= minW && it[3] - it[1] >= minH }
-            .sortedByDescending { SceneJudge.area(it) }.take(MAX_CROPS)
-        if (big.isEmpty()) return emptyList()
-        val crops = big.map { square(image, it) }
-        val emb = OnnxTensor.createTensor(env, chw(crops, embSize), longArrayOf(crops.size.toLong(), 3, embSize.toLong(), embSize.toLong())).use { t ->
-            embedder.run(mapOf(embInput to t)).use { r ->
-                @Suppress("UNCHECKED_CAST")
-                r[0].value as Array<FloatArray>
+        if (boxes.isEmpty()) return emptyList()
+        val emb = boxes.chunked(EMBED_BATCH).flatMap { part ->
+            val crops = part.map { square(image, it) }
+            try {
+                OnnxTensor.createTensor(env, chw(crops, embSize), longArrayOf(crops.size.toLong(), 3, embSize.toLong(), embSize.toLong())).use { t ->
+                    embedder.run(mapOf(embInput to t)).use { r ->
+                        @Suppress("UNCHECKED_CAST")
+                        (r[0].value as Array<FloatArray>).toList()
+                    }
+                }
+            } finally {
+                crops.forEach { it.recycle() }
             }
         }
-        crops.forEach { it.recycle() }
 
         val cands = emb.map { e -> topProducts(normalize(e)) }
-        val centers = big.map { (it[0] + it[2]) / 2 to (it[1] + it[3]) / 2 }
+        val centers = boxes.map { (it[0] + it[2]) / 2 to (it[1] + it[3]) / 2 }
         val picked = ContextAdjust.adjust(
             centers, cands,
             listOf(
@@ -112,11 +110,10 @@ class ProductRecognizer(context: Context) : AutoCloseable {
                 ContextAdjust.Level({ it }, lambdas[2]),  // キーがカテゴリそのもの
             ),
         )
-        return big.indices.mapNotNull { i ->
+        return boxes.indices.mapNotNull { i ->
             val p = picked[i]
-            val prod = p.key?.let { byKey[it] }
-            if (prod == null || p.sim < matchSim) return@mapNotNull null
-            val b = big[i]
+            val prod = p.key?.let { byKey[it] } ?: return@mapNotNull null
+            val b = boxes[i]
             RecognizedProduct(b[0], b[1], b[2], b[3], prod.name, prod.genre, prod.fine, p.sim)
         }
     }
@@ -191,9 +188,8 @@ class ProductRecognizer(context: Context) : AutoCloseable {
     companion object {
         private const val DIR = "products"
         private const val TOP_K = 10
-        private const val MIN_CROP_PX = 14
-        /** 名前を付ける切り抜きの数の上限（大きく写ったものから）。照合が切り抜きの数に比例して遅くなるので抑える。 */
-        private const val MAX_CROPS = 20
+        /** 枠は 1 枚で約 2000 個になる。一度に埋め込むとテンソルだけで 400MB ほどになるので分ける。 */
+        private const val EMBED_BATCH = 32
 
         private fun JSONObject.text(name: String): String? = if (isNull(name)) null else optString(name).ifEmpty { null }
 

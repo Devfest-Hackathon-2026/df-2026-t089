@@ -71,8 +71,8 @@ def main():
 
     G.tofile(OUT / "gallery.bin")
     meta = {"source": "sku110k-2", "detector_size": 640, "embed_size": 128, "pad_color": [124, 116, 104],
-            "dim": int(G.shape[1]), "count": int(G.shape[0]), "det_threshold": 0.15, "nms_iou": 0.5,
-            "min_crop": [cfg.get("min_crop_w", 20), cfg.get("min_crop_h", 20)], "match_sim": 0.8,
+            "dim": int(G.shape[1]), "count": int(G.shape[0]), "nms_iou": 0.5,
+            "min_crop": [cfg.get("min_crop_w", 20), cfg.get("min_crop_h", 20)],
             "context_lambda": [0.05, 0.05, 0.1], "products": products}
     (OUT / "gallery.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
     print(f"gallery {G.shape[0]} crops / {len(products)} categories -> {OUT}")
