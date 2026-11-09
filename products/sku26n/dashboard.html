@@ -16,7 +16,7 @@
   button { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:3px 12px; font:inherit; cursor:pointer; }
   button:disabled { opacity:.4; cursor:default; }
   .pager { display:flex; align-items:center; gap:8px; }
-  .heads, .grid { display:grid; grid-template-columns:repeat(10,minmax(0,1fr)); min-width:2800px; gap:6px; padding:0 8px; }
+  .heads, .grid { display:grid; grid-template-columns:repeat(11,minmax(0,1fr)); min-width:3080px; gap:6px; padding:0 8px; }
   .heads > div { padding:6px 4px; font-weight:600; font-size:13px; border-top:1px solid var(--line); }
   .heads small { display:block; color:var(--muted); font-weight:400; font-size:11px; }
   .grid { padding-top:8px; padding-bottom:16px; row-gap:12px; }
@@ -64,6 +64,7 @@
     <span id="stats">読み込み中…</span>
     <label><input id="gemOnly" type="checkbox"> Gemini 判定済みの写真だけ</label>
     <label for="conf">検出信頼度の下限 <input id="conf" type="range" min="0.05" max="0.9" step="0.05" value="0.25"><output id="confv">0.25</output></label>
+    <label for="cls">分類信頼度の下限 <input id="cls" type="range" min="0" max="0.95" step="0.05" value="0"><output id="clsv">0.00</output></label>
     <div class="pager"><button id="prev">前へ</button><span id="page"></span><button id="next">次へ</button></div>
   </div>
   <div id="notice" hidden></div>
@@ -90,12 +91,13 @@
 <script>
 const $ = s => document.querySelector(s);
 const PER_PAGE = 50;
-const conf = $("#conf"), grid = $("#grid"), zoom = $("#zoom");
+const conf = $("#conf"), cls = $("#cls"), grid = $("#grid"), zoom = $("#zoom");
 const COLS = [
   { key:"det", title:"2. 切り出し", sub:"sku110k-2" },
   { key:"gemini", title:"Gemini（進行中）", sub:"現在の判定結果。カーソルで社名・商品名" },
   { key:"clip_gem", title:"2段 MobileCLIP", sub:"sku110k-2の枠 + Gemini確定ラベルで学習した分類" },
   { key:"clip_gem_fit", title:"2段 MobileCLIP+周囲補正", sub:"top2/top3の方が周りと合えば置き換え" },
+  { key:"clip_gem_conf", title:"2段 MobileCLIP 信頼度調整", sub:"カテゴリはtop1のまま。周りとの一致度で信頼度を調整" },
   { key:"m1_gem", title:"2段 YOLO26n-cls", sub:"sku110k-2の枠 + Gemini確定ラベルで学習した分類" },
   { key:"trained", title:"A. 先行モデル", sub:"旧チェックポイントからの再学習（参考）" },
   { key:"b", title:"B. 122カテゴリ直接学習", sub:"元の重み + 確定ラベル。不確定領域は損失から除外" },
@@ -104,7 +106,8 @@ const COLS = [
 let S, page = 0;
 
 const boxesOf = (col, im) => col.key === "det" ? im.boxes : (S.methods[col.key]?.[im.name] || []);
-const kept = (col, im) => boxesOf(col, im).filter(b => b[4] >= +conf.value);
+const passes = b => b[4] >= +conf.value && (typeof b[6] !== "number" || b[6] >= +cls.value);  // 分類の確率が無い列は検出の信頼度だけで絞る
+const kept = (col, im) => boxesOf(col, im).filter(passes);
 
 function draw(canvas, img, col, im, labels) {
   const dpr = devicePixelRatio || 1, w = img.clientWidth, h = img.clientHeight;
@@ -199,7 +202,7 @@ function top5Of(key, name) {
 function boxAt(col, im, x, y) {  // カーソルの下の枠のうち、いちばん小さいもの（番号は元の枠の順）
   let best = -1, area = Infinity;
   boxesOf(col, im).forEach((b, i) => {
-    if (b[4] < +conf.value || x < b[0] || x > b[2] || y < b[1] || y > b[3]) return;
+    if (!passes(b) || x < b[0] || x > b[2] || y < b[1] || y > b[3]) return;
     const a = (b[2] - b[0]) * (b[3] - b[1]);
     if (a < area) { area = a; best = i; }
   });
@@ -210,12 +213,12 @@ async function showTip(e, img, col, im) {
   if (col.key === "det") return hideTip();
   const r = img.getBoundingClientRect(), i = boxAt(col, im, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
   if (i < 0) return hideTip();
-  const token = ++hoverToken, data = (col.key === "gemini" || ["m1_gem", "clip_gem", "clip_gem_fit", "trained", "b", "b_lr1e3", "c"].includes(col.key)) ? null : await top5Of(col.key, im.name);
+  const token = ++hoverToken, data = (col.key === "gemini" || ["m1_gem", "clip_gem", "clip_gem_fit", "clip_gem_conf", "trained", "b", "b_lr1e3", "c"].includes(col.key)) ? null : await top5Of(col.key, im.name);
   if (token !== hoverToken) return;
   const tip = $("#tip"), top = data?.[i], box = boxesOf(col, im)[i];
   tip.innerHTML = col.key === "gemini" ? `<b>${esc(col.title)}</b><div><span>${esc(S.cats[box[5]] || box[5])}</span></div>${box[8] ? `<div><span>${esc(box[7] || "")} ${esc(box[8])}</span></div>` : ""}${box[6] === true ? "<div>読めないのにラベルが付いた（要確認）</div>" : ""}` : top ? `<b>${esc(col.title)}</b>` + top.map(([c, p], n) => `<div><span>${n + 1}. ${esc(S.cats[c] || c)}</span><span>${(p * 100).toFixed(1)}%</span></div>`).join("")
     : "Top-5 はまだありません";
-  if (["m1_gem", "clip_gem", "clip_gem_fit", "trained", "b", "b_lr1e3", "c"].includes(col.key)) tip.innerHTML = `<b>${esc(col.title)}</b><div><span>${esc(S.cats[box[5]] || box[5])}</span><span>${((box[6] ?? box[4]) * 100).toFixed(1)}%</span></div>`;
+  if (["m1_gem", "clip_gem", "clip_gem_fit", "clip_gem_conf", "trained", "b", "b_lr1e3", "c"].includes(col.key)) tip.innerHTML = `<b>${esc(col.title)}</b><div><span>${esc(S.cats[box[5]] || box[5])}</span><span>${((box[6] ?? box[4]) * 100).toFixed(1)}%</span></div>`;
   tip.hidden = false;
   tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + "px";
   tip.style.top = Math.min(e.clientY + 14, innerHeight - tip.offsetHeight - 8) + "px";
@@ -234,6 +237,7 @@ function stats() {
 }
 
 conf.oninput = () => { $("#confv").textContent = (+conf.value).toFixed(2); stats(); visible.forEach(redraw); };
+cls.oninput = () => { $("#clsv").textContent = (+cls.value).toFixed(2); stats(); visible.forEach(redraw); };
 addEventListener("resize", () => visible.forEach(redraw));
 $("#prev").onclick = () => { page--; render(); };
 $("#next").onclick = () => { page++; render(); };
