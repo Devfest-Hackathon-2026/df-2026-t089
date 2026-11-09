@@ -26,6 +26,9 @@ RULES = f"""コンビニの商品を、下のカテゴリ一覧のどれか1つ�
 - ごはんとおかず、または主食 2 品のセットは 043。ただしお好み焼きと焼そばのセットは 108。
 - カップ入りの即席麺は 061・062・064・075、袋の即席麺と乾麺は 065、調理済みのチルド麺は 055〜059。
 - 090 にしてよいのは、調理済みでそのままおかずになる冷蔵の惣菜だけ。「その他のスナック菓子」023 や 090 を、別の種類の商品の受け皿にしない。
+- 「サラダ」と名の付く商品は 088。089 のカット野菜は、千切りキャベツや野菜炒めセットなど調理用の素材だけ。
+- 116 は味付けのない冷凍の素材と氷だけ。チョコがけやアイス状の冷凍菓子は 082・083、味付けした冷凍のおかずは 087。
+- 124 はおかゆ・雑炊・リゾット・茶漬け・カップライスだけ。クッパは 044、おしるこは 081。
 - 店頭で作るドリンクも中身で分ける（アイスコーヒーは 006、カフェラテは 007、抹茶ラテ・フラッペは 104）。
 - 必ず一覧のどれか 1 つの番号にする。「該当なし」は使わない。
 
@@ -60,6 +63,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sample", type=int, default=0, help="無作為に N 件だけ（お試し用）")
     ap.add_argument("--out", type=Path, default=ROOT / "labels.jsonl")
+    ap.add_argument("--recheck", default="", help="このカテゴリ番号（カンマ区切り）の商品を分類し直す。結果は追記され、同じ id は後の行が優先")
     a = ap.parse_args()
     items = [x for x in map(json.loads, (ROOT / "items.jsonl").open(encoding="utf-8")) if not excluded(x)]
     if a.sample:
@@ -69,7 +73,9 @@ def main():
         for line in a.out.open(encoding="utf-8"):
             x = json.loads(line)
             labels[x["id"]] = x["cat"]
-    todo = sorted((x for x in items if x["id"] not in labels), key=lambda x: x["category"])  # 似た商品を同じ回に
+    recheck = set(filter(None, a.recheck.split(",")))
+    pending = [x for x in items if labels.get(x["id"]) in recheck] if recheck else [x for x in items if x["id"] not in labels]
+    todo = sorted(pending, key=lambda x: x["category"])  # 似た商品を同じ回に
     batches = [todo[i:i + BATCH] for i in range(0, len(todo), BATCH)]
     print(f"{len(items)} 件 / 対象 {len(todo)} 件 / {len(batches)} 回", flush=True)
     with ThreadPoolExecutor(8) as ex, a.out.open("a", encoding="utf-8") as f:
