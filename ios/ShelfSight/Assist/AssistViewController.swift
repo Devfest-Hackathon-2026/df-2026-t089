@@ -40,7 +40,8 @@ final class Assist: NSObject, ARSessionDelegate {
     private static let questionLongSide = 1280
     private static let forgetDescriptionMs: Int64 = 3000
     private static let moveToRedescribeM: Float = 1.5
-    private static let describeRetryMs: Int64 = 4000
+    /// 棚の説明を試してから、次に試すまでの間（説明できなかったときも含む）。
+    private static let describeRetryMs: Int64 = 1500
     /// 残りのメモリがこれより少ないときは、商品の解析を休む（OS に止められないための安全装置）。
     private static let minAvailableMB: Double = 400
     /// 1 つだけ特に近い商品がこれだけ見えなければ、次に見えたときを新しい接近とする。
@@ -98,8 +99,11 @@ final class Assist: NSObject, ARSessionDelegate {
     @Locked private var turnDps: Float = 0
     @Locked private var skipped: [(String, Int)] = []
     @Locked private var auto = true
-    /// ② を話した場所。ここから離れるか、棚 1 つの場面を離れるまでは繰り返さない。
+    /// ② を話した場所と、その棚の種類（細分類）。ここから離れるか、別の種類の棚に向くか、棚 1 つの場面を離れるまでは繰り返さない。
     @Locked private var describedAt: Vec3? = nil
+    @Locked private var describedKinds: Set<String>? = nil
+    /// 自動の棚の説明を作っている間（LLM を待っている間）は、次を頼まない。
+    @Locked private var describing = false
     /// 質問に答えるときに LLM に渡す、最後に話した説明と、最後に調べた商品。
     @Locked private var lastDescription = ""
     @Locked private var lastProduct = ""
@@ -111,6 +115,8 @@ final class Assist: NSObject, ARSessionDelegate {
     // sceneWorker だけで使う
     private var leftOneShelfAt: Int64 = 0
     private var lastDescribeTry: Int64 = 0
+    /// 説明した棚から別の棚に移ったか（1.5m 動かなくても、隣の棚に向きを変えたら説明し直す）。
+    private var shelfChange = ShelfChange()
     /// 1 つだけ特に近い商品（NearProduct）を最後に見た時刻。しばらく見えなければ、次に見えたときを新しい接近とする。
     private var nearSeenAt: Int64 = 0
 
@@ -314,18 +320,34 @@ final class Assist: NSObject, ARSessionDelegate {
             let camera = cameraPosition(f)
             if judge.scene != .oneShelf && leftOneShelfAt == 0 { leftOneShelfAt = now }
             if judge.scene == .oneShelf { leftOneShelfAt = 0 }
-            if leftOneShelfAt != 0 && now - leftOneShelfAt > Self.forgetDescriptionMs { describedAt = nil }
+            if leftOneShelfAt != 0 && now - leftOneShelfAt > Self.forgetDescriptionMs { forgetDescription() }
 
-            if auto && !voice.speaking && judge.scene == .oneShelf && now - lastDescribeTry > Self.describeRetryMs &&
-                (describedAt.map { $0.distanceTo(camera) } ?? .greatestFiniteMagnitude) > Self.moveToRedescribeM {
+            // 説明し直すのは、説明した場所から moveToRedescribeM 離れたとき（まだ説明していなければすぐ）か、別の種類の棚に移ったとき
+            let kinds = judge.scene == .oneShelf ? Set(ShelfDescriber.split(products, groups).mainKinds) : []
+            let otherShelf = shelfChange.update(kinds, described: describedKinds, now: now)
+            let moved = (describedAt.map { $0.distanceTo(camera) } ?? .greatestFiniteMagnitude) > Self.moveToRedescribeM
+            debug.shelfChange = shelfChange.describe(now) + (describedAt.map { String(format: "、説明した場所から %.1fm", $0.distanceTo(camera)) } ?? "")
+            if auto && !voice.speaking && !describing && judge.scene == .oneShelf && now - lastDescribeTry > Self.describeRetryMs && (moved || otherShelf) {
                 lastDescribeTry = now
+                describing = true
+                shelfChange.reset()
+                logInfo("Assist", "describe trigger: \(moved ? "moved" : "other shelf"), \(debug.shelfChange)")
                 // LLM を待つ間も記録を止めないよう、別のキューで話す
                 let jpg = ImageUtil.jpeg(image, longSide: Self.narrateLongSide)
-                lookupWorker.async { [self] in describe(products, jpg, boxes.count, camera, requested: false) }
+                lookupWorker.async { [self] in
+                    defer { describing = false }
+                    describe(products, jpg, boxes.count, camera, requested: false)
+                }
             }
         } catch {
             logInfo("Assist", "scene analysis failed: \(error)")
         }
+    }
+
+    /// 前に説明した棚を忘れる（次に棚 1 つになったら、場所や種類に関係なく説明する）。
+    private func forgetDescription() {
+        describedAt = nil
+        describedKinds = nil
     }
 
     /**
@@ -348,6 +370,7 @@ final class Assist: NSObject, ARSessionDelegate {
         logInfo("Assist", "describe: \(products.count) products, kept \(split.kept.count), removed \(split.removed.count) -> \(text ?? "nil")")
         if let text {
             if let camera { describedAt = camera }
+            describedKinds = Set(split.mainKinds)
             lastDescription = text
             voice.say(text, interrupt: requested)
         } else if requested {
@@ -514,7 +537,7 @@ final class Assist: NSObject, ARSessionDelegate {
         case .resume:
             auto = true
             updateSettings()
-            describedAt = nil
+            forgetDescription()
             voice.say("お知らせを再開します。", interrupt: true)
         case .repeatLast: voice.say(voice.lastSpoken.isEmpty ? "まだ何も話していません。" : voice.lastSpoken, interrupt: true)
         case .help: voice.say(Commands.helpText, interrupt: true)

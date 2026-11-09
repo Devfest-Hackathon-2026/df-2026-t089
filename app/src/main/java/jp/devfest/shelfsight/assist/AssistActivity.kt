@@ -164,10 +164,15 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private var lastPerson = 0L
     private var greeted = false
     @Volatile private var auto = true
-    /** ② を話した場所。ここから離れるか、棚 1 つの場面を離れるまでは繰り返さない。 */
-    private var describedAt: Vec3? = null
+    /** ② を話した場所と、その棚の種類（細分類）。ここから離れるか、別の種類の棚に向くか、棚 1 つの場面を離れるまでは繰り返さない。 */
+    @Volatile private var describedAt: Vec3? = null
+    @Volatile private var describedKinds: Set<String>? = null
+    /** 自動の棚の説明を作っている間（LLM を待っている間）は、次を頼まない。 */
+    private val describing = AtomicBoolean(false)
     private var leftOneShelfAt = 0L
     private var lastDescribeTry = 0L
+    /** 説明した棚から別の棚に移ったか（1.5m 動かなくても、隣の棚に向きを変えたら説明し直す。sceneWorker だけで使う）。 */
+    private val shelfChange = ShelfChange()
     /** 質問に答えるときに LLM に渡す、最後に話した説明と、最後に調べた商品。 */
     @Volatile private var lastDescription = ""
     @Volatile private var lastProduct = ""
@@ -465,16 +470,25 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             val camera = cameraPosition(f)
             if (judge.scene != Scene.ONE_SHELF && leftOneShelfAt == 0L) leftOneShelfAt = now
             if (judge.scene == Scene.ONE_SHELF) leftOneShelfAt = 0L
-            if (leftOneShelfAt != 0L && now - leftOneShelfAt > FORGET_DESCRIPTION_MS) describedAt = null
+            if (leftOneShelfAt != 0L && now - leftOneShelfAt > FORGET_DESCRIPTION_MS) forgetDescription()
 
-            when {
-                !auto || voice.speaking -> Unit
-                judge.scene == Scene.ONE_SHELF && now - lastDescribeTry > DESCRIBE_RETRY_MS &&
-                    (describedAt?.distanceTo(camera) ?: Float.MAX_VALUE) > MOVE_TO_REDESCRIBE_M -> {
-                    lastDescribeTry = now
-                    // LLM を待つ間も 1 秒ごとの記録を止めないよう、別のスレッドで話す
-                    val jpg = jpeg(image, NARRATE_LONG_SIDE)
-                    lookupWorker.execute { describe(products, jpg, boxes.size, camera, requested = false) }
+            // 説明し直すのは、説明した場所から MOVE_TO_REDESCRIBE_M 離れたとき（まだ説明していなければすぐ）か、別の種類の棚に移ったとき（iOS 版と同じ）
+            val kinds = if (judge.scene == Scene.ONE_SHELF) ShelfDescriber.split(products, groups).mainKinds.toSet() else emptySet()
+            val otherShelf = shelfChange.update(kinds, describedKinds, now)
+            val describedPlace = describedAt
+            val moved = (describedPlace?.distanceTo(camera) ?: Float.MAX_VALUE) > MOVE_TO_REDESCRIBE_M
+            debug.shelfChange = shelfChange.describe(now) + (describedPlace?.let { "、説明した場所から %.1fm".format(it.distanceTo(camera)) } ?: "")
+            if (auto && !voice.speaking && !describing.get() && judge.scene == Scene.ONE_SHELF &&
+                now - lastDescribeTry > DESCRIBE_RETRY_MS && (moved || otherShelf)
+            ) {
+                lastDescribeTry = now
+                describing.set(true)
+                shelfChange.reset()
+                Log.i(TAG, "describe trigger: ${if (moved) "moved" else "other shelf"}, ${debug.shelfChange}")
+                // LLM を待つ間も解析を止めないよう、別のスレッドで話す
+                val jpg = jpeg(image, NARRATE_LONG_SIDE)
+                lookupWorker.execute {
+                    try { describe(products, jpg, boxes.size, camera, requested = false) } finally { describing.set(false) }
                 }
             }
         } catch (e: RuntimeException) {
@@ -482,6 +496,12 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         } finally {
             image.recycle()
         }
+    }
+
+    /** 前に説明した棚を忘れる（次に棚 1 つになったら、場所や種類に関係なく説明する）。 */
+    private fun forgetDescription() {
+        describedAt = null
+        describedKinds = null
     }
 
     /**
@@ -504,6 +524,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         Log.i(TAG, "describe: ${products.size} products, kept ${split.kept.size}, removed ${split.removed.size} (${split.mainGroup}) -> $text")
         if (text != null) {
             if (camera != null) describedAt = camera
+            describedKinds = split.mainKinds.toSet()
             lastDescription = text
             voice.say(text, interrupt = requested)
         } else if (requested) {
@@ -690,7 +711,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             Command.SHELVES -> onShelfButton()
             Command.DESCRIBE, Command.LOOKUP -> onLongPressed()
             Command.PAUSE -> { auto = false; updateSettings(); voice.say("お知らせを止めます。人が近づいたときの音は鳴ります。", interrupt = true) }
-            Command.RESUME -> { auto = true; updateSettings(); describedAt = null; voice.say("お知らせを再開します。", interrupt = true) }
+            Command.RESUME -> { auto = true; updateSettings(); forgetDescription(); voice.say("お知らせを再開します。", interrupt = true) }
             Command.REPEAT -> voice.say(voice.lastSpoken.ifEmpty { "まだ何も話していません。" }, interrupt = true)
             Command.HELP -> voice.say(Commands.HELP_TEXT, interrupt = true)
             null -> if (heard.isNullOrBlank()) voice.say("聞き取れませんでした。", interrupt = true) else ask(heard)
@@ -933,7 +954,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         const val QUESTION_LONG_SIDE = 1280
         const val FORGET_DESCRIPTION_MS = 3000L
         const val MOVE_TO_REDESCRIBE_M = 1.5f
-        const val DESCRIBE_RETRY_MS = 4000L
+        /** 棚の説明を試してから、次に試すまでの間（説明できなかったときも含む）。 */
+        const val DESCRIBE_RETRY_MS = 1500L
         /** 棚の種類のボタンの高さ（dp）。 */
         const val SHELF_BUTTON_DP = 88
         const val PERSON_HOLD_S = 1.0

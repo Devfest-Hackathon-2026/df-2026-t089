@@ -34,6 +34,8 @@ final class AssistDebug {
     @Locked var mainGroup: String? = nil
     @Locked var description = ""
     @Locked var describeInfo = ""
+    /// 説明した棚から別の棚に移ったかの判定（ShelfChange）と、説明した場所からの距離。
+    @Locked var shelfChange = ""
     @Locked var productsAt: Int64 = 0
 
     // ③ 長押し
@@ -203,6 +205,7 @@ final class DebugOverlay: UIView {
             lines.append("   外した: " + removed.orderedGroups { $0.genre ?? "?" }.map { "\($0.key)×\($0.values.count)" }.joined(separator: "、"))
         }
         if !d.description.isEmpty { lines.append("   説明: \(d.description)") }
+        if !d.shelfChange.isEmpty { lines.append("   棚の替わり: \(d.shelfChange)") }
         lines.append("③ 近い商品: \(d.near.isEmpty ? "-" : d.near)")
         lines.append("③ 長押し: \(d.longPress.isEmpty ? "-" : d.longPress)（\(age(d.focusAt))）")
         if !d.lookup.isEmpty { lines.append("   商品: \(d.lookup)") }

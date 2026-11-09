@@ -52,6 +52,8 @@ class AssistDebug {
     @Volatile var mainGroup: String? = null
     @Volatile var description = ""
     @Volatile var describeInfo = ""
+    /** 説明した棚から別の棚に移ったかの判定（[ShelfChange]）と、説明した場所からの距離。 */
+    @Volatile var shelfChange = ""
     @Volatile var productsAt = 0L
 
     // ③ 近い商品（[NearProduct]、商品の解析のたびに測る）と長押し
@@ -208,6 +210,7 @@ class DebugOverlay(context: Context, private val d: AssistDebug) : View(context)
             add("② 主な分類: ${d.mainGroup ?: "-"}  使った ${d.kept.size} / 外した ${d.removed.size} / 名前なし ${d.unnamed}  ${d.describeInfo}（${age(d.productsAt)}）")
             if (d.removed.isNotEmpty()) add("   外した: " + d.removed.groupBy { it.genre ?: "?" }.entries.joinToString("、") { "${it.key}×${it.value.size}" })
             if (d.description.isNotEmpty()) add("   説明: ${d.description}")
+            if (d.shelfChange.isNotEmpty()) add("   棚の替わり: ${d.shelfChange}")
             add("③ 近い商品: ${d.near.ifEmpty { "-" }}")
             add("③ 長押し:${d.longPress.ifEmpty { "-" }}（${age(d.focusAt)}）")
             if (d.lookup.isNotEmpty()) add("   商品: ${d.lookup}")

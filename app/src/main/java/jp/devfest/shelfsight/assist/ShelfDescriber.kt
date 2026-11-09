@@ -182,3 +182,45 @@ object ShelfDescriber {
         "靴下・衣料" to "靴下など",
     )
 }
+
+/**
+ * 説明した棚から、別の棚に移ったか（iOS 版の ShelfChange と同じ）。1.5m 動かなくても、隣の棚に向きを変えたら説明し直すため。
+ * 今見えている棚の種類（[ShelfDescriber.split] の mainKinds、緑茶・グミなどの細分類）のうち、説明した棚にもあった割合が
+ * [MIN_OVERLAP] に届かない状態が [HOLD_MS] 続いたら、別の棚とする（認識のぶれで 1 回だけ違って見えたときは言わない）。
+ * sceneWorker だけで使う。
+ */
+class ShelfChange {
+    /** 重なりが少ない状態が始まった時刻（続いていなければ 0）。 */
+    var since = 0L
+        private set
+    /** 最後に比べた重なり（画面の表示用。比べられなければ null）。 */
+    var lastOverlap: Float? = null
+        private set
+
+    /** 今の棚の種類を足し、別の棚に移ったと言えるなら true。[described] は説明した棚の種類（まだ説明していなければ null）。 */
+    fun update(kinds: Set<String>, described: Set<String>?, now: Long): Boolean {
+        if (described == null || kinds.isEmpty()) { since = 0L; lastOverlap = null; return false }
+        val o = overlap(kinds, described)
+        lastOverlap = o
+        if (o >= MIN_OVERLAP) { since = 0L; return false }
+        if (since == 0L) since = now
+        return now - since >= HOLD_MS
+    }
+
+    fun reset() { since = 0L }
+
+    fun describe(now: Long): String {
+        val o = lastOverlap ?: return "-"
+        val held = if (since == 0L) "" else "、違う種類が %.1f 秒".format((now - since) / 1000.0)
+        return "前の説明と重なり ${(o * 100).toInt()}%$held"
+    }
+
+    companion object {
+        const val MIN_OVERLAP = 0.5f
+        const val HOLD_MS = 1000L
+
+        /** 今の棚の種類のうち、説明した棚にもあった割合。 */
+        fun overlap(now: Set<String>, described: Set<String>): Float =
+            if (now.isEmpty()) 1f else now.count { it in described }.toFloat() / now.size
+    }
+}

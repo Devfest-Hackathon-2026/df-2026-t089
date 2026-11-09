@@ -208,3 +208,42 @@ enum ShelfDescriber {
         "靴下・衣料": "靴下など",
     ]
 }
+
+/**
+ * 説明した棚から、別の棚に移ったか。1.5m 動かなくても、隣の棚に向きを変えたら説明し直すため。
+ * 今見えている棚の種類（ShelfDescriber.split の mainKinds、緑茶・グミなどの細分類）のうち、説明した棚にもあった割合が
+ * minOverlap に届かない状態が holdMs 続いたら、別の棚とする（認識のぶれで 1 回だけ違って見えたときは言わない）。
+ * sceneWorker だけで使う。
+ */
+struct ShelfChange {
+    static let minOverlap: Float = 0.5
+    static let holdMs: Int64 = 1000
+
+    /// 重なりが少ない状態が始まった時刻（続いていなければ 0）。
+    private(set) var since: Int64 = 0
+    /// 最後に比べた重なり（画面の表示用。比べられなければ nil）。
+    private(set) var lastOverlap: Float? = nil
+
+    /// 今の棚の種類のうち、説明した棚にもあった割合。
+    static func overlap(_ now: Set<String>, _ described: Set<String>) -> Float {
+        now.isEmpty ? 1 : Float(now.intersection(described).count) / Float(now.count)
+    }
+
+    /// 今の棚の種類を足し、別の棚に移ったと言えるなら true。described は説明した棚の種類（まだ説明していなければ nil）。
+    mutating func update(_ kinds: Set<String>, described: Set<String>?, now: Int64) -> Bool {
+        guard let described, !kinds.isEmpty else { since = 0; lastOverlap = nil; return false }
+        let o = Self.overlap(kinds, described)
+        lastOverlap = o
+        if o >= Self.minOverlap { since = 0; return false }
+        if since == 0 { since = now }
+        return now - since >= Self.holdMs
+    }
+
+    mutating func reset() { since = 0 }
+
+    func describe(_ now: Int64) -> String {
+        guard let o = lastOverlap else { return "-" }
+        let held = since == 0 ? "" : String(format: "、違う種類が %.1f 秒", Double(now - since) / 1000)
+        return "前の説明と重なり \(Int(o * 100))%\(held)"
+    }
+}
