@@ -1,7 +1,7 @@
 """コンビニDB（konbinidb.com）の商品名・画像を集める。途中で止めても続きから再開できる。
 
   .venv/Scripts/python products/konbinidb/scrape.py list    [--max-pages N]  一覧ページから商品名・カテゴリ・画像 URL
-  .venv/Scripts/python products/konbinidb/scrape.py images  [--limit N]      商品画像
+  .venv/Scripts/python products/konbinidb/scrape.py images  [--limit N] [--chain セブンイレブン]  商品画像
 
 相手のサイトに負担をかけないよう 1 リクエストずつ、間隔を 0.5 秒以上あける。
 画像の権利は各社にあり、サイトは無断転載を禁じているので、出力は git に入らない products/work/konbinidb/ だけに置く。
@@ -96,9 +96,9 @@ def stage_list(max_pages: int):
     print(f"完了: {len(seen)} 件", flush=True)
 
 
-def stage_images(limit: int):
+def stage_images(limit: int, chain: str | None):
     IMAGES.mkdir(parents=True, exist_ok=True)
-    items = [json.loads(x) for x in ITEMS.open(encoding="utf-8")]
+    items = [x for x in map(json.loads, ITEMS.open(encoding="utf-8")) if not chain or x["chain"] == chain]
     todo = [x for x in items if x["image"] and not (IMAGES / f"{x['id']}.webp").exists()]
     if limit:
         todo = todo[:limit]
@@ -119,5 +119,6 @@ if __name__ == "__main__":
     ap.add_argument("stage", choices=["list", "images"])
     ap.add_argument("--max-pages", type=int, default=0, help="カテゴリごとのページ数の上限（動作確認用）")
     ap.add_argument("--limit", type=int, default=0, help="画像の枚数の上限（動作確認用）")
+    ap.add_argument("--chain", help="画像を取るチェーン（例: セブンイレブン）。省略すると全チェーン")
     a = ap.parse_args()
-    stage_list(a.max_pages) if a.stage == "list" else stage_images(a.limit)
+    stage_list(a.max_pages) if a.stage == "list" else stage_images(a.limit, a.chain)
