@@ -63,6 +63,8 @@ class SpatialMixer(private val listener: () -> Listener?) : AutoCloseable {
     private val effects = CopyOnWriteArrayList<Sound>()
     private val emitters = ConcurrentHashMap<Int, Emitter>()
     private val tick = makeTick()
+    /** 記録モードで、実際に AudioTrack へ渡す音を保存する先。処理は呼び出し側で短く保つ。 */
+    @Volatile var outputSink: ((FloatArray) -> Unit)? = null
     @Volatile private var running = true
     private var time = 0L
 
@@ -136,6 +138,7 @@ class SpatialMixer(private val listener: () -> Listener?) : AutoCloseable {
                 out[2 * k] = softClip(left[k])
                 out[2 * k + 1] = softClip(right[k])
             }
+            outputSink?.let { sink -> try { sink(out) } catch (e: RuntimeException) { Log.w(TAG, "audio recording failed", e) } }
             track.write(out, 0, out.size, AudioTrack.WRITE_BLOCKING)
             time += BLOCK
         }

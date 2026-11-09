@@ -2,6 +2,7 @@ package jp.devfest.shelfsight.assist
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.hardware.camera2.CameraCharacteristics
@@ -12,6 +13,7 @@ import android.opengl.GLES20.glClear
 import android.opengl.GLES20.glClearColor
 import android.opengl.GLES20.glViewport
 import android.opengl.GLSurfaceView
+import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
@@ -26,12 +28,14 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import com.example.store3d.CameraBackground
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.CameraConfigFilter
 import com.google.ar.core.Config
 import com.google.ar.core.Coordinates2d
 import com.google.ar.core.Plane
+import com.google.ar.core.PlaybackStatus
 import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
 import com.google.ar.core.exceptions.UnavailableException
@@ -120,6 +124,15 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private lateinit var debugOverlay: DebugOverlay
     private lateinit var tabs: List<Button>
     private lateinit var recordButton: Button
+    private lateinit var replayButton: Button
+    private val recordingLibrary by lazy { RecordingLibrary(java.io.File(getExternalFilesDir(null), "recordings")) }
+    private var playback: RecordingLibrary.Recording? = null
+    private var playbackActions: PlaybackActions? = null
+    private var playbackFinished = false
+    /** 再生中に使う事前計算の結果。トグルが OFF なら null。 */
+    private var precomputed: PrecomputedRecognition? = null
+    @Volatile private var precomputing = false
+    @Volatile private var precomputeCancelled = false
     /** 記録中ならその記録（GL スレッドで作って閉じる）。 */
     @Volatile private var sessionRecorder: SessionRecorder? = null
     @Volatile private var recordToggle = false
@@ -138,6 +151,11 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        playback = recordingLibrary.find(intent.getStringExtra(EXTRA_PLAYBACK))
+        playbackActions = playback?.let { PlaybackActions(recordingLibrary.events(it)) }
+        if (intent.getBooleanExtra(EXTRA_PRECOMPUTED, false)) {
+            precomputed = playback?.let { PrecomputedRecognition.load(it.directory, ProductRecognizer.version(this)) }
+        }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         gl = GLSurfaceView(this).apply {
             preserveEGLContextOnPause = true
@@ -182,9 +200,16 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         }
         val names = listOf("案内", "3D モデル")
         tabs = names.indices.map { i -> Button(this).apply { text = names[i]; setOnClickListener { selectTab(i == 1) } } }
-        recordButton = Button(this).apply { text = RECORD_LABEL; setOnClickListener { recordToggle = true } }
+        recordButton = Button(this).apply {
+            text = if (playback == null) RECORD_LABEL else precomputeLabel()
+            setOnClickListener { if (playback == null) recordToggle = true else togglePrecompute() }
+        }
+        replayButton = Button(this).apply {
+            text = if (playback == null) "▶ 再生" else "再生 ${playback!!.name.substring(9)}"
+            setOnClickListener { showRecordingPicker() }
+        }
         val tabBar = LinearLayout(this).apply {
-            (tabs + recordButton).forEach { addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
+            (tabs + recordButton + replayButton).forEach { addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
             // ステータスバーの下に潜るとタップがシステムに取られる
             setPadding(0, resources.getIdentifier("status_bar_height", "dimen", "android").let { if (it > 0) resources.getDimensionPixelSize(it) else 0 }, 0, 0)
         }
@@ -209,27 +234,53 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             requestPermissions(missing.toTypedArray(), 0)
             return
         }
+        val restartingPlayback = session != null && playback != null
         if (session == null) try {
             if (ArCoreApk.getInstance().requestInstall(this, !installRequested) == ArCoreApk.InstallStatus.INSTALL_REQUESTED) {
                 installRequested = true
                 return
             }
-            session = Session(this).also { s ->
-                useHighResolutionCameraImage(s)
+            val s = Session(this)
+            try {
+                if (playback == null) useHighResolutionCameraImage(s)
+                else s.setPlaybackDatasetUri(Uri.fromFile(playback!!.dataset))
                 val config = Config(s).setFocusMode(Config.FocusMode.AUTO).setPlaneFindingMode(Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL)
                 if (s.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) config.depthMode = Config.DepthMode.AUTOMATIC
                 s.configure(config)
                 val cm = getSystemService(CameraManager::class.java)
                 sensorRotation = cm.getCameraCharacteristics(s.cameraConfig.cameraId).get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+                session = s
+            } catch (e: Exception) {
+                s.close()
+                throw e
             }
         } catch (e: UnavailableException) {
             voice.say("このスマホでは、カメラの位置合わせが使えません。")
             debug.tracking = "ARCore が使えません: $e"
             return
+        } catch (e: Exception) {
+            Log.e(TAG, "could not open recording", e)
+            debug.tracking = "録画を開けません: ${e.message}"
+            Toast.makeText(this, "録画を開けませんでした", Toast.LENGTH_LONG).show()
+            session?.close(); session = null
+            return
         }
-        session!!.resume()
+        try {
+            if (restartingPlayback) {
+                session!!.setPlaybackDatasetUri(Uri.fromFile(playback!!.dataset))
+                playbackActions = PlaybackActions(recordingLibrary.events(playback!!))
+                playbackFinished = false
+                precomputed?.rewind()
+            }
+            session!!.resume()
+        } catch (e: Exception) {
+            Log.e(TAG, "ARCore resume failed", e)
+            debug.tracking = "ARCore 再生失敗: ${e.message}"
+            Toast.makeText(this, "ARCoreを開始できませんでした", Toast.LENGTH_LONG).show()
+            return
+        }
         gl.onResume()
-        if (!greeted) {
+        if (!greeted && playback == null) {
             greeted = true
             voice.say("準備ができました。1回たたくと棚の案内、2回たたくと商品の名前、長押しで質問ができます。")
             voice.prepare(listOf("調べています"))
@@ -278,7 +329,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         if (geometryChanged) { s.setDisplayGeometry(display!!.rotation, viewW, viewH); geometryChanged = false }
         if (recordToggle) {
             recordToggle = false
-            toggleRecording(s)
+            if (playback == null) toggleRecording(s)
         }
         val frame = try { s.update() } catch (e: Exception) { return }
         val camera = frame.camera
@@ -296,6 +347,20 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             TrackingState.TRACKING -> "追跡中"
             TrackingState.PAUSED -> "一時停止（${camera.trackingFailureReason}）"
             else -> "停止"
+        }
+        if (playback != null) {
+            val status = s.playbackStatus
+            if (status == PlaybackStatus.FINISHED || status == PlaybackStatus.IO_ERROR) {
+                if (!playbackFinished) {
+                    playbackFinished = true
+                    runOnUiThread { replayButton.text = if (status == PlaybackStatus.FINISHED) "↻ 再実行" else "再生エラー" }
+                }
+                return
+            }
+            debug.tracking = "録画再生: ${debug.tracking}"
+            for (event in playbackActions?.through(frame.timestamp).orEmpty()) {
+                runOnUiThread { replayAction(event) }
+            }
         }
         // 記録中は認識を止めて、データを取りこぼさないようにする（認識は PC で再生して動かす）
         sessionRecorder?.let { rec ->
@@ -334,7 +399,9 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                 personWorker.execute { try { runPeople(f) } finally { personBusy.set(false) } }
             }
         }
-        if (now - lastScene >= SCENE_INTERVAL_MS && sceneBusy.compareAndSet(false, true)) {
+        val cached = precomputed?.takeDue(frame.timestamp)
+        val sceneDue = if (precomputed != null) cached != null else now - lastScene >= SCENE_INTERVAL_MS
+        if (!precomputing && sceneDue && sceneBusy.compareAndSet(false, true)) {
             val f = FrameCapture.capture(frame, camera, rotation, depthEnabled = true, usualLongSide = SCENE_LONG_SIDE)
             if (f == null) sceneBusy.set(false) else {
                 lastScene = now
@@ -347,7 +414,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                     }
                 val counters = counterPoints(s, pose.ty())
                 val heading = debug.headingDeg
-                sceneWorker.execute { try { runScene(f, walls, counters, heading) } finally { sceneBusy.set(false) } }
+                sceneWorker.execute { try { runScene(f, walls, counters, heading, cached) } finally { sceneBusy.set(false) } }
             }
         }
     }
@@ -357,7 +424,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     /**
      * 1 秒ごと: 商品の枠を出して写っているものを判定し、商品に名前を付けて地図（壁の上）に置き、画像と姿勢と結果を記録する。
      */
-    private fun runScene(f: CapturedFrame, walls: List<Wall>, counters: List<Vec3>, heading: Float?) {
+    private fun runScene(f: CapturedFrame, walls: List<Wall>, counters: List<Vec3>, heading: Float?, cached: PrecomputedRecognition.Entry? = null) {
         val image = JpegEncoder.toUprightBitmap(f, SCENE_LONG_SIDE)
         try {
             val now = SystemClock.elapsedRealtime()
@@ -366,13 +433,13 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             debug.productBoxes = boxes  // 名前付けに数秒かかるので、枠は先に出す
             debug.sceneAt = SystemClock.elapsedRealtime()
             val switched = judge.update(SceneEvidence(0, boxes))
-            val products = recognizer.recognize(image, boxes)
+            val products = cached?.match(boxes) ?: recognizer.recognize(image, boxes)
             val recognizeMs = SystemClock.elapsedRealtime() - now - detectMs
             val placed = products.map { p -> Recorder.Product(p, placeOnMap(p, f, walls, now)) }
             updateStoreModel(boxes, placed, counters, f, now)
             recorder.record(System.currentTimeMillis(), image, f.geometry, heading, walls.size, placed)
             debug.scene = judge.scene
-            debug.sceneMs = "枠 ${detectMs}ms / 名前 ${recognizeMs}ms / 壁 ${walls.size}"
+            debug.sceneMs = "枠 ${detectMs}ms / 名前 ${recognizeMs}ms${if (cached != null) "（事前計算 ${products.size}/${boxes.size}）" else ""} / 壁 ${walls.size}"
             debug.mapView = shelfMap.visible(f.geometry)
             debug.mapInfo = "${shelfMap.size} 個（今見えている ${debug.mapView.size}、この 1 枚で置いた ${placed.count { it.position != null }}/${products.size}）"
             val main = SceneJudge.mainProduct(boxes)
@@ -597,8 +664,10 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         if (current == null) {
             val rec = SessionRecorder(this, java.io.File(getExternalFilesDir(null), "recordings"))
             rec.start(s, sensorRotation)
+            mixer.outputSink = rec::recordOutput
             sessionRecorder = rec
             runOnUiThread { recordButton.text = "■ 停止" }
+            runOnUiThread { replayButton.isEnabled = false }
             Log.i(TAG, "recording ${rec.name} mp4=${rec.hasMp4}")
         } else {
             try { s.stopRecording() } catch (e: com.google.ar.core.exceptions.RecordingFailedException) { Log.e(TAG, "stop recording failed", e) }
@@ -609,8 +678,78 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private fun stopRecorder() {
         val rec = sessionRecorder ?: return
         sessionRecorder = null
+        mixer.outputSink = null
         rec.close()
         runOnUiThread { recordButton.text = RECORD_LABEL }
+        runOnUiThread { replayButton.isEnabled = true }
+    }
+
+    private fun showRecordingPicker() {
+        Log.i(TAG, "recording picker opened")
+        val recordings = recordingLibrary.list()
+        if (recordings.isEmpty()) {
+            AlertDialog.Builder(this).setTitle("端末内の録画")
+                .setMessage("まだ録画がありません。● 記録で録画してください。")
+                .setPositiveButton("閉じる", null).show()
+            return
+        }
+        val labels = arrayOf("ライブカメラに戻る", *recordings.map { it.label }.toTypedArray())
+        AlertDialog.Builder(this).setTitle("端末内の録画を再生")
+            .setItems(labels) { _, index ->
+                val selected = recordings.getOrNull(index - 1)?.name
+                intent.apply {
+                    if (selected == null) removeExtra(EXTRA_PLAYBACK) else putExtra(EXTRA_PLAYBACK, selected)
+                }
+                recreate() // Fresh app state; the selected ARCore dataset is used by the next Session.
+            }
+            .setNegativeButton("キャンセル", null).show()
+    }
+
+    private fun precomputeLabel() = if (precomputed != null) "事前計算 ON" else "事前計算 OFF"
+
+    /** 再生の商品認識を事前計算に切り替える。切り替えたら録画を最初から再生し直す。 */
+    private fun togglePrecompute() {
+        val rec = playback ?: return
+        when {
+            precomputing -> precomputeCancelled = true   // ここまでの結果は残り、次は続きから
+            precomputed != null -> restartWithPrecomputed(false)
+            else -> {
+                precomputing = true
+                precomputeCancelled = false
+                recordButton.text = "計算の準備中"
+                sceneWorker.execute {
+                    val done = try {
+                        PrecomputedRecognition.compute(rec.directory, ProductRecognizer.version(this), { recognizer.recognize(it) }, { precomputeCancelled }) { n, total ->
+                            runOnUiThread { recordButton.text = "計算中 $n/$total" }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "precompute failed", e)
+                        false
+                    }
+                    precomputing = false
+                    runOnUiThread { if (done) restartWithPrecomputed(true) else recordButton.text = precomputeLabel() }
+                }
+            }
+        }
+    }
+
+    private fun restartWithPrecomputed(on: Boolean) {
+        intent.putExtra(EXTRA_PRECOMPUTED, on)
+        recreate()
+    }
+
+    private fun replayAction(event: RecordingLibrary.Event) {
+        Log.i(TAG, "replay action ${event.type} at ${event.timestampNs}")
+        when (event.type) {
+            "tap" -> onTap()
+            "double_tap" -> onProductTap()
+            "long_press" -> debug.voice = "録画の長押し"
+            "speech" -> {
+                val heard = event.text.orEmpty()
+                debug.voice = "録画の音声: ${heard.ifBlank { "認識なし" }}"
+                handle(heard.takeIf { it.isNotBlank() }?.let(Commands::parse), heard)
+            }
+        }
     }
 
     /** 店のモデルに今の 1 枚を足す。名前が付かなかった枠も、棚の形の手がかりとして位置だけ使う。 */
@@ -739,6 +878,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         const val CLOSE_ALERT_M = 1.5f
         const val STORE_ESTIMATE_MS = 3000L
         const val RECORD_LABEL = "● 記録"
+        const val EXTRA_PLAYBACK = "jp.devfest.shelfsight.PLAYBACK_RECORDING"
+        const val EXTRA_PRECOMPUTED = "jp.devfest.shelfsight.PLAYBACK_PRECOMPUTED"
         const val DEVICE_HEIGHT_M = 1.3f
         /** スマホ（胸の高さ）から見たレジの天板の高さ。 */
         val COUNTER_BELOW_DEVICE_M = -0.6f..-0.1f

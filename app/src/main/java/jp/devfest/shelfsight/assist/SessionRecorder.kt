@@ -33,6 +33,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -46,6 +47,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   keyframes.jsonl / frames/ depth/ points/   KEYFRAME_MS ごとのカメラ画像、深度（補完済み・生・信頼度）、特徴点
  *   sensors.csv    端末の各センサーの生の値
  *   audio.pcm      マイクの 16 kHz・16 bit・モノラル音声（音声認識の再試験用）
+ *   app_audio.pcm  アプリが実際に出した音の 44.1 kHz・16 bit・ステレオ音声
  *   events.jsonl   記録中の操作（タップ・ダブルタップ・長押し・聞き取った言葉）
  *
  * onFrame は GL スレッドから、書き込みは 1 本の別スレッドで行う。
@@ -69,6 +71,11 @@ class SessionRecorder(private val context: Context, root: File) : SensorEventLis
     private var audioThread: Thread? = null
     @Volatile private var audioRunning = false
     private var audioStartMs: Long? = null
+    private val appAudioQueue = ArrayBlockingQueue<ByteArray>(512)
+    private var appAudioThread: Thread? = null
+    @Volatile private var appAudioRunning = false
+    private var appAudioStartMs: Long? = null
+    private var appAudioDropped = 0
     @Volatile private var lastFrameT = 0L
     @Volatile var hasMp4 = false
         private set
@@ -87,6 +94,7 @@ class SessionRecorder(private val context: Context, root: File) : SensorEventLis
         val c = session.cameraConfig
         val config = session.config
         startAudio()
+        startAppAudio()
         File(dir, "meta.json").writeText(
             JSONObject().put("name", name).put("start_ms", startMs).put("model", Build.MODEL).put("sdk", Build.VERSION.SDK_INT)
                 .put("mp4", hasMp4).put("camera_id", c.cameraId).put("image", JSONArray(listOf(c.imageSize.width, c.imageSize.height)))
@@ -96,6 +104,8 @@ class SessionRecorder(private val context: Context, root: File) : SensorEventLis
                 .put("update_mode", config.updateMode.name)
                 .put("audio_sample_rate", if (audioRecord != null) AUDIO_HZ else JSONObject.NULL)
                 .put("audio_start_ms", audioStartMs ?: JSONObject.NULL)
+                .put("app_audio_sample_rate", SpatialMixer.RATE).put("app_audio_channels", 2)
+                .put("app_audio_start_ms", appAudioStartMs ?: JSONObject.NULL)
                 .put("sensor_rotation", sensorRotation).put("keyframe_ms", KEYFRAME_MS).put("long_side", LONG_SIDE).toString(1),
         )
         for (s in SENSOR_TYPES.mapNotNull { sensorManager.getDefaultSensor(it) }) sensorManager.registerListener(this, s, SensorManager.SENSOR_DELAY_GAME)
@@ -219,6 +229,37 @@ class SessionRecorder(private val context: Context, root: File) : SensorEventLis
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 
+    /** AudioTrack に渡す直前のステレオ出力を記録する。ミキサーのスレッドではキューに積むだけ。 */
+    fun recordOutput(samples: FloatArray) {
+        if (!appAudioRunning) return
+        val bytes = ByteArray(samples.size * 2)
+        for (i in samples.indices) {
+            val value = (samples[i].coerceIn(-1f, 1f) * 32767f).toInt()
+            bytes[i * 2] = value.toByte()
+            bytes[i * 2 + 1] = (value shr 8).toByte()
+        }
+        if (!appAudioQueue.offer(bytes)) appAudioDropped++
+    }
+
+    private fun startAppAudio() {
+        appAudioRunning = true
+        appAudioStartMs = System.currentTimeMillis()
+        appAudioThread = Thread({
+            try {
+                File(dir, "app_audio.pcm").outputStream().buffered().use { out ->
+                    while (appAudioRunning || appAudioQueue.isNotEmpty()) {
+                        appAudioQueue.poll(100, TimeUnit.MILLISECONDS)?.let(out::write)
+                    }
+                }
+            } catch (e: IOException) {
+                Log.w(TAG, "app audio write failed", e)
+                appAudioRunning = false
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
+        }, "SessionAppAudio").apply { start() }
+    }
+
     private fun startAudio() {
         var record: AudioRecord? = null
         try {
@@ -253,6 +294,9 @@ class SessionRecorder(private val context: Context, root: File) : SensorEventLis
 
     /** ファイルを閉じる。ARCore の録画は呼ぶ側が止める（一時停止なら自動で止まる）。 */
     fun close() {
+        appAudioRunning = false
+        try { appAudioThread?.join(3000) } catch (e: InterruptedException) { Thread.currentThread().interrupt() }
+        if (appAudioDropped > 0) Log.w(TAG, "dropped $appAudioDropped app audio blocks")
         audioRunning = false
         audioRecord?.let { try { it.stop() } catch (e: IllegalStateException) { Log.w(TAG, "audio stop failed", e) } }
         try { audioThread?.join(3000) } catch (e: InterruptedException) { Thread.currentThread().interrupt() }
