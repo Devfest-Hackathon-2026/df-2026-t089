@@ -5,6 +5,8 @@ import android.opengl.Matrix
 import jp.devfest.shelfsight.ar.GlUtil
 import jp.devfest.shelfsight.mapping.OrbitCamera
 import jp.devfest.shelfsight.model.Vec3
+import jp.devfest.shelfsight.perception.PersonMarker
+import jp.devfest.shelfsight.perception.PersonMotion
 
 /** 推定した店（[StoreView]）を線画で、認識した商品を点で、自分を向き付きのスマホで描く。GL スレッドから使う。 */
 internal class StoreModelRenderer {
@@ -30,7 +32,7 @@ internal class StoreModelRenderer {
      * @param phone 端末の姿勢（画面の右 +x、上 +y、カメラの向き -z の 4×4 行列）。[floorY] はそこから見積もった床の高さ。
      * @return 画面に重ねる文字（棚のジャンルが先、商品名は見えた回数の多い順）
      */
-    fun draw(view: StoreView?, orbit: OrbitCamera, width: Int, height: Int, phone: FloatArray?, floorY: Float, items: List<MapItem>): List<ScreenLabel> {
+    fun draw(view: StoreView?, orbit: OrbitCamera, width: Int, height: Int, phone: FloatArray?, floorY: Float, items: List<MapItem>, people: List<PersonMarker>): List<ScreenLabel> {
         val e = begin(orbit, width, height, 50f)
         useLines(boxLines)
         if (view?.room != null) {
@@ -46,9 +48,17 @@ internal class StoreModelRenderer {
             }
         }
         if (phone != null) drawPhone(phone)
+        for (p in people) drawPerson(p.position.x, floorY, p.position.z, if (p.motion == PersonMotion.APPROACHING) APPROACHING else OTHER_PERSON)
         GLES20.glDisableVertexAttribArray(position)
         drawPoints(items)
-        return labels(view, items, e, floorY, width, height)
+        return personLabels(people, phone, floorY, width, height) + labels(view, items, e, floorY, width, height)
+    }
+
+    private fun personLabels(people: List<PersonMarker>, phone: FloatArray?, floorY: Float, width: Int, height: Int): List<ScreenLabel> = people.mapNotNull { p ->
+        screen(p.position.x, floorY + PERSON_LABEL_Y, p.position.z, width, height, SHELF_LABEL_REACH)?.let { at ->
+            val metres = phone?.let { "%.1fm".format(Math.hypot((p.position.x - it[12]).toDouble(), (p.position.z - it[14]).toDouble())) } ?: "?"
+            ScreenLabel(at[0], at[1], "人 $metres ${p.motion.labelJa}", true)
+        }
     }
 
     /** 立体音響のテスト: 正面（-z）を向いて立つ人の線画と、その人から見た音源の位置を描く。 */
@@ -60,21 +70,7 @@ internal class StoreModelRenderer {
             Matrix.scaleM(model, 0, r.toFloat(), 1f, r.toFloat())
             drawLines(FLOOR, CIRCLE_LINES)
         }
-        // 頭は 3 方向の輪で球に見せる
-        for ((angle, x, z) in listOf(Triple(0f, 1f, 0f), Triple(90f, 1f, 0f), Triple(90f, 0f, 1f))) {
-            Matrix.setIdentityM(model, 0)
-            Matrix.translateM(model, 0, 0f, HEAD_Y, 0f)
-            if (angle != 0f) Matrix.rotateM(model, 0, angle, x, 0f, z)
-            Matrix.scaleM(model, 0, HEAD_R, HEAD_R, HEAD_R)
-            drawLines(ME, CIRCLE_LINES)
-        }
-        useLines(boxLines)
-        for (p in BODY) {
-            Matrix.setIdentityM(model, 0)
-            Matrix.translateM(model, 0, p[0], p[1], p[2])
-            Matrix.scaleM(model, 0, p[3], p[4], p[5])
-            drawLines(ME, BOX_LINES)
-        }
+        drawPerson(0f, 0f, 0f, ME)
         val az = Binaural.azimuth(listener, source)
         val horizontal = Binaural.horizontalDistance(listener, source)
         val x = horizontal * Math.sin(az.toDouble()).toFloat()
@@ -91,6 +87,26 @@ internal class StoreModelRenderer {
         pointBuffer.put(x).put(y).put(z)
         pointBuffer.position(0)
         drawPointBuffer(1, col, SOURCE_SIZE)
+    }
+
+    /** 足元が ([x], [floorY], [z]) の人の線画。呼んだあとは箱の線が選ばれている。 */
+    private fun drawPerson(x: Float, floorY: Float, z: Float, col: FloatArray) {
+        useLines(circleLines)
+        // 頭は 3 方向の輪で球に見せる
+        for ((angle, ax, az) in listOf(Triple(0f, 1f, 0f), Triple(90f, 1f, 0f), Triple(90f, 0f, 1f))) {
+            Matrix.setIdentityM(model, 0)
+            Matrix.translateM(model, 0, x, floorY + HEAD_Y, z)
+            if (angle != 0f) Matrix.rotateM(model, 0, angle, ax, 0f, az)
+            Matrix.scaleM(model, 0, HEAD_R, HEAD_R, HEAD_R)
+            drawLines(col, CIRCLE_LINES)
+        }
+        useLines(boxLines)
+        for (p in BODY) {
+            Matrix.setIdentityM(model, 0)
+            Matrix.translateM(model, 0, x + p[0], floorY + p[1], z + p[2])
+            Matrix.scaleM(model, 0, p[3], p[4], p[5])
+            drawLines(col, BOX_LINES)
+        }
     }
 
     /** 画面を消して線の描画を始める。@return 視点の位置 */
@@ -210,6 +226,9 @@ internal class StoreModelRenderer {
         const val ARROW_LENGTH_M = 1f
         const val ARROW_HEAD_M = 0.18f
         val MOVING = rgb(0xaeb4bd)
+        val APPROACHING = rgb(0xff4d4d)
+        val OTHER_PERSON = rgb(0x5ad1e6)
+        const val PERSON_LABEL_Y = 1.9f
         const val SOURCE_SIZE = 44f
         /** 縦長の画面でも左右の音源が入るよう、店のモデルより広く写す。 */
         const val DEMO_FOV_DEG = 70f

@@ -63,7 +63,7 @@ class SpatialMixer(private val hrtf: Hrtf, private val listener: () -> Listener?
     @Volatile private var speech: Sound? = null
     private val effects = CopyOnWriteArrayList<Sound>()
     private val emitters = ConcurrentHashMap<Int, Emitter>()
-    private val tick = makeTick()
+    private val approachAlert = makeApproachAlert()
     /** 記録モードで、実際に AudioTrack へ渡す音を保存する先。処理は呼び出し側で短く保つ。 */
     @Volatile var outputSink: ((FloatArray) -> Unit)? = null
     @Volatile private var running = true
@@ -117,7 +117,7 @@ class SpatialMixer(private val hrtf: Hrtf, private val listener: () -> Listener?
             // 繰り返しの音: 時刻が来たら 1 回ぶんを足す
             for (e in emitters.values) {
                 if (time >= e.nextFrame) {
-                    effects += Sound(tick, { e.position }, e.gain)
+                    effects += Sound(approachAlert, { e.position }, e.gain)
                     e.nextFrame = time + (e.intervalSec * RATE).toLong()
                 }
             }
@@ -223,6 +223,34 @@ class SpatialMixer(private val hrtf: Hrtf, private val listener: () -> Listener?
                 val env = min(1f, s / 0.004f) * exp(-s / 0.025f) * min(1f, (len - t) / (RATE * 0.005f))
                 0.45f * env * (sin(2 * PI * 1320 * s).toFloat() + 0.25f * sin(2 * PI * 2640 * s).toFloat())
             }
+        }
+
+        /**
+         * 人が近づいてくるときの 175 ms の警告音。音程が上がる短い 3 連で、棚のチャイムと聞き分けられるようにする。
+         * 鋸波の倍音とノイズで高域まで鳴らし、チャイムと同じく方向が分かるようにする。
+         */
+        fun makeApproachAlert(): FloatArray {
+            val pulse = 0.045f
+            val gap = 0.02f
+            val out = FloatArray((RATE * (3 * pulse + 2 * gap)).toInt())
+            val noise = java.util.Random(11)   // 毎回同じ音にする
+            var last = 0f
+            for ((i, base) in listOf(1400f, 1800f, 2300f).withIndex()) {
+                val start = (i * (pulse + gap) * RATE).toInt()
+                val len = (pulse * RATE).toInt().coerceAtMost(out.size - start)
+                for (t in 0 until len) {
+                    val s = t.toFloat() / RATE
+                    val envelope = min(1f, s / 0.001f) * min(1f, (len - t) / (RATE * 0.003f))
+                    var saw = 0f
+                    for (h in 1..9) saw += sin(2 * PI * base * h * s).toFloat() / h
+                    val white = noise.nextFloat() * 2f - 1f
+                    val bright = white - last   // 差分で低域を落とす
+                    last = white
+                    out[start + t] = envelope * (saw + 0.6f * bright)
+                }
+            }
+            val peak = out.maxOf { kotlin.math.abs(it) }
+            return FloatArray(out.size) { out[it] / peak * 0.6f }
         }
 
         /**

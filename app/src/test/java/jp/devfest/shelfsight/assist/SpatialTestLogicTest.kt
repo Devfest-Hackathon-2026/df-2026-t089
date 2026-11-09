@@ -38,9 +38,9 @@ class SpatialTestLogicTest {
     }
 
     /** Energy in each 2 kHz band, as a share of the total, keyed by the band's lower edge in Hz. */
-    private fun bandShares(): Map<Int, Double> {
+    private fun bandShares(pcm: FloatArray = chime): Map<Int, Double> {
         val n = 1 shl 15
-        val re = DoubleArray(n) { chime.getOrElse(it) { 0f }.toDouble() }
+        val re = DoubleArray(n) { pcm.getOrElse(it) { 0f }.toDouble() }
         val im = DoubleArray(n)
         fft(re, im)
         val bands = HashMap<Int, Double>()
@@ -66,6 +66,16 @@ class SpatialTestLogicTest {
         val report = shares.toSortedMap().entries.joinToString { "${it.key}=${"%.3f".format(it.value)}" }
         assertTrue("share above 4 kHz: $report", shares.filterKeys { it >= 4000 }.values.sum() > 0.35)
         for (from in 4000 until 16000 step 2000) assertTrue("band at $from Hz: $report", (shares[from] ?: 0.0) > 0.01)
+    }
+
+    @Test fun `approach alert is three short pulses with energy above 4 kHz`() {
+        val alert = SpatialMixer.makeApproachAlert()
+        assertEquals(0.175, alert.size.toDouble() / SpatialMixer.RATE, 0.001)
+        fun peak(fromS: Double, toS: Double) = alert.slice((fromS * SpatialMixer.RATE).toInt() until (toS * SpatialMixer.RATE).toInt()).maxOf { abs(it) }
+        for (start in listOf(0.0, 0.065, 0.13)) assertTrue(peak(start, start + 0.04) > 0.2f)
+        for (start in listOf(0.046, 0.111)) assertTrue(peak(start, start + 0.018) < 0.02f)
+        assertTrue(alert.maxOf { abs(it) } <= 0.7f)
+        assertTrue(bandShares(alert).filterKeys { it >= 4000 }.values.sum() > 0.25)
     }
 
     @Test fun `demo chimes five times from one spot then moves silently`() {

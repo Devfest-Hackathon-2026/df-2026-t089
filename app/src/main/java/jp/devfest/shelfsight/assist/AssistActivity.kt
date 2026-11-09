@@ -48,7 +48,8 @@ import jp.devfest.shelfsight.cloud.GeminiClient
 import jp.devfest.shelfsight.mapping.OrbitCamera
 import jp.devfest.shelfsight.model.NormalizedBox
 import jp.devfest.shelfsight.model.Vec3
-import jp.devfest.shelfsight.perception.MediaPipePersonDetector
+import jp.devfest.shelfsight.perception.PersonMarker
+import jp.devfest.shelfsight.perception.YoloPersonDetector
 import jp.devfest.shelfsight.perception.PersonDistance
 import jp.devfest.shelfsight.perception.PersonMotion
 import jp.devfest.shelfsight.perception.PersonObservation
@@ -98,7 +99,9 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     @Volatile private var pendingCapture: ((CapturedFrame) -> Unit)? = null
 
     private val recognizer by lazy { ProductRecognizer(this) }
-    private val personDetector by lazy { MediaPipePersonDetector(this) }
+    private val personDetector by lazy { YoloPersonDetector(this) }
+    /** 3D モデルに描く、今見えている人（ARCore の世界座標）。 */
+    @Volatile private var people: List<PersonMarker> = emptyList()
     private val tracker = PersonTracker()
     private val chime = SpatialMixer.makeChime()
     private val lookup = ProductLookup(BuildConfig.CLOUD_VISION_API_KEY)
@@ -359,7 +362,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val camera = frame.camera
         // 3D モデルを見ている間も、下の認識と地図づくりは止めない
         if (showModel) {
-            storeLabels.labels = storeRenderer.draw(storeView, orbit, viewW, viewH, devicePose, (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, shelfMap.snapshot())
+            storeLabels.labels = storeRenderer.draw(storeView, orbit, viewW, viewH, devicePose, (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, shelfMap.snapshot(), people)
             storeLabels.postInvalidate()
         } else if (showTest) storeRenderer.drawDemo(testOrbit, viewW, viewH, demoListener(), demoPosition(), SpatialDemo.chimeSlot(demoSeconds()) != null)
         else background.draw(frame)
@@ -418,7 +421,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                 lookupWorker.execute { target(f) }
             }
         }
-        if (PEOPLE_ENABLED && now - lastPerson >= PERSON_INTERVAL_MS && personBusy.compareAndSet(false, true)) {
+        if (now - lastPerson >= PERSON_INTERVAL_MS && personBusy.compareAndSet(false, true)) {
             val f = FrameCapture.capture(frame, camera, rotation, depthEnabled = true)
             if (f == null) personBusy.set(false) else {
                 lastPerson = now
@@ -581,7 +584,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val image = JpegEncoder.toUprightBitmap(f, PERSON_LONG_SIDE)
         val w = image.width.toFloat()
         val h = image.height.toFloat()
-        val detected = try { personDetector.detect(image) } catch (e: RuntimeException) {
+        val detected = try { personDetector.detect(image) } catch (e: Exception) {
             Log.e(TAG, "person detection failed", e); emptyList()
         } finally { image.recycle() }
         // 自分の手や、持っている商品を人と間違えたものを外す
@@ -599,15 +602,13 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             PersonObservation(box, d, pos)
         }
         val tracked = tracker.update(t, observations, camera)
-        // 近づいてくる人と、すぐ近くにいる人から鳴らす。近いほど速く
-        val sounding = tracker.markers()
-            .filter { t - it.lastSeenSeconds < PERSON_HOLD_S }
-            .mapNotNull { m ->
-                val d = horizontal(m.position, camera)
-                val approaching = m.motion == PersonMotion.APPROACHING && d < APPROACH_ALERT_M
-                if (!approaching && d >= CLOSE_ALERT_M) return@mapNotNull null
-                m.id to Triple(m.position, beepInterval(d), if (approaching) 1f else 0.6f)
-            }.toMap()
+        people = tracker.markers().filter { t - it.lastSeenSeconds < PERSON_HOLD_S }
+        // 近づいてくる人の場所から鳴らす。近いほど速く
+        val sounding = people.mapNotNull { m ->
+            val d = horizontal(m.position, camera)
+            if (m.motion != PersonMotion.APPROACHING || d >= APPROACH_ALERT_M) return@mapNotNull null
+            m.id to Triple(m.position, beepInterval(d), 1f)
+        }.toMap()
         mixer.setEmitters(sounding)
         val m = { x: Float? -> x?.let { "%.1fm".format(it) } ?: "?" }
         debug.people = judged.filter { it.second }.map { (b, _, depth) -> AssistDebug.PersonView(b, true, "手 深度${m(depth)}") } +
@@ -912,8 +913,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private companion object {
         const val TAG = "Assist"
         const val SCENE_INTERVAL_MS = 1000L
-        /** 人と手の認識（接近音も含む）。false の間は検出器を読み込まない。 */
-        const val PEOPLE_ENABLED = false
         const val PERSON_INTERVAL_MS = 200L
         const val SCENE_LONG_SIDE = 1280
         const val PERSON_LONG_SIDE = 640
@@ -925,7 +924,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         const val APPROACH_MOVE_M = 0.6f
         const val PERSON_HOLD_S = 1.0
         const val APPROACH_ALERT_M = 6f
-        const val CLOSE_ALERT_M = 1.5f
         const val STORE_ESTIMATE_MS = 3000L
         const val RECORD_LABEL = "● 記録"
         const val DEMO_TICK_MS = 50L
@@ -944,6 +942,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         }
 
         /** 鳴らす間隔（秒）: 近いほど短く。 */
-        fun beepInterval(d: Float): Float = (0.1f + 0.2f * d).coerceIn(0.15f, 1.0f)
+        fun beepInterval(d: Float): Float = (0.1f + 0.2f * d).coerceIn(0.3f, 1.2f)
     }
 }
