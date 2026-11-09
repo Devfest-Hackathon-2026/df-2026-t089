@@ -126,6 +126,9 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     /** 立体音響のテストのタブを開いている。 */
     @Volatile private var showTest = false
     private lateinit var testView: SpatialTestView
+    private lateinit var topViewButton: Button
+    /** 3D タブを真上からの 2D で見ている。 */
+    @Volatile private var topView = false
     /** テストの人を、少し上の後ろから見る。 */
     private val testOrbit = OrbitCamera().apply { fit(Vec3(0f, 0.9f, 0f), 3.9f); rotate(0f, -125f) }
     private val activeOrbit get() = if (showTest) testOrbit else orbit
@@ -226,6 +229,11 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             addView(modelLabel)
         }
         testView = SpatialTestView(this) { demoListener() to demoPosition() }.apply { visibility = View.GONE }
+        topViewButton = Button(this).apply {
+            text = "2D"
+            visibility = View.GONE
+            setOnClickListener { topView = !topView; text = if (topView) "3D" else "2D" }
+        }
         val names = listOf("案内", "3D", "立体音響")
         tabs = names.indices.map { i -> Button(this).apply { text = names[i]; setOnClickListener { selectTab(i) } } }
         recordButton = Button(this).apply {
@@ -241,7 +249,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             // ステータスバーの下に潜るとタップがシステムに取られる
             setPadding(0, resources.getIdentifier("status_bar_height", "dimen", "android").let { if (it > 0) resources.getDimensionPixelSize(it) else 0 }, 0, 0)
         }
-        tabBar.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ -> storeLabels.topInset = v.bottom }
+        tabBar.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ -> storeLabels.topInset = v.bottom; topViewButton.translationY = v.bottom.toFloat() }
         setContentView(FrameLayout(this).apply {
             addView(gl)
             addView(debugOverlay, FrameLayout.LayoutParams(-1, -1))
@@ -250,6 +258,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             addView(modelText, FrameLayout.LayoutParams(-1, resources.displayMetrics.heightPixels / 3, Gravity.BOTTOM))
             addView(testView, FrameLayout.LayoutParams(-1, -1))
             addView(tabBar, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
+            addView(topViewButton, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END))
         })
         selectTab(0)
         updateSettings()
@@ -366,7 +375,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val camera = frame.camera
         // 3D モデルを見ている間も、下の認識と地図づくりは止めない
         if (showModel) {
-            storeLabels.labels = storeRenderer.draw(storeView, orbit, viewW, viewH, devicePose, (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, shelfMap.snapshot(), people)
+            storeLabels.labels = storeRenderer.draw(storeView, orbit, viewW, viewH, devicePose, (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, shelfMap.snapshot(), people, topView)
             storeLabels.postInvalidate()
         } else if (showTest) storeRenderer.drawDemo(testOrbit, viewW, viewH, demoListener(), demoPosition(), SpatialDemo.chimeSlot(demoSeconds()) != null)
         else background.draw(frame)
@@ -873,6 +882,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         if (showTest) startDemo()
         modelText.visibility = if (model) View.VISIBLE else View.GONE
         storeLabels.visibility = modelText.visibility
+        topViewButton.visibility = modelText.visibility
         if (model) storeView?.let { fitOrbit(it) }
     }
 

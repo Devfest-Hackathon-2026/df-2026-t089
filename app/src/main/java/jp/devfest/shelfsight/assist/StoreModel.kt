@@ -25,7 +25,9 @@ class StoreFixture(
 }
 
 /** 推定した店。[room] は (u0, v0, u1, v1)。[yaw] は世界 → 店の座標の回転（ラジアン）。 */
-class StoreView(val yaw: Double, val room: DoubleArray?, val fixtures: List<StoreFixture>)
+class StoreView(val yaw: Double, val room: DoubleArray?, val fixtures: List<StoreFixture>,
+    /** 点に multi-model RANSAC で当てた線分 (x0, z0, x1, z1)。世界座標。 */
+    val ransac: List<DoubleArray> = emptyList())
 
 /**
  * コンビニ記述言語のモデルを、「商品＋位置」の連続した観測から推定する。products/store_model.py の移植で、
@@ -732,7 +734,7 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
         for (c in accepted) if (fixtures.none { overlaps(c.fixture, it) }) fixtures += c.fixture   // 削った棚はモジュール幅を合わせ直すので、最後にもう一度確かめる
         register(cs, sn)?.let { reg -> if (fixtures.none { overlaps(reg, it) }) fixtures += reg }
         val sorted = fixtures.sortedWith(compareBy({ it.kind }, { it.axis }, { it.c }, { it.a }))
-        return StoreView(yaw, roomOf(sorted, frameTrail), sorted)
+        return StoreView(yaw, roomOf(sorted, frameTrail), sorted, MultiLineRansac.fit(cells.values.map { doubleArrayOf(it.sx / it.w, it.sz / it.w) }))
     }
 
     companion object {

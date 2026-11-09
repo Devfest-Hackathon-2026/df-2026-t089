@@ -24,6 +24,7 @@ internal class StoreModelRenderer {
     private val circleLines = GlUtil.floatBuffer(CIRCLE_LINES)
     private val uprightLine = GlUtil.floatBuffer(UPRIGHT_LINE)
     private val pointBuffer = GlUtil.floatBuffer(FloatArray(ShelfMap.MAX_ITEMS * 3))
+    private val ransacBuffer = GlUtil.floatBuffer(FloatArray(MultiLineRansac.MAX_LINES * 6))
     private val restoreLineBuffer = GlUtil.floatBuffer(FloatArray(ShelfMap.MAX_ITEMS * 6))
     private val productArrowBuffer = GlUtil.floatBuffer(FloatArray(ShelfMap.MAX_ITEMS * ProductViewArrow.FLOATS))
     private val viewProjection = FloatArray(16)
@@ -34,8 +35,8 @@ internal class StoreModelRenderer {
      * @param phone 端末の姿勢（画面の右 +x、上 +y、カメラの向き -z の 4×4 行列）。[floorY] はそこから見積もった床の高さ。
      * @return 画面に重ねる文字（棚のジャンルが先、商品名は見えた回数の多い順）
      */
-    fun draw(view: StoreView?, orbit: OrbitCamera, width: Int, height: Int, phone: FloatArray?, floorY: Float, items: List<MapItem>, people: List<PersonMarker>): List<ScreenLabel> {
-        val e = begin(orbit, width, height, 50f)
+    fun draw(view: StoreView?, orbit: OrbitCamera, width: Int, height: Int, phone: FloatArray?, floorY: Float, items: List<MapItem>, people: List<PersonMarker>, topView: Boolean = false): List<ScreenLabel> {
+        val e = begin(orbit, width, height, 50f, topView)
         useLines(boxLines)
         if (view?.room != null) {
             val r = view.room
@@ -55,6 +56,7 @@ internal class StoreModelRenderer {
         drawProductViewArrows(items)
         val restored = items.map { GlassProjection.corrected(it, view) }
         drawRestoreLines(items, restored)
+        if (topView) drawRansac(view, floorY)
         GLES20.glDisableVertexAttribArray(position)
         drawPoints(items, restored)
         return personLabels(people, phone, floorY, width, height) + labels(view, items, e, floorY, width, height)
@@ -116,15 +118,26 @@ internal class StoreModelRenderer {
     }
 
     /** 画面を消して線の描画を始める。@return 視点の位置 */
-    private fun begin(orbit: OrbitCamera, width: Int, height: Int, fovDeg: Float): Vec3 {
+    private fun begin(orbit: OrbitCamera, width: Int, height: Int, fovDeg: Float, topView: Boolean = false): Vec3 {
         GLES20.glClearColor(0.08f, 0.09f, 0.11f, 1f)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)   // 線画なので隠れる面がない
         val projection = FloatArray(16)
         val lookAt = FloatArray(16)
-        Matrix.perspectiveM(projection, 0, fovDeg, width.toFloat() / height.coerceAtLeast(1), 0.1f, 200f)
-        val e = orbit.eye(); val c = orbit.center()
-        Matrix.setLookAtM(lookAt, 0, e.x, e.y, e.z, c.x, c.y, c.z, 0f, 1f, 0f)
+        val aspect = width.toFloat() / height.coerceAtLeast(1)
+        var e = orbit.eye()
+        val c = orbit.center()
+        if (topView) {   // 真上からの正射影。ズームは視点の距離、回転は視点の水平の向きをそのまま使う
+            val distance = e.distanceTo(c)
+            val half = distance * Math.tan(Math.toRadians(fovDeg / 2.0)).toFloat()
+            val flat = Math.hypot((c.x - e.x).toDouble(), (c.z - e.z).toDouble()).toFloat().coerceAtLeast(1e-4f)
+            Matrix.orthoM(projection, 0, -half * aspect, half * aspect, -half, half, -200f, 200f)
+            Matrix.setLookAtM(lookAt, 0, c.x, c.y + distance, c.z, c.x, c.y, c.z, (c.x - e.x) / flat, 0f, (c.z - e.z) / flat)
+            e = Vec3(c.x, c.y + distance, c.z)
+        } else {
+            Matrix.perspectiveM(projection, 0, fovDeg, aspect, 0.1f, 200f)
+            Matrix.setLookAtM(lookAt, 0, e.x, e.y, e.z, c.x, c.y, c.z, 0f, 1f, 0f)
+        }
         Matrix.multiplyMM(viewProjection, 0, projection, 0, lookAt, 0)
         GLES20.glUseProgram(program)
         GLES20.glLineWidth(LINE_WIDTH)
@@ -150,6 +163,24 @@ internal class StoreModelRenderer {
         draw(POINT) { i -> items[i].position.takeIf { restored[i] == null } }
         draw(RAW_POINT) { i -> items[i].position.takeIf { restored[i] != null } }
         draw(POINT) { i -> restored[i] }
+    }
+
+    /** 2D 表示に重ねる、RANSAC の線分。 */
+    private fun drawRansac(view: StoreView?, floorY: Float) {
+        val lines = view?.ransac.orEmpty()
+        if (lines.isEmpty()) return
+        ransacBuffer.clear()
+        for (l in lines) ransacBuffer.put(l[0].toFloat()).put(floorY).put(l[1].toFloat()).put(l[2].toFloat()).put(floorY).put(l[3].toFloat())
+        ransacBuffer.position(0)
+        useLines(ransacBuffer)
+        Matrix.setIdentityM(model, 0)
+        Matrix.multiplyMM(result, 0, viewProjection, 0, model, 0)
+        GLES20.glUniformMatrix4fv(mvp, 1, false, result, 0)
+        GLES20.glUniform3fv(color, 1, RANSAC, 0)
+        GLES20.glLineWidth(RANSAC_LINE_WIDTH)
+        GLES20.glDrawArrays(GLES20.GL_LINES, 0, lines.size * 2)
+        GLES20.glLineWidth(LINE_WIDTH)
+        useLines(boxLines)
     }
 
     /** 元の点と、ガラス面へ戻した点を細い線でつなぐ。 */
@@ -274,9 +305,11 @@ internal class StoreModelRenderer {
         val RAW_POINT = rgb(0xffd9a8)
         val RESTORE_LINE = rgb(0xff8c00)
         val GLASS = rgb(0x4fd1c5)
+        val RANSAC = rgb(0xff4fd8)
         val PRODUCT_VIEW = rgb(0x63e6ff)
         const val LINE_WIDTH = 2f
         const val THIN_LINE_WIDTH = 1f
+        const val RANSAC_LINE_WIDTH = 5f
         const val POINT_SIZE = 12f
         const val NAME_RANGE_M = 3f
         const val SHELF_LABEL_LIFT_M = 0.1f
