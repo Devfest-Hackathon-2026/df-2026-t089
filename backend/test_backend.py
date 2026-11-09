@@ -55,16 +55,13 @@ def test_bad_input_is_rejected(tmp_path):
     assert c.post("/v1/solve", json={"path": [[1e9, 0.0]], "observations": []}, headers=HEADERS).status_code == 422
 
 
-def test_solved_map_is_saved_and_loaded_on_the_next_visit(tmp_path):
+def test_uploaded_observations_are_solved_saved_and_loaded_on_the_next_visit(tmp_path):
     c = client(tmp_path)
     path, observations = walk()
-    body = {"path": path, "observations": observations}
-    solved = c.post("/v1/solve", json=body, headers=HEADERS)
-    assert solved.status_code == 200, solved.text
-    model = solved.json()["model"]
     assert c.post("/v1/maps/lookup", json={"lat": 35.0, "lng": 139.0}, headers=HEADERS).json()["model"] is None
-    saved = c.post("/v1/maps", json={"lat": 35.0, "lng": 139.0, "model": model}, headers=HEADERS).json()
-    assert saved == {"place_id": "store-1", "name": "テスト店", "saved": True, "version": 1}
+    saved = c.post("/v1/maps", json={"lat": 35.0, "lng": 139.0, "path": path, "observations": observations}, headers=HEADERS)
+    assert saved.status_code == 200, saved.text
+    assert saved.json() == {"place_id": "store-1", "name": "テスト店", "saved": True, "version": 1}
     loaded = c.post("/v1/maps/lookup", json={"lat": 35.0, "lng": 139.0}, headers=HEADERS).json()
     assert loaded["name"] == "テスト店" and len(loaded["model"]["fixtures"]) == 2
 
@@ -72,11 +69,26 @@ def test_solved_map_is_saved_and_loaded_on_the_next_visit(tmp_path):
 def test_a_smaller_walk_does_not_replace_a_better_map(tmp_path):
     c = client(tmp_path)
     path, observations = walk()
-    model = c.post("/v1/solve", json={"path": path, "observations": observations}, headers=HEADERS).json()["model"]
-    c.post("/v1/maps", json={"lat": 35.0, "lng": 139.0, "model": model}, headers=HEADERS)
-    smaller = {**model, "fixtures": [{**model["fixtures"][0], "obs": 1.0}]}
-    assert c.post("/v1/maps", json={"lat": 35.0, "lng": 139.0, "model": smaller}, headers=HEADERS).json()["saved"] is False
+    c.post("/v1/maps", json={"lat": 35.0, "lng": 139.0, "path": path, "observations": observations}, headers=HEADERS)
+    half = [o for o in observations if o["point"][0] > 0]
+    assert c.post("/v1/maps", json={"lat": 35.0, "lng": 139.0, "path": path, "observations": half}, headers=HEADERS).json()["saved"] is False
     assert len(c.post("/v1/maps/lookup", json={"lat": 35.0, "lng": 139.0}, headers=HEADERS).json()["model"]["fixtures"]) == 2
+
+
+def test_nothing_is_saved_when_no_shelf_was_found(tmp_path):
+    c = client(tmp_path)
+    saved = c.post("/v1/maps", json={"lat": 35.0, "lng": 139.0, "path": [], "observations": []}, headers=HEADERS).json()
+    assert saved["saved"] is False
+    assert c.get("/v1/stores").json() == []
+
+
+def test_the_store_list_needs_no_key_and_shows_saved_maps(tmp_path):
+    c = client(tmp_path)
+    path, observations = walk()
+    c.post("/v1/maps", json={"lat": 35.0, "lng": 139.0, "path": path, "observations": observations}, headers=HEADERS)
+    stores = c.get("/v1/stores").json()
+    assert [s["name"] for s in stores] == ["テスト店"] and len(stores[0]["model"]["fixtures"]) == 2
+    assert "text/html" in c.get("/").headers["content-type"]
 
 
 def test_no_store_nearby_is_a_404(tmp_path):

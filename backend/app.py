@@ -4,18 +4,21 @@
   BACKEND_API_KEY=... GCP_API_KEY=... uvicorn app:app --app-dir backend --host 0.0.0.0 --port 8000
 
 POST /v1/solve        歩いた経路と商品の観測から、OR-Tools で棚の配置を解いて返す
-POST /v1/maps         2D モデルを、GPS から求めた店に保存（更新）する
+POST /v1/maps         観測を OR-Tools で解き、GPS から求めた店の地図として保存（更新）する
 POST /v1/maps/lookup  GPS から店を求め、保存済みの 2D モデルを返す
+GET  /v1/stores       登録された店と地図の一覧（Web の画面用。鍵なしで読める）
+GET  /                登録された店を 3D で見る画面
 
 GPS と経路は店を求める・解くのに使うだけで保存しない。保存するのは店と 2D モデルだけ。
 """
 import os
 import secrets
 from pathlib import Path
-from typing import Annotated, Literal, Optional
+from typing import Annotated
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from solver import solve
@@ -45,35 +48,13 @@ class SolveRequest(Strict):
     counters: list[Point] = Field(default=[], max_length=20_000)
 
 
-class Fixture(Strict):
-    kind: Literal["island", "wall", "case", "glass", "end", "register"]
-    axis: Literal[0, 1]
-    c: Coord
-    a: Coord
-    b: Coord
-    d: Annotated[float, Field(gt=0, le=10)]
-    h: Annotated[float, Field(gt=0, le=10)]
-    n: Annotated[int, Field(ge=1, le=100)]
-    w: Annotated[float, Field(gt=0, le=100)]
-    widths: list[Annotated[float, Field(gt=0, le=100)]] = Field(default=[], max_length=100)
-    faces: dict[Literal["+", "-"], list[list[tuple[Text, float]]]] = {}
-    themes: dict[Literal["+", "-"], list[Optional[Text]]] = {}
-    obs: Optional[Annotated[float, Field(ge=0)]] = None
-
-
-class StoreMap(Strict):
-    yaw: float
-    room: Optional[tuple[Coord, Coord, Coord, Coord]]
-    fixtures: list[Fixture] = Field(max_length=500)
-
-
 class Location(Strict):
     lat: Latitude
     lng: Longitude
 
 
-class SaveRequest(Location):
-    model: StoreMap
+class UploadRequest(SolveRequest, Location):
+    pass
 
 
 def create_app(store, resolver, api_key):
@@ -98,9 +79,12 @@ def create_app(store, resolver, api_key):
         return solve(req.path, [o.model_dump() for o in req.observations], req.counters)
 
     @app.post("/v1/maps", dependencies=[Depends(authorized)])
-    def save_map(req: SaveRequest):
-        place = resolve_store(req)
-        saved, version = store.save(place["place_id"], place["name"], req.model.model_dump())
+    def upload_map(req: UploadRequest):
+        place = resolve_store(req)   # 店が分からないなら解かない
+        model = solve(req.path, [o.model_dump() for o in req.observations], req.counters)["model"]
+        if not model["fixtures"]:
+            return {**place, "saved": False, "version": 0}
+        saved, version = store.save(place["place_id"], place["name"], model)
         return {**place, "saved": saved, "version": version}
 
     @app.post("/v1/maps/lookup", dependencies=[Depends(authorized)])
@@ -108,6 +92,15 @@ def create_app(store, resolver, api_key):
         place = resolve_store(req)
         found = store.get(place["place_id"])
         return found if found else {**place, "model": None}
+
+    @app.get("/v1/stores")
+    def list_stores(response: Response):
+        response.headers["Cache-Control"] = "public, s-maxage=30, stale-while-revalidate=300"
+        return sorted(store.all(), key=lambda r: -r["updated_at"])
+
+    @app.get("/", include_in_schema=False)
+    def web():
+        return FileResponse(Path(__file__).resolve().parent / "web" / "index.html")
 
     return app
 

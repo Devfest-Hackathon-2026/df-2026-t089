@@ -1,4 +1,4 @@
-"""GPS から店を特定し（Google Places）、店ごとの 2D モデルを SQLite に保存する。"""
+"""GPS から店を特定し（Google Places）、店ごとの 2D モデルを保存する。"""
 import hashlib
 import json
 import sqlite3
@@ -6,7 +6,7 @@ import time
 
 import httpx
 from vercel.blob.errors import BlobNotFoundError
-from vercel.blob.sync import get_blob, put_blob
+from vercel.blob.sync import get_blob, put_blob, query_blobs
 
 PLACES_URL = "https://places.googleapis.com/v1/places:searchNearby"
 SEARCH_RADIUS_M = 80.0   # 店内の GPS は数十 m ずれる
@@ -52,6 +52,13 @@ class BlobMapStore:
             return None
         return json.loads(bytes(result.body))
 
+    def all(self):
+        # shortcut: 一覧のたびに全店の Blob を読む。店が数十を超えたら一覧用の小さな索引を別に保存する
+        records = []
+        for blob in query_blobs(prefix="maps/"):
+            records.append(json.loads(bytes(get_blob(blob.pathname, access="private").body)))
+        return records
+
     def save(self, place_id, name, model):
         """@return (保存したか, 今の版)。観測量が今の地図より少なければ保存しない"""
         observations = observations_of(model)
@@ -73,6 +80,10 @@ class MapStore:
             place_id text primary key, name text not null, model text not null,
             observations real not null, version integer not null, updated_at real not null)""")
         self.db.commit()
+
+    def all(self):
+        ids = [r[0] for r in self.db.execute("select place_id from maps")]
+        return [self.get(i) for i in ids]
 
     def get(self, place_id):
         row = self.db.execute("select name, model, observations, version, updated_at from maps where place_id = ?", (place_id,)).fetchone()
