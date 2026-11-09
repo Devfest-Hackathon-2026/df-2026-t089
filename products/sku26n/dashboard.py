@@ -3,7 +3,7 @@
   python products/sku26n/dashboard.py [--port 8771]   -> http://127.0.0.1:8771
 各手法の結果は products/work/sku26n/pred_<手法>.json: {"images": {画像名: [[x0, y0, x1, y1, 信頼度, カテゴリ番号], ...]}}（座標は 0..1）
 """
-import argparse, json, math, os, re, sys, threading
+import argparse, json, math, os, re, subprocess, sys, threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -109,12 +109,79 @@ def store_sim_view(q):
     return store_sim.simulate(cfg, route=route)
 
 
+_replay_job = None
+
+
+def replay_start(args):
+    """記録の取り込み・再生は時間がかかるので別プロセスで動かす（1 度に 1 つ）"""
+    global _replay_job
+    if _replay_job and _replay_job.poll() is None:
+        raise ValueError("実行中です")
+    import replay
+    replay.RECORDINGS.mkdir(parents=True, exist_ok=True)
+    replay.set_status(state="running", job="start", msg="開始しています")
+    _replay_job = subprocess.Popen([sys.executable, str(HERE.parent / "replay.py"), *args], cwd=HERE.parents[1], env={**os.environ, "PYTHONUTF8": "1"},
+                                   stdout=open(replay.RECORDINGS / "job.out", "w", encoding="utf-8"), stderr=subprocess.STDOUT)
+
+
+def replay_post(path, body):
+    import replay
+    if path == "/api/replay/pull":
+        replay_start(["--pull"])
+        return {}
+    name, detector = body.get("name"), body.get("detector")
+    if not (isinstance(name, str) and replay.NAME.match(name) and (replay.RECORDINGS / name).is_dir()) or detector not in replay.DETECTORS:
+        raise ValueError("bad recording")
+    if path == "/api/replay/run":
+        hz = body.get("hz")
+        if hz not in (1, 2, 5):
+            raise ValueError("bad hz")
+        replay_start(["--run", name, "--detector", detector, "--hz", str(hz)])
+        return {}
+    step, question = body.get("step"), body.get("question")
+    if not isinstance(step, int) or not isinstance(question, str) or not 0 < len(question) <= 200:
+        raise ValueError("bad question")
+    return replay.ask(name, detector, step, question)
+
+
+def replay_get(path):
+    """(内容, 種類) を返す。記録の名前とファイル名は決まった形だけ通す（work/ の外や別のファイルを見せない）"""
+    import replay
+    if path == "/api/replay/list":
+        return json.dumps(replay.recordings(), ensure_ascii=False).encode(), "application/json"
+    if path == "/api/replay/status":
+        s = json.loads((replay.RECORDINGS / "status.json").read_text(encoding="utf-8")) if (replay.RECORDINGS / "status.json").exists() else {}
+        s["busy"] = bool(_replay_job and _replay_job.poll() is None)
+        return json.dumps(s, ensure_ascii=False).encode(), "application/json"
+    m = re.fullmatch(r"/api/replay/data/(\d{8}_\d{6})/([\w-]+)", path)
+    if m and m[2] in replay.DETECTORS and (replay.RECORDINGS / m[1] / f"replay_{m[2]}.json").exists():
+        return (replay.RECORDINGS / m[1] / f"replay_{m[2]}.json").read_bytes(), "application/json"
+    m = re.fullmatch(r"/api/replay/file/(\d{8}_\d{6})/(frames/\d{5}\.jpg)", path)
+    if m and (replay.RECORDINGS / m[1] / m[2]).exists():
+        return (replay.RECORDINGS / m[1] / m[2]).read_bytes(), "image/jpeg"
+    m = re.fullmatch(r"/api/replay/depth/(\d{8}_\d{6})/(\d+)\.png", path)
+    if m:
+        import io
+        import numpy as np
+        from PIL import Image
+        f = replay.RECORDINGS / m[1] / "depth" / f"{int(m[2]):05d}.d16"
+        kf = next((k for k in replay.jsonl(replay.RECORDINGS / m[1] / "keyframes.jsonl") if k["n"] == int(m[2])), None)
+        if f.exists() and kf and kf.get("depth"):
+            w, h = kf["depth"]
+            d = np.fromfile(f, dtype="<u2").reshape(h, w)
+            im = Image.fromarray((255 - np.clip(d / 4000 * 255, 0, 255)).astype("uint8") * (d > 0)).rotate(-kf["geom"]["rot"], expand=True)
+            b = io.BytesIO()
+            im.save(b, "PNG")
+            return b.getvalue(), "image/png"
+    return None
+
+
 def handler(det: Path, pred_dir: Path):
     names = {f.name for f in VIEW.glob("*.jpg")}
 
     class H(BaseHTTPRequestHandler):
-        def send(self, body: bytes, ctype: str, cache: bool = False):
-            self.send_response(200)
+        def send(self, body: bytes, ctype: str, cache: bool = False, status: int = 200):
+            self.send_response(status)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             if cache:
@@ -132,6 +199,13 @@ def handler(det: Path, pred_dir: Path):
                 self.send(json.dumps({"crops": named_crops(), "selected": sorted(read_selected())}, ensure_ascii=False).encode(), "application/json")
             elif path == "/api/konbinidb":
                 self.send(json.dumps(konbinidb_view(), ensure_ascii=False).encode(), "application/json")
+            elif path == "/replay":
+                self.send((HERE.parent / "replay.html").read_bytes(), "text/html; charset=utf-8")
+            elif path == "/replay_tab.js":
+                self.send((HERE.parent / "replay_tab.js").read_bytes(), "text/javascript; charset=utf-8")
+            elif path.startswith("/api/replay/"):
+                r = replay_get(path)
+                self.send(*r) if r else self.send_error(404)
             elif path == "/store":
                 self.send((HERE.parent / "store.html").read_bytes(), "text/html; charset=utf-8")
             elif path == "/store_tab.js":
@@ -154,7 +228,14 @@ def handler(det: Path, pred_dir: Path):
                 self.send_error(404)
 
         def do_POST(self):
-            if urlparse(self.path).path != "/api/select":
+            path = urlparse(self.path).path
+            if path.startswith("/api/replay/"):
+                try:
+                    out = replay_post(path, json.loads(self.rfile.read(min(int(self.headers.get("Content-Length", 0)), 10000)) or b"{}"))
+                except (ValueError, TypeError, AttributeError, OSError) as e:
+                    return self.send(str(e).encode(), "text/plain; charset=utf-8", status=400)
+                return self.send(json.dumps(out, ensure_ascii=False).encode(), "application/json")
+            if path != "/api/select":
                 return self.send_error(404)
             try:
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))

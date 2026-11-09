@@ -68,4 +68,33 @@ class StoreGuideTest {
         val themed = StoreView(0.0, null, listOf(StoreFixture("island", 0, -2.0, -0.6, 0.6, 0.88, 1.8, 1, 1.2, mapOf("+" to listOf(listOf("カップ麺" to 1.0))), mapOf("+" to listOf("カップ麺・スープ・レトルト")))))
         assertTrue("テーマ: カップ麺・スープ・レトルト" in StoreGuide.context(themed, alongAisle, emptyList(), emptyList(), 0L, ""))
     }
+
+    @Test
+    fun `tap answers and AI context match python`() {
+        val root = generateSequence(java.io.File("").absoluteFile) { it.parentFile }.first { java.io.File(it, "settings.gradle.kts").exists() }
+        val groups = jp.devfest.shelfsight.assist.ShelfDescriber.Groups.parse(java.io.File(root, "app/src/main/assets/coarse/categories.json").readText())
+        val model = jp.devfest.shelfsight.assist.StoreModel(jp.devfest.shelfsight.assist.StoreModel.parseThemes(java.io.File(root, "app/src/main/assets/store_themes.json").readText()))
+        val items = ArrayList<MapItem>()
+        val text = javaClass.classLoader!!.getResource("store_guide_trace.tsv")!!.readText(Charsets.UTF_8).replace("\r\n", "\n")
+        val (input, expected) = text.split("\n===\n")
+        for (line in input.lines()) {
+            val p = line.split("\t")
+            when (p[0]) {
+                "P" -> model.addProduct(p[1].toDouble(), p[2].toDouble(), p[3].toDouble(), p[4].toDouble(), p[5], p[6])
+                "T" -> model.addCamera(p[1].toDouble(), p[2].toDouble())
+                "I" -> items += MapItem(p[1], p[2], p[3], Vec3(p[4].toFloat(), p[5].toFloat(), p[6].toFloat()), 0.1f, 0.2f, p[7].toInt(), 0L)
+            }
+        }
+        val view = model.estimate()
+        for (line in expected.trim().lines()) {
+            val p = line.split("\t")
+            val l = Listener(Vec3(p[1].toFloat(), p[2].toFloat(), p[3].toFloat()), p[4].toFloat(), p[5].toFloat())
+            when (val a = StoreGuide.tapAnswer(view, items, l, groups, 0f)) {
+                is jp.devfest.shelfsight.assist.TapAnswer.Sentence -> { assertEquals("sentence", p[6]); assertEquals(p[7], a.text) }
+                is jp.devfest.shelfsight.assist.TapAnswer.Around -> { assertEquals("around", p[6]); assertEquals(p[7], a.clauses.joinToString("")) }
+                jp.devfest.shelfsight.assist.TapAnswer.Unknown -> assertEquals("unknown", p[6])
+            }
+            assertEquals(p[8], StoreGuide.context(view, l, items, emptyList(), 0L, "").replace("\n", "|"))
+        }
+    }
 }

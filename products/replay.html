@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>記録の再生</title>
+<style>
+:root { --bg:#f6f7f9; --card:#fff; --fg:#1d2330; --mute:#6b7280; --line:#e3e6ea; --acc:#2563eb; }
+@media (prefers-color-scheme: dark) { :root { --bg:#14171c; --card:#1d2128; --fg:#e6e8eb; --mute:#9aa3ad; --line:#2d333c; --acc:#60a5fa; } }
+* { box-sizing:border-box; }
+body { margin:0; font:14px/1.5 system-ui, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif; background:var(--bg); color:var(--fg); }
+main { padding:12px 16px; max-width:1500px; margin:auto; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:12px; }
+.row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+.tiles { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px; margin-bottom:12px; }
+.tiles .card { margin:0; } .big { font-size:22px; font-weight:600; }
+.cols { display:grid; grid-template-columns:repeat(auto-fit, minmax(340px, 1fr)); gap:12px; margin-bottom:12px; }
+.cols .card { margin:0; }
+.mute { color:var(--mute); } .small { font-size:12px; }
+.log { font:12px/1.45 ui-monospace, Consolas, monospace; max-height:320px; overflow:auto; white-space:pre-wrap; margin:0; }
+button, select, input[type=text] { font:inherit; padding:4px 10px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--fg); }
+button { cursor:pointer; } button:disabled { opacity:.5; cursor:default; }
+canvas { max-width:100%; height:auto; display:block; }
+.ev { display:block; width:100%; text-align:left; margin-bottom:4px; border-color:transparent; background:var(--bg); }
+.speak { font-size:17px; font-weight:600; min-height:1.6em; }
+</style>
+</head>
+<body>
+<main id="main"></main>
+<script src="/replay_tab.js"></script>
+</body>
+</html>
