@@ -663,7 +663,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val cv = (r[1] + r[3]) / 2
         val cs = kotlin.math.cos(v.yaw)
         val sn = kotlin.math.sin(v.yaw)
-        orbit.fit(Vec3((cu * cs - cv * sn).toFloat(), (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, (cu * sn + cv * cs).toFloat()), maxOf(r[2] - r[0], r[3] - r[1]).toFloat() / 2)
+        // 縦長の画面は横が狭いので、棚のジャンルの文字が画面に入るまで引いて見る
+        orbit.fit(Vec3((cu * cs - cv * sn).toFloat(), (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, (cu * sn + cv * cs).toFloat()), maxOf(r[2] - r[0], r[3] - r[1]).toFloat() / 2 * viewH / viewW.coerceAtLeast(1))
     }
 
     private val orbitScale by lazy {
