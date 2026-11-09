@@ -30,6 +30,8 @@ final class ProductRecognizer {
 
     private let detector: Onnx.Model
     private let embedder: Onnx.Model
+    /// 計算をどこでしているか（画面の表示用）。
+    var backend: String { "枠 \(detector.usesCoreML ? "Core ML" : "CPU")・名前 \(embedder.usesCoreML ? "Core ML" : "CPU")" }
     private let detSize: Int
     private let embSize: Int
     private let dim: Int
@@ -91,17 +93,16 @@ final class ProductRecognizer {
     }
 
     /// 商品の枠（正立画像の 0..1、[left, top, right, bottom]）と確からしさ。
-    func detect(_ image: CGImage) throws -> [([Float], Float)] {
+    func detect(_ image: RGBAImage) throws -> [([Float], Float)] {
         let scale = Float(detSize) / Float(max(image.width, image.height))
         let nw = max(1, Int((Float(image.width) * scale).rounded()))
         let nh = max(1, Int((Float(image.height) * scale).rounded()))
-        let px = ImageUtil.pixels(
-            width: detSize, height: detSize, fill: (114, 114, 114), image: image,
-            dest: CGRect(x: 0, y: 0, width: nw, height: nh)
-        )
         let plane = detSize * detSize
         var input = [Float](repeating: 0, count: 3 * plane)
-        ImageUtil.putCHW(px, plane: plane, into: &input, at: 0)
+        ImageUtil.chw(
+            image, source: (0, 0, image.width, image.height), size: detSize,
+            dest: (0, 0, Float(nw), Float(nh)), fill: (114, 114, 114), into: &input, at: 0
+        )
         let (out, shape) = try detector.run(input, shape: [1, 3, detSize, detSize])
         // 出力は [1, 4 + クラス数, 候補の数]（cx, cy, w, h, 確からしさ）
         let n = shape.count >= 3 ? shape[2] : out.count / 5
@@ -121,21 +122,23 @@ final class ProductRecognizer {
      * 写っている商品に名前を付ける。照合先にない商品（似ていない）は外す。
      * boxes は確からしさの高い順（detect の順）で、画像の各所から散らして maxCrops 個ほどに名前を付ける（spread）。
      */
-    func recognize(_ image: CGImage, _ boxes: [[Float]]) throws -> [RecognizedProduct] {
+    func recognize(_ image: RGBAImage, _ boxes: [[Float]]) throws -> [RecognizedProduct] {
         let minW = Float(ProductRecognizer.minCropPx) / Float(image.width)
         let minH = Float(ProductRecognizer.minCropPx) / Float(image.height)
         // 大きい順に選ぶと、棚の区画や商品の一部などの大きな誤検出ばかりになるので、確からしさの順に選ぶ。
         // ただし確からしさの順だけだと一か所に固まるので、画像の区画ごとに散らして選ぶ（spread）
         let big = ProductRecognizer.spread(boxes.filter { $0[2] - $0[0] >= minW && $0[3] - $0[1] >= minH })
         if big.isEmpty { return [] }
+        // 切り抜きは 1 枚ずつ、いつも同じ形 [1, 3, 128, 128] でモデルにかける。
+        // まとめてかけると、切り抜きの数（写っている場所で変わる）ごとに ONNX Runtime が作業用のメモリを取り直し、
+        // しかも OS に返さないので、違う場所を撮るたびにメモリが一気に増え、iOS のアプリごとの上限を超えて止められた
         let plane = embSize * embSize
-        var input = [Float](repeating: 0, count: big.count * 3 * plane)
-        for (j, b) in big.enumerated() {
-            ImageUtil.putCHW(square(image, b), plane: plane, into: &input, at: j * 3 * plane)
+        var input = [Float](repeating: 0, count: 3 * plane)
+        let embs: [[Float]] = try big.map { b in
+            square(image, b, into: &input)
+            let (out, _) = try embedder.run(input, shape: [1, 3, embSize, embSize])
+            return ProductRecognizer.normalize(Array(out.prefix(dim)))
         }
-        let (out, shape) = try embedder.run(input, shape: [big.count, 3, embSize, embSize])
-        let d = shape.last ?? dim
-        let embs = (0..<big.count).map { ProductRecognizer.normalize(Array(out[(($0) * d)..<(($0 + 1) * d)])) }
 
         // 照合先と比べた、そのままの類似度。名前を付けるかどうかは補正前のこれで決める
         let raw = embs.map { topProducts($0) }
@@ -186,7 +189,7 @@ final class ProductRecognizer {
     }
 
     /// 枠を切り抜き、灰色で正方形に埋めて縮める（縦長の商品の形を残す）。
-    private func square(_ image: CGImage, _ b: [Float]) -> [UInt8] {
+    private func square(_ image: RGBAImage, _ b: [Float], into input: inout [Float]) {
         let W = image.width, H = image.height
         let l = Int(b[0] * Float(W)).clamped(0, W - 1)
         let t = Int(b[1] * Float(H)).clamped(0, H - 1)
@@ -197,10 +200,9 @@ final class ProductRecognizer {
         let k = Float(embSize) / s
         let dx = (s - Float(w)) / 2 * k
         let dy = (s - Float(h)) / 2 * k
-        return ImageUtil.pixels(
-            width: embSize, height: embSize, fill: pad, image: image,
-            source: CGRect(x: l, y: t, width: w, height: h),
-            dest: CGRect(x: CGFloat(dx), y: CGFloat(dy), width: CGFloat(Float(w) * k), height: CGFloat(Float(h) * k))
+        ImageUtil.chw(
+            image, source: (l, t, w, h), size: embSize,
+            dest: (dx, dy, Float(w) * k, Float(h) * k), fill: pad, into: &input, at: 0
         )
     }
 

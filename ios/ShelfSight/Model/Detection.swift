@@ -22,6 +22,9 @@ struct Vec3: Equatable {
 
     static let zero = Vec3(0, 0, 0)
 
+    /// NaN や無限大を含まない。距離の推定が外れると入ることがあり、そのまま音の計算に渡すと落ちる。
+    var isFinite: Bool { x.isFinite && y.isFinite && z.isFinite }
+
     var length: Float { (x * x + y * y + z * z).squareRoot() }
     var normalized: Vec3 { self * (1 / max(length, 1e-6)) }
 

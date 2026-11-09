@@ -37,16 +37,21 @@ jobs:
 
       - name: シークレットを確かめる
         env:
-          ASC_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           missing=""
-          for name in ASC_KEY_ID ASC_ISSUER_ID TEAM_ID ASC_PRIVATE_KEY; do
-            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          for name in APPSTORE_API_KEY_ID APPSTORE_API_ISSUER_ID APPSTORE_API_PRIVATE_KEY APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then missing="${missing} ${name}"; fi
           done
-          if [ -n "$missing" ]; then
-            echo "::error::次のシークレットがありません:$missing（ios/README.md を参照）"
+          if [ -n "${missing}" ]; then
+            # 全角の文字を変数のすぐ後ろに置くと、bash が変数名の続きとして読むので、${} で囲む
+            echo "::error::次のシークレットがありません:${missing} （Settings → Secrets and variables → Actions → Repository secrets に入れる。ios/README.md を参照）"
             exit 1
           fi
+          echo "シークレットはそろっています"
 
       - name: 設定とキーを書き出す
         env:
@@ -64,6 +69,36 @@ jobs:
           printf '%s\n' "$ASC_PRIVATE_KEY" > "$RUNNER_TEMP/keys/AuthKey.p8"
           echo "ASC_KEY_PATH=$RUNNER_TEMP/keys/AuthKey.p8" >> "$GITHUB_ENV"
 
+      # 配布用の証明書（秘密鍵つき）とプロファイルは、最初に 1 回だけ作って Secrets に入れてある（ios/README.md を参照）。
+      # 一時的なキーチェーンに入れ、アーカイブのときに手動で署名する。
+      # 自動署名にすると、アーカイブのときに開発用のプロファイル（チームに iPhone の登録が要る）が要り、
+      # 署名せずにアーカイブすると、中の onnxruntime.framework が署名し直されず App Store Connect に断られる
+      - name: 署名の準備をする
+        env:
+          DIST_CERT_P12: ${{ secrets.DIST_CERT_P12 }}
+          DIST_CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
+          APPSTORE_PROFILE: ${{ secrets.APPSTORE_PROFILE }}
+        run: |
+          for name in DIST_CERT_P12 DIST_CERT_PASSWORD APPSTORE_PROFILE; do
+            if [ -z "${!name}" ]; then echo "::error::シークレット ${name} がありません（ios/README.md を参照）"; exit 1; fi
+          done
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+          printf '%s' "$DIST_CERT_P12" | base64 --decode > "$RUNNER_TEMP/keys/dist.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/keys/dist.p12" -k "$KEYCHAIN" -P "$DIST_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$KEYCHAIN"
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          # Xcode のバージョンによって探す場所が違うので、両方に置く
+          for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+            mkdir -p "$dir"
+            printf '%s' "$APPSTORE_PROFILE" | base64 --decode > "$dir/shelfsight-appstore.mobileprovision"
+          done
+
       - name: Xcode のプロジェクトを作る
         working-directory: ios
         run: |
@@ -72,6 +107,8 @@ jobs:
 
       - name: アーカイブする
         working-directory: ios
+        env:
+          PROFILE_NAME: ${{ secrets.APPSTORE_PROFILE_NAME }}
         run: |
           set -o pipefail
           xcodebuild archive \
@@ -80,18 +117,35 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/ShelfSight.xcarchive" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$ASC_KEY_PATH" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
-            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             | tee "$RUNNER_TEMP/archive.log" | grep -E "error:|warning: .*ShelfSight/|BUILD|ARCHIVE" || true
           test -d "$RUNNER_TEMP/ShelfSight.xcarchive" || { tail -200 "$RUNNER_TEMP/archive.log"; exit 1; }
 
+      # onnxruntime.framework の中身は静的ライブラリで、アプリの実行ファイルにもう入っている。
+      # Xcode が Frameworks にも写すことがあり、そのままだと App Store Connect の処理で断られる
+      # （ITMS-90208: 最低の OS の版が分からない）ので、写されていたら消す。書き出しのときにアプリ全体を署名し直す
+      - name: 静的ライブラリの写しを消す
+        run: |
+          APP="$RUNNER_TEMP/ShelfSight.xcarchive/Products/Applications/ShelfSight.app"
+          if [ -d "$APP/Frameworks/onnxruntime.framework" ]; then
+            echo "Frameworks/onnxruntime.framework を消す"
+            rm -rf "$APP/Frameworks/onnxruntime.framework"
+            rmdir "$APP/Frameworks" 2>/dev/null || true
+          fi
+          # アプリの実行ファイルが onnxruntime を動的に読もうとしていないことを確かめる
+          if otool -L "$APP/ShelfSight" | grep -q onnxruntime; then
+            echo "::error::ShelfSight が onnxruntime を動的にリンクしている"; otool -L "$APP/ShelfSight"; exit 1
+          fi
+          ls "$APP"
+
       - name: TestFlight に上げる
+        env:
+          PROFILE_NAME: ${{ secrets.APPSTORE_PROFILE_NAME }}
         run: |
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -101,7 +155,12 @@ jobs:
             <key>method</key><string>app-store-connect</string>
             <key>destination</key><string>upload</string>
             <key>teamID</key><string>$TEAM_ID</string>
-            <key>signingStyle</key><string>automatic</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>$BUNDLE_ID</key><string>$PROFILE_NAME</string>
+            </dict>
             <key>uploadSymbols</key><true/>
             <key>manageAppVersionAndBuildNumber</key><false/>
             <key>testFlightInternalTestingOnly</key><true/>
@@ -112,7 +171,6 @@ jobs:
             -archivePath "$RUNNER_TEMP/ShelfSight.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
             -exportPath "$RUNNER_TEMP/export" \
-            -allowProvisioningUpdates \
             -authenticationKeyPath "$ASC_KEY_PATH" \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
@@ -128,4 +186,8 @@ jobs:
 
       - name: キーを消す
         if: always()
-        run: rm -rf "$RUNNER_TEMP/keys" ios/Secrets.xcconfig
+        run: |
+          if [ -n "$KEYCHAIN" ]; then security delete-keychain "$KEYCHAIN" || true; fi
+          rm -rf "$RUNNER_TEMP/keys" ios/Secrets.xcconfig \
+            "$HOME/Library/MobileDevice/Provisioning Profiles/shelfsight-appstore.mobileprovision" \
+            "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/shelfsight-appstore.mobileprovision"

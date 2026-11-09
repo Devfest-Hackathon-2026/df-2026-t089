@@ -29,8 +29,11 @@ targets:
       - path: ../app/src/main/assets/coarse/categories.json
         buildPhase: resources
     dependencies:
+      # onnxruntime.xcframework の中身は静的ライブラリなので、リンクするだけでアプリに入れない
+      # （入れると App Store Connect が ITMS-90208・90035 で断る）
       - package: OnnxRuntime
         product: onnxruntime
+        embed: false
     info:
       path: Generated/Info.plist
       properties:

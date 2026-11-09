@@ -13,7 +13,7 @@ final class Voice: NSObject, AVSpeechSynthesizerDelegate {
     private let mixer: SpatialMixer
     private let synthesizer = AVSpeechSynthesizer()
     private let voice = AVSpeechSynthesisVoice(language: "ja-JP")
-    private let worker = DispatchQueue(label: "voice", qos: .userInitiated)
+    private let worker = DispatchQueue(label: "voice", qos: .userInitiated, autoreleaseFrequency: .workItem)
     @Locked private var generation = 0
     @Locked private var finishWaiting: (() -> Void)? = nil
     /// worker のキューだけで使う。
@@ -66,6 +66,8 @@ final class Voice: NSObject, AVSpeechSynthesizerDelegate {
     /// 合成した音（ミキサーの周波数のモノラル）。worker のキューで呼ぶ。
     private func synth(_ text: String) -> [Float]? {
         if let c = cache[text] { return c }
+        Diagnostics.shared.stage = "音声合成「\(text.prefix(10))」"
+        defer { Diagnostics.shared.stage = "音声合成の後" }
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = voice
         utterance.rate = min(AVSpeechUtteranceMaximumSpeechRate, AVSpeechUtteranceDefaultSpeechRate * Self.speechRate)

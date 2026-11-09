@@ -40,7 +40,7 @@ VoiceOver が有効なときは、ダブルタップが質問、ダブルタッ�
 - 棚の種類の判別（`walking/`）、棚のラベル（`ShelfLabels`・`MapBias`・`ShelfMap`）、3D の地図（`Map3DOverlay`・`StoreMapper`・`MapRenderer`）
 - 開発用の画面（地図づくり、Store3D）
 
-深度は LiDAR のある iPhone（Pro の機種）でだけ取れます（`productOnly` をやめたとき、人の手の判定に使う）。
+深度は LiDAR のある iPhone（Pro の機種）でだけ取れます。1 つだけ特に近い商品の判定（`NearProduct`、長押しで商品を調べる ③）は深度だけで決めるので、LiDAR のない iPhone では ③ が動きません（画面の「③ 近い商品」にそう出ます）。Android 版は、ARCore が普通のカメラからも深度を出すので、ほとんどの機種で動きます。
 
 ## GitHub Actions から TestFlight へ
 
@@ -63,6 +63,21 @@ VoiceOver が有効なときは、ダブルタップが質問、ダブルタッ�
 | Secret | `GEMINI_API_KEY` | 任意。棚の説明の文と質問に使う |
 | Secret | `GCP_API_KEY` | 任意。Cloud Vision（長押しで商品を調べる）に使う |
 | Variable | `IOS_BUNDLE_ID` | 任意。バンドル ID を変えるとき |
+
+### 署名（証明書とプロファイル）
+
+署名は手動です。App Store 配布用の証明書（Apple Distribution）と、このアプリの App Store 用のプロビジョニングプロファイルを、App Store Connect API で 1 回だけ作り、次の Secrets に入れてあります。CI は一時的なキーチェーンに入れて使い、終わったら消します。
+
+| Secret | 中身 |
+|---|---|
+| `DIST_CERT_P12` | 証明書と秘密鍵の p12（base64） |
+| `DIST_CERT_PASSWORD` | p12 のパスワード |
+| `APPSTORE_PROFILE` | プロファイル（base64） |
+| `APPSTORE_PROFILE_NAME` | プロファイルの名前 |
+
+控えは作った PC の `%USERPROFILE%\.shelfsight-signing\` にあります（リポジトリには入れない）。証明書とプロファイルは 2027-11-06 に切れるので、その前に作り直して Secrets を入れ替えてください。
+
+自動署名にしていないのは、アーカイブのときに開発用のプロファイル（チームに iPhone の登録が要る）が要るためです。署名せずにアーカイブして書き出しのときだけ署名すると、中の `onnxruntime.framework` が署名し直されず、App Store Connect に断られました。
 
 ビルド番号には Actions の実行番号（`github.run_number`）を使います。バージョン（`0.1.0`）を上げるときは `ios/project.yml` の `MARKETING_VERSION` を変えます。
 

@@ -41,6 +41,11 @@ final class AssistDebug {
     @Locked var focusBox: [Float]? = nil
     @Locked var focusAt: Int64 = 0
     @Locked var lookup = ""
+    /// 商品の枠ごとのスマホからの距離（productBoxes と同じ順、分からなければ nil）と、1 つだけ特に近い商品（NearProduct）。
+    @Locked var boxDistances: [Float?] = []
+    @Locked var nearBox: [Float]? = nil
+    @Locked var near = ""
+    @Locked var nearDistance: Float? = nil
 
     // ④ 人
     @Locked var people: [PersonView] = []
@@ -60,6 +65,8 @@ final class AssistDebug {
 final class DebugOverlay: UIView {
     private static let staleMs: Int64 = 3000
     private static let productsMs: Int64 = 8000
+    /// 近い商品の帯を出し続ける長さ（最後の解析から）。
+    private static let nearBannerMs: Int64 = 1500
     private static let gray = UIColor(white: 0.62, alpha: 1)
     private static let green = UIColor(red: 0.30, green: 0.69, blue: 0.31, alpha: 1)
     private static let orange = UIColor(red: 1, green: 0.6, blue: 0, alpha: 1)
@@ -71,6 +78,7 @@ final class DebugOverlay: UIView {
     private var timer: Timer?
     private let textFont = UIFont.systemFont(ofSize: 11)
     private let smallFont = UIFont.systemFont(ofSize: 9)
+    private let bannerFont = UIFont.boldSystemFont(ofSize: 26)
 
     init(debug: AssistDebug) {
         d = debug
@@ -92,6 +100,7 @@ final class DebugOverlay: UIView {
         let now = nowMs()
         let corners = d.corners
         drawImageLayer(ctx, now, corners)
+        drawNearBanner(ctx, now, safeAreaInsets.top)
         drawPanel(ctx, safeAreaInsets.top, now)
     }
 
@@ -146,6 +155,19 @@ final class DebugOverlay: UIView {
             for p in d.kept { rect(ctx, box(p), c, Self.green, label: short(p.name)) }
             for p in d.removed { rect(ctx, box(p), c, Self.orange, label: "×" + short(p.name)) }
         }
+        if now - d.sceneAt < Self.staleMs {
+            // 枠ごとのスマホからの距離（枠の右下）と、1 つだけ特に近い商品（太い緑）
+            let boxes = d.productBoxes
+            let dist = d.boxDistances
+            if dist.count == boxes.count {
+                for (i, b) in boxes.enumerated() {
+                    guard let m = dist[i], let p = toView(b[2], b[3], c) else { continue }
+                    let label = String(format: "%.2fm", m)
+                    text(label, at: CGPoint(x: p.x - width("0.00m", smallFont) - 2, y: p.y - smallFont.lineHeight - 1), font: smallFont)
+                }
+            }
+            if let b = d.nearBox { rect(ctx, b, c, Self.green, label: "近い商品", lineWidth: 4) }
+        }
         // 長押しで調べた範囲
         if now - d.focusAt < Self.productsMs, let b = d.focusBox {
             rect(ctx, b, c, Self.cyan, label: "調べた範囲", lineWidth: 4)
@@ -154,6 +176,18 @@ final class DebugOverlay: UIView {
         if now - d.peopleAt < Self.staleMs {
             for p in d.people { rect(ctx, box(p.box), c, p.ownHand ? Self.purple : Self.red, label: p.label, dash: p.ownHand) }
         }
+    }
+
+    /// 1 つだけ特に近い商品が見えている間、画面の上に大きな緑の帯を出す（読み取れたことがひと目で分かるように）。
+    private func drawNearBanner(_ ctx: CGContext, _ now: Int64, _ top: CGFloat) {
+        if now - d.sceneAt >= Self.nearBannerMs || d.nearBox == nil { return }
+        let label = "● 近い商品あり  " + (d.nearDistance.map { String(format: "%.2fm", $0) } ?? "")
+        let h = bannerFont.pointSize * 1.6
+        let y = top + 8
+        ctx.setFillColor(UIColor(red: 0.30, green: 0.69, blue: 0.31, alpha: 0.88).cgColor)
+        ctx.fill(CGRect(x: 0, y: y, width: bounds.width, height: h))
+        let w = width(label, bannerFont)
+        text(label, at: CGPoint(x: (bounds.width - w) / 2, y: y + (h - bannerFont.lineHeight) / 2), font: bannerFont)
     }
 
     private func drawPanel(_ ctx: CGContext, _ top: CGFloat, _ now: Int64) {
@@ -169,10 +203,16 @@ final class DebugOverlay: UIView {
             lines.append("   外した: " + removed.orderedGroups { $0.genre ?? "?" }.map { "\($0.key)×\($0.values.count)" }.joined(separator: "、"))
         }
         if !d.description.isEmpty { lines.append("   説明: \(d.description)") }
+        lines.append("③ 近い商品: \(d.near.isEmpty ? "-" : d.near)")
         lines.append("③ 長押し: \(d.longPress.isEmpty ? "-" : d.longPress)（\(age(d.focusAt))）")
         if !d.lookup.isEmpty { lines.append("   商品: \(d.lookup)") }
         lines.append("④ 人: \(d.peopleInfo.isEmpty ? "-" : d.peopleInfo)")
         lines.append("声: \(d.voice)")
+        // 落ちる原因の調査用（iOS だけ）
+        lines.append("診断: \(Diagnostics.shared.line)")
+        lines.append("  商品認識の\(recognizerSummary())")
+        let previous = Diagnostics.shared.previous
+        if !previous.isEmpty { lines.append(previous) }
 
         let body = lines.joined(separator: "\n") as NSString
         let attrs: [NSAttributedString.Key: Any] = [.font: textFont, .foregroundColor: UIColor.white]
@@ -184,6 +224,9 @@ final class DebugOverlay: UIView {
         ctx.fill(CGRect(x: 0, y: panelTop, width: bounds.width, height: bounds.height - panelTop))
         body.draw(with: CGRect(x: 8, y: panelTop + 6, width: maxWidth, height: bounds.height - panelTop), options: .usesLineFragmentOrigin, attributes: attrs, context: nil)
     }
+
+    /// 商品認識の作り直しの状況（Assist から渡す）。
+    var recognizerSummary: () -> String = { "-" }
 
     private func short(_ name: String) -> String {
         let after = name.firstIndex(of: " ").map { String(name[name.index(after: $0)...]) } ?? name

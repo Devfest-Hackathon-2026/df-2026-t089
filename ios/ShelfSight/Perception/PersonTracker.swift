@@ -50,7 +50,9 @@ enum PersonDistance {
             let rotated = g.uprightRotationDegrees % 180 != 0
             let uprightHeight = Float(rotated ? g.imageWidth : g.imageHeight)
             let focal = rotated ? g.focalX : g.focalY
-            return focal * assumedPersonHeightM / ((box.bottom - box.top) * uprightHeight)
+            // 高さ 0 の枠では無限大になる（NaN や無限大が音の計算に届くと落ちる）
+            let d = focal * assumedPersonHeightM / ((box.bottom - box.top) * uprightHeight)
+            return d.isFinite && d > 0 ? d : nil
         }
         return Unprojector.medianDepthMeters(box, g)
     }
@@ -111,7 +113,7 @@ final class PersonTracker {
         tracks.removeAll { t - $0.lastSeenSeconds > Self.trackTimeoutSeconds }
         var available = tracks
         return observations.map { o in
-            guard let position = o.position else {
+            guard let position = o.position, position.isFinite else {
                 return TrackedPerson(box: o.box, distanceM: o.distanceM, motion: .unknown)
             }
             let track: Track

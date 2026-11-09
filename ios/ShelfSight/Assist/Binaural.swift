@@ -17,6 +17,10 @@ struct EarParams {
     /// 1 次ローパスの係数（1 で素通し）。頭の陰になる耳ほど高音を落とす。
     let lowpassL: Float
     let lowpassR: Float
+
+    var isFinite: Bool {
+        gainL.isFinite && gainR.isFinite && delayL.isFinite && delayR.isFinite && lowpassL.isFinite && lowpassR.isFinite
+    }
 }
 
 /**

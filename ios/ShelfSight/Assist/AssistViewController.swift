@@ -7,7 +7,7 @@ import UIKit
  * 視覚障害のある人のための、コンビニの棚と商品の案内。胸の前にスマホを立てて持ち、イヤホンで聞く（Android 版の AssistActivity）。
  *
  * ② 棚が 1 つ写っている: 商品を認識し、LLM で何があるかを短く自然な文にして話す（場違いな商品は言わない）
- * ③ 商品が 1 つ大きく写っている: Cloud Vision API に聞き、社名と商品名を言う（1 回の接近で 1 回だけ呼ぶ）
+ * ③ 見えている商品のうち 1 つだけ特に近い（スマホからの距離で決める、NearProduct）: 長押しで Cloud Vision API に聞き、社名と商品名を言う（1 回の接近で 1 回だけ呼ぶ）
  * ④ 人が近づいてくる: その人の方向からピコピコ鳴らす（productOnly の間は止めている）
  *
  * 棚の種類の判別（歩行中の 8 列 × 7 分類）と 3D の地図は入れていない（Android 版も止めている）。
@@ -40,8 +40,10 @@ final class Assist: NSObject, ARSessionDelegate {
     private static let forgetDescriptionMs: Int64 = 3000
     private static let moveToRedescribeM: Float = 1.5
     private static let describeRetryMs: Int64 = 4000
-    private static let approachGapMs: Int64 = 2000
-    private static let approachMoveM: Float = 0.6
+    /// 残りのメモリがこれより少ないときは、商品の解析を休む（OS に止められないための安全装置）。
+    private static let minAvailableMB: Double = 400
+    /// 1 つだけ特に近い商品がこれだけ見えなければ、次に見えたときを新しい接近とする。
+    private static let nearGapMs: Int64 = 2000
     private static let personHoldS = 1.0
     private static let approachAlertM: Float = 6
     private static let closeAlertM: Float = 1.5
@@ -60,21 +62,23 @@ final class Assist: NSObject, ARSessionDelegate {
     private let listening = Listening()
 
     // ------------------------------------------------------------ キュー（Android 版のスレッド）
+    // どのキューも、1 回の処理が終わるたびに一時的なオブジェクト（autorelease されたもの）を捨てる（.workItem）。
+    // 既定のままだと、休まず回り続けるキューでは捨てる機会がなく、カメラの画像や ONNX Runtime の出力がたまって、
+    // 20 秒ほどでメモリが足りなくなり OS に終了させられた
     /// ARFrame を受け取るキュー（Android 版の GL スレッド）。
-    private let arQueue = DispatchQueue(label: "ar", qos: .userInteractive)
+    private let arQueue = DispatchQueue(label: "ar", qos: .userInteractive, autoreleaseFrequency: .workItem)
     /// 商品の解析。商品だけを計るときは譲る相手がいないので、優先度を下げない。
-    private let sceneWorker = DispatchQueue(label: "scene", qos: Assist.productOnly ? .userInitiated : .utility)
-    private let personWorker = DispatchQueue(label: "person", qos: .userInitiated)
-    private let lookupWorker = DispatchQueue(label: "lookup", qos: .userInitiated)
+    private let sceneWorker = DispatchQueue(label: "scene", qos: Assist.productOnly ? .userInitiated : .utility, autoreleaseFrequency: .workItem)
+    private let personWorker = DispatchQueue(label: "person", qos: .userInitiated, autoreleaseFrequency: .workItem)
+    private let lookupWorker = DispatchQueue(label: "lookup", qos: .userInitiated, autoreleaseFrequency: .workItem)
     private let sceneBusy = AtomicFlag()
     private let personBusy = AtomicFlag()
     /// 商品の解析にかかった時間（productOnly の計測用）。
     private let timing = SceneTiming()
 
     // ------------------------------------------------------------ 認識
-    private let recognizer = Once<ProductRecognizer?> {
-        do { return try ProductRecognizer() } catch { logInfo("Assist", "product recognizer: \(error)"); return nil }
-    }
+    /// 商品認識。CPU 側のメモリが増えたら、解析を止めずに裏で作り直す（RecognizerPool）。
+    private let recognizer = RecognizerPool()
     private let personDetector: PersonDetector = VisionPersonDetector()
     private let tracker = PersonTracker()
     private let lookup = ProductLookup(apiKey: Secrets.value("CLOUD_VISION_API_KEY", fallback: "GCP_API_KEY"))
@@ -111,14 +115,15 @@ final class Assist: NSObject, ARSessionDelegate {
     // sceneWorker だけで使う
     private var leftOneShelfAt: Int64 = 0
     private var lastDescribeTry: Int64 = 0
-    private var approachSeenAt: Int64 = 0
-    private var approachFrom: Vec3?
+    /// 1 つだけ特に近い商品（NearProduct）を最後に見た時刻。しばらく見えなければ、次に見えたときを新しい接近とする。
+    private var nearSeenAt: Int64 = 0
 
     // ------------------------------------------------------------ 始める・止める
 
     init(session: ARSession) {
         self.session = session
         super.init()
+        Diagnostics.shared.start()
         // 声は A2DP（ステレオ）のまま鳴らしたいので、HFP は使わない（マイクは本体のもの）
         let audio = AVAudioSession.sharedInstance()
         try? audio.setCategory(.playAndRecord, mode: .default, options: [.allowBluetoothA2DP, .defaultToSpeaker])
@@ -139,12 +144,13 @@ final class Assist: NSObject, ARSessionDelegate {
         }
         let config = ARWorldTrackingConfiguration()
         config.isAutoFocusEnabled = true
-        // 商品だけを計るときは、面の検出と深度を止める。そうでなければ、壁（記録用）と、LiDAR のある機種では深度（人の手の判定）を使う
-        if !Self.productOnly {
-            config.planeDetection = [.vertical]
-            if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
-                config.frameSemantics.insert(.sceneDepth)
-            }
+        // 商品だけを計るときは、地図と棚のラベルにしか使わない面の検出を止める
+        if !Self.productOnly { config.planeDetection = [.vertical] }
+        // 深度は、1 つだけ特に近い商品の判定（NearProduct）に使うので、商品だけを計るときも使う（LiDAR のある機種だけ）
+        if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
+            config.frameSemantics.insert(.sceneDepth)
+        } else {
+            debug.near = "深度が取れない機種（LiDAR なし）なので、近い商品を判定できません"
         }
         // 商品の文字を読めるよう、30fps 以上で幅 1920 までのいちばん大きいカメラ画像を使う
         if let best = ARWorldTrackingConfiguration.supportedVideoFormats
@@ -161,6 +167,9 @@ final class Assist: NSObject, ARSessionDelegate {
         }
     }
 
+    /// 商品認識の作り直しの状況（画面の表示用）。
+    var recognizerSummary: String { recognizer.summary }
+
     func pause() {
         listening.cancel()
         session.pause()
@@ -169,6 +178,12 @@ final class Assist: NSObject, ARSessionDelegate {
     // ------------------------------------------------------------ 毎フレーム（AR のキュー）
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
+        // 毎フレーム（60 回/秒）の一時的なオブジェクトを、このフレームのうちに捨てる
+        autoreleasepool { onFrame(frame) }
+    }
+
+    private func onFrame(_ frame: ARFrame) {
+        Diagnostics.shared.frame()
         let size = viewSize
         if size.width > 0 {
             // 画面の表示用: センサー画像の正規化座標が、画面のどこに来るか
@@ -197,15 +212,23 @@ final class Assist: NSObject, ARSessionDelegate {
 
         let now = nowMs()
         updateMotion(m, now)
-        if let target = pendingCapture, let f = FrameCapture.capture(frame, depthEnabled: false, fullResolution: true) {
+        if let target = pendingCapture, let f = FrameCapture.capture(frame, depthEnabled: true, fullResolution: true) {
             pendingCapture = nil
             lookupWorker.async { target(f) }
         }
         if Self.productOnly {
-            // 商品の解析だけを、前の解析が終わったらすぐ次を回す（人の検出と記録は止める）
-            if sceneBusy.tryAcquire() {
+            // 商品の解析だけを、前の解析が終わったらすぐ次を回す（人の検出と記録は止める）。
+            // 残りのメモリが少ないときは休む（増え続ける原因がほかにあっても、OS に止められないように）
+            let available = Diagnostics.availableMB()
+            if available < Self.minAvailableMB {
+                if sceneBusy.tryAcquire() {
+                    debug.sceneMs = String(format: "メモリが少ないので解析を休み中（残り %.0fMB）", available)
+                    Diagnostics.shared.stage = "メモリが少ないので休み中"
+                    sceneBusy.release()
+                }
+            } else if sceneBusy.tryAcquire() {
                 let t0 = nowMs()
-                if let f = FrameCapture.capture(frame, depthEnabled: false, usualLongSide: Self.sceneLongSide) {
+                if let f = Diagnostics.shared.measure("撮る", { FrameCapture.capture(frame, depthEnabled: true, usualLongSide: Self.sceneLongSide) }) {
                     let captureMs = nowMs() - t0
                     let heading = debug.headingDeg
                     sceneWorker.async { [self] in runScene(f, 0, heading, captureMs: captureMs); sceneBusy.release() }
@@ -252,14 +275,33 @@ final class Assist: NSObject, ARSessionDelegate {
     private func runScene(_ f: CapturedFrame, _ walls: Int, _ heading: Float?, captureMs: Int64 = 0) {
         guard let recognizer = recognizer.get else { debug.sceneMs = "商品認識のモデルを読み込めません"; return }
         let t0 = nowMs()
-        let image = ImageUtil.scaled(f.image, longSide: Self.sceneLongSide)
+        let image = Diagnostics.shared.measure("変換") { ImageUtil.scaled(f.image, longSide: Self.sceneLongSide) }
         let convertMs = nowMs() - t0
         do {
             let now = nowMs()
-            let boxes = try recognizer.detect(image).map(\.0)
+            let boxes = try Diagnostics.shared.measure("枠") { try recognizer.detect(image).map(\.0) }
             let detectMs = nowMs() - now
-            let switched = judge.update(SceneEvidence(shelves: 0, productBoxes: boxes))
-            let products = try recognizer.recognize(image, boxes)
+            // 1 つだけ特に近い商品（スマホからの距離で決める）
+            let (near, distances) = NearProduct.measure(boxes) { b in
+                Unprojector.medianDepthMeters(NormalizedBox(left: b[0], top: b[1], right: b[2], bottom: b[3]), f.geometry)
+            }
+            judge.update(SceneEvidence(shelves: 0, productBoxes: boxes, near: near != nil))
+            // 新しく近い商品が見えたら、前に調べた結果を忘れる（次の長押しで Cloud Vision を 1 回呼ぶ）
+            if near != nil {
+                if nearSeenAt == 0 || now - nearSeenAt > Self.nearGapMs { lookup.newApproach() }
+                nearSeenAt = now
+            }
+            debug.boxDistances = distances
+            debug.nearBox = near?.box
+            debug.nearDistance = near?.distanceM
+            if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {   // LiDAR がなければ、深度が取れないという表示のまま
+                debug.near = near?.describe() ?? "なし（距離が分かった枠 \(distances.compactMap { $0 }.count)/\(boxes.count)）"
+            }
+            let products = try Diagnostics.shared.measure("名前") { try recognizer.recognize(image, boxes) }
+            Diagnostics.shared.stage = "解析の後"
+            // ONNX Runtime が中に取っておいたメモリが増えていれば、裏で作り直して返させる
+            self.recognizer.reloadIfNeeded()
+            Diagnostics.shared.scene()
             let recognizeMs = nowMs() - now - detectMs
             if Self.productOnly {
                 timing.add(captureMs: captureMs, convertMs: convertMs, detectMs: detectMs, nameMs: recognizeMs, boxes: boxes.count, named: products.count)
@@ -276,23 +318,11 @@ final class Assist: NSObject, ARSessionDelegate {
             debug.sceneMs = Self.productOnly ? "【商品だけ計測】\n\(timing.summary())" : "枠 \(detectMs)ms / 名前 \(recognizeMs)ms / 壁 \(walls)"
             debug.sceneAt = now
             debug.motion = String(format: "%.1fm/s %.0f°/s", speedMps, turnDps)
-            logInfo("Assist", "scene: detect \(detectMs)ms, name \(recognizeMs)ms, boxes \(boxes.count), named \(products.count)")
-            let main = SceneJudge.mainProduct(boxes)
+            let known = distances.compactMap { $0 }
+            let nearLog = "near " + (near.map { String(format: "YES %.2fm gap %@", $0.distanceM, $0.gapM.map { String(format: "%.2fm", $0) } ?? "-") } ?? "no") +
+                ", depth \(known.count)/\(boxes.count) [" + known.sorted().prefix(5).map { String(format: "%.2f", $0) }.joined(separator: ",") + "]"
+            logInfo("Assist", "scene: detect \(detectMs)ms, name \(recognizeMs)ms, boxes \(boxes.count), named \(products.count), \(nearLog)")
             let camera = cameraPosition(f)
-
-            // 新しい商品に近づいたら、前に調べた結果を忘れる（次の長押しで API を 1 回呼ぶ）。
-            // 商品 1 つの場面に入ったとき、大きく写った商品がしばらく見えなかったとき、歩いて離れたとき
-            let gone = approachSeenAt != 0 && now - approachSeenAt > Self.approachGapMs
-            let moved = (approachFrom.map { Self.horizontal($0, camera) } ?? 0) > Self.approachMoveM
-            if (switched && judge.scene == .oneProduct) || gone || moved {
-                lookup.newApproach()
-                approachSeenAt = 0
-                approachFrom = nil
-            }
-            if main != nil {
-                approachSeenAt = now
-                if approachFrom == nil { approachFrom = camera }
-            }
             if judge.scene != .oneShelf && leftOneShelfAt == 0 { leftOneShelfAt = now }
             if judge.scene == .oneShelf { leftOneShelfAt = 0 }
             if leftOneShelfAt != 0 && now - leftOneShelfAt > Self.forgetDescriptionMs { describedAt = nil }
@@ -350,10 +380,17 @@ final class Assist: NSObject, ARSessionDelegate {
         let image = ImageUtil.scaled(f.image, longSide: Self.lookupLongSide)
         do {
             let boxes = try recognizer.detect(image).map(\.0)
-            let (focus, productBox) = SceneJudge.focus(boxes)
-            let largest = boxes.map { SceneJudge.area($0) }.max() ?? 0
-            logInfo("Assist", "long press: \(boxes.count) boxes, largest \(largest) -> \(focus)")
-            debug.longPress = "\(focus.rawValue)（枠 \(boxes.count) 個、いちばん大きい枠 \(Int(largest * 100))%）"
+            // 商品 1 つかどうかは、枠の大きさではなく距離の判定で決める
+            let (near, distances) = NearProduct.measure(boxes) { b in
+                Unprojector.medianDepthMeters(NormalizedBox(left: b[0], top: b[1], right: b[2], bottom: b[3]), f.geometry)
+            }
+            let (focus, productBox) = SceneJudge.focus(boxes, nearBox: near?.box)
+            let nearText = near?.describe() ?? "近い商品なし（距離が分かった枠 \(distances.compactMap { $0 }.count)/\(boxes.count)）"
+            let distanceText = distances.map { $0.map { String(format: "%.2f", $0) } ?? "-" }.joined(separator: ",")
+            logInfo("Assist", "long press: \(boxes.count) boxes, \(nearText), distances \(distanceText) -> \(focus)")
+            debug.longPress = "\(focus.rawValue)（枠 \(boxes.count) 個、\(nearText)）"
+            debug.boxDistances = distances
+            debug.nearBox = near?.box
             debug.focusBox = productBox
             debug.focusAt = nowMs()
             debug.productBoxes = boxes
@@ -365,7 +402,7 @@ final class Assist: NSObject, ARSessionDelegate {
                 let products = try recognizer.recognize(image, boxes)
                 describe(products, ImageUtil.jpeg(image, longSide: Self.narrateLongSide), boxes.count, nil, requested: true)
             case .stepBack:
-                voice.say("一歩下がって、棚の全体か、商品を一つだけ写してください。")
+                voice.say("棚は一歩下がって全体を、商品はスマホに近づけて写してください。")
             case .nothing:
                 voice.say("商品が見えません。棚か商品の方にスマホを向けてください。")
             }
@@ -376,7 +413,7 @@ final class Assist: NSObject, ARSessionDelegate {
     }
 
     /// ③ 手前の商品を Cloud Vision API で調べる。この接近ですでに調べていれば、API を呼ばずにその結果を言う。
-    private func lookupProduct(_ image: CGImage, _ box: [Float]) {
+    private func lookupProduct(_ image: RGBAImage, _ box: [Float]) {
         if let cached = lookup.cachedResult {
             debug.lookup = "（この接近で調べた結果を使う）"
             speakLookup(cached)
@@ -413,7 +450,8 @@ final class Assist: NSObject, ARSessionDelegate {
     // ------------------------------------------------------------ ④ 人の接近
 
     private func runPeople(_ f: CapturedFrame) {
-        let image = ImageUtil.scaled(f.image, longSide: Self.personLongSide)
+        let small = ImageUtil.scaled(f.image, longSide: Self.personLongSide)
+        guard let image = ImageUtil.cgImage(small) else { return }
         let w = Float(image.width)
         let h = Float(image.height)
         let detected = personDetector.detect(image)
@@ -436,6 +474,8 @@ final class Assist: NSObject, ARSessionDelegate {
         var sounding: [Int: (Vec3, Float, Float)] = [:]
         for m in tracker.markers() where t - m.lastSeenSeconds < Self.personHoldS {
             let d = Self.horizontal(m.position, camera)
+            // NaN だと下の比較がすべて false になり、鳴らす側に入ってしまう
+            guard m.position.isFinite, d.isFinite else { continue }
             let approaching = m.motion == .approaching && d < Self.approachAlertM
             if !approaching && d >= Self.closeAlertM { continue }
             sounding[m.id] = (m.position, Self.beepInterval(d), approaching ? 1 : 0.6)
@@ -549,7 +589,7 @@ final class Assist: NSObject, ARSessionDelegate {
         return Vec3(m[12], m[13], m[14])
     }
 
-    private func cropWithMargin(_ image: CGImage, _ b: [Float], _ margin: Float) -> CGImage {
+    private func cropWithMargin(_ image: RGBAImage, _ b: [Float], _ margin: Float) -> RGBAImage {
         let W = image.width, H = image.height
         let w = b[2] - b[0]
         let h = b[3] - b[1]
@@ -574,7 +614,11 @@ final class Assist: NSObject, ARSessionDelegate {
 final class AssistViewController: UIViewController {
     private let sceneView = ARSCNView()
     private lazy var assist = Assist(session: sceneView.session)
-    private lazy var overlay = DebugOverlay(debug: assist.debug)
+    private lazy var overlay: DebugOverlay = {
+        let o = DebugOverlay(debug: assist.debug)
+        o.recognizerSummary = { [weak self] in self?.assist.recognizerSummary ?? "-" }
+        return o
+    }()
     private let touch = TouchSurface()
 
     override func viewDidLoad() {

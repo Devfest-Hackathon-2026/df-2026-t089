@@ -119,6 +119,8 @@ final class SpatialMixer {
     /// 繰り返し鳴る音を入れ替える（id → 位置、間隔、大きさ）。updates にない音は止める。
     func setEmitters(_ updates: [Int: (Vec3, Float, Float)]) {
         lock.lock(); defer { lock.unlock() }
+        // NaN や無限大はオーディオのスレッドで整数にするときに落ちるので、ここで捨てる
+        let updates = updates.filter { $0.value.0.isFinite && $0.value.1.isFinite && $0.value.1 > 0 && $0.value.2.isFinite }
         emitters = emitters.filter { updates[$0.key] != nil }
         for (id, u) in updates {
             if let e = emitters[id] {
@@ -147,7 +149,7 @@ final class SpatialMixer {
             // 繰り返しの音: 時刻が来たら 1 回ぶんを足す
             for e in emitters.values where time >= e.nextFrame {
                 effects.append(Sound(tick, position: { e.position }, gain: e.gain))
-                e.nextFrame = time + Int64(e.intervalSec * Float(Self.rate))
+                e.nextFrame = time + Self.frames(e.intervalSec)
             }
 
             if speech == nil, !speechQueue.isEmpty { speech = speechQueue.removeFirst() }
@@ -181,11 +183,10 @@ final class SpatialMixer {
     }
 
     private func render(_ s: Sound, _ n: Int, _ l: Listener?, _ extraGain: Float) {
-        let target: EarParams
-        if let pos = s.position?(), let l {
-            target = Binaural.params(Binaural.azimuth(l, pos), Binaural.horizontalDistance(l, pos), Self.rate)
-        } else {
-            target = Self.center
+        var target = Self.center
+        if let pos = s.position?(), pos.isFinite, let l, l.position.isFinite, l.forwardX.isFinite, l.forwardZ.isFinite {
+            let p = Binaural.params(Binaural.azimuth(l, pos), Binaural.horizontalDistance(l, pos), Self.rate)
+            if p.isFinite { target = p }
         }
         let from = s.last ?? target
         s.last = target
@@ -208,8 +209,15 @@ final class SpatialMixer {
 
     private func lerp(_ a: Float, _ b: Float, _ t: Float) -> Float { a + (b - a) * t }
 
+    /// 秒 → サンプル数。NaN や無限大を Int64 にすると Swift が止めるので、0.05〜10 秒に収める。
+    private static func frames(_ seconds: Float) -> Int64 {
+        let s = seconds.isFinite ? min(max(seconds, 0.05), 10) : 1
+        return Int64(s * Float(rate))
+    }
+
     private static func sample(_ pcm: [Float], _ at: Float) -> Float {
-        if at < 0 { return 0 }
+        // NaN を Int にすると Swift が止める（NaN は at < 0 にも当たらない）
+        if !at.isFinite || at < 0 { return 0 }
         let i = Int(at)
         if i >= pcm.count { return 0 }
         let f = at - Float(i)

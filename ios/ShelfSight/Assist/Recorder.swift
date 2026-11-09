@@ -30,7 +30,7 @@ final class Recorder {
         log = dir.appendingPathComponent("records.jsonl")
     }
 
-    func record(_ time: Int64, _ image: CGImage, _ g: CaptureGeometry, headingDeg: Float?, walls: Int, products: [Product]) {
+    func record(_ time: Int64, _ image: RGBAImage, _ g: CaptureGeometry, headingDeg: Float?, walls: Int, products: [Product]) {
         let name = String(format: "frame_%05d.jpg", n)
         n += 1
         do {

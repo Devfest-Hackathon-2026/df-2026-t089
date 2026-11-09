@@ -126,7 +126,8 @@ enum VisionProductParser {
 
 /**
  * 手前の商品 1 つを Cloud Vision API で調べ、社名と商品名を返す。1 回の要求で Web 検索・ロゴ・文字を頼む。
- * 商品に近づいている間は結果を覚えておき API を呼び直さない。新しい商品に近づき直したら newApproach で忘れる。
+ * 商品に近づいている間（NearProduct で 1 つだけ特に近い商品が見え続けている間）は、結果を覚えておき API を呼び直さない。
+ * 新しい商品に近づき直したら newApproach で忘れる。これで、長押しを何度しても 1 回の接近につき 1 回しか課金されない。
  */
 final class ProductLookup {
     private static let url = "https://vision.googleapis.com/v1/images:annotate"
@@ -145,7 +146,7 @@ final class ProductLookup {
     func newApproach() { cached = nil }
 
     /// 調べる。この接近ですでに調べていれば、その結果を返す。通信を待つのでメインスレッドでは呼ばない。
-    func lookup(_ image: CGImage) -> Result<ProductAnswer?, Error> {
+    func lookup(_ image: RGBAImage) -> Result<ProductAnswer?, Error> {
         if let c = cached { return c }
         let r = Result<ProductAnswer?, Error> {
             guard configured else { throw CloudError(failure: .auth, detail: "Cloud Vision API key is not set") }
