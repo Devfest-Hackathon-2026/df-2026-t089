@@ -76,6 +76,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private var session: Session? = null
     private var installRequested = false
     private var sensorRotation = 90
+    /** ARCore の深度が使える機種か。使えれば、長押しで調べる商品は深度だけで決める（[NearProduct]）。 */
+    @Volatile private var depthSupported = false
     private var viewW = 0
     private var viewH = 0
     private var geometryChanged = false
@@ -252,9 +254,11 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             session = Session(this).also { s ->
                 useHighResolutionCameraImage(s)
                 val config = Config(s).setFocusMode(Config.FocusMode.AUTO)
-                    // 商品だけを計るときは、地図と棚のラベルにしか使わない面の検出と深度を止める
+                    // 商品だけを計るときは、地図と棚のラベルにしか使わない面の検出を止める
                     .setPlaneFindingMode(if (PRODUCT_ONLY) Config.PlaneFindingMode.DISABLED else Config.PlaneFindingMode.VERTICAL)
-                if (!PRODUCT_ONLY && s.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) config.depthMode = Config.DepthMode.AUTOMATIC
+                // 深度は、長押しで調べる近い商品の判定（NearProduct）に使うので、商品だけを計るときも使う
+                depthSupported = s.isDepthModeSupported(Config.DepthMode.AUTOMATIC)
+                if (depthSupported) config.depthMode = Config.DepthMode.AUTOMATIC
                 s.configure(config)
                 val cm = getSystemService(CameraManager::class.java)
                 sensorRotation = cm.getCameraCharacteristics(s.cameraConfig.cameraId).get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
@@ -348,7 +352,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         updateMotion(pose, now)
         val rotation = sensorRotation   // 画面は縦に固定している
         pendingCapture?.let { target ->
-            FrameCapture.capture(frame, camera, rotation, depthEnabled = false, fullResolution = true)?.let { f ->
+            FrameCapture.capture(frame, camera, rotation, depthEnabled = depthSupported, fullResolution = true)?.let { f ->
                 pendingCapture = null
                 lookupWorker.execute { target(f) }
             }
@@ -534,23 +538,39 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         pendingCapture = ::runLongPress
     }
 
-    /** 高解像度で撮った画像で商品の枠を出し、画面の中央にある 1 つ（[SceneJudge.centerProduct]）を Cloud Vision で調べる。 */
+    /**
+     * 高解像度で撮った画像で、手前の商品 1 つを Cloud Vision で調べる。
+     * - 深度が使える機種: 画面の中央の深度だけで、近い商品があるかと調べる範囲を決める（[NearProduct]、枠は使わない）
+     * - 深度が使えない機種: 画面の中央にある商品の枠（[SceneJudge.centerProduct]、位置だけで選び、大きさは見ない）
+     */
     private fun runLongPress(f: CapturedFrame) {
         val image = JpegEncoder.toUprightBitmap(f, LOOKUP_LONG_SIDE)
         try {
             val boxes = recognizer.detect(image).map { it.first }
-            val box = SceneJudge.centerProduct(boxes)
             val now = SystemClock.elapsedRealtime()
-            Log.i(TAG, "long press: ${boxes.size} boxes, center product ${if (box != null) "found" else "none"}")
-            debug.longPress = "枠 ${boxes.size} 個、中央の商品 ${if (box != null) "あり" else "なし"}"
+            val box: FloatArray?
+            if (depthSupported) {
+                val reading = NearProduct.measure(f.geometry)
+                box = reading.pick?.box
+                Log.i(TAG, "long press: depth ${reading.describe()}, ${boxes.size} boxes")
+                debug.longPress = "深度で判定: ${reading.describe()}"
+                if (box == null) {
+                    voice.say(
+                        if (reading.centerM == null) "距離を測れませんでした。スマホを少し左右に動かしてから、もう一度長押ししてください。"
+                        else "商品が遠いです。調べたい商品を、スマホに近づけてください。"
+                    )
+                }
+            } else {
+                box = SceneJudge.centerProduct(boxes)
+                Log.i(TAG, "long press: no depth, ${boxes.size} boxes, center product ${if (box != null) "found" else "none"}")
+                debug.longPress = "深度なし: 枠 ${boxes.size} 個、中央の商品 ${if (box != null) "あり" else "なし"}"
+                if (box == null) voice.say("画面の真ん中に商品が見えません。調べたい商品を、画面の真ん中に写してください。")
+            }
             debug.productBoxes = boxes
             debug.sceneAt = now
             debug.focusBox = box
             debug.focusAt = now
-            if (box == null) {
-                voice.say("画面の真ん中に商品が見えません。調べたい商品を、画面の真ん中に写してください。")
-                return
-            }
+            if (box == null) return
             lookup.newApproach()   // 押すたびに調べ直す（前の結果は使わない）
             debug.lookup = "調べています…"
             lookupProduct(image, box)

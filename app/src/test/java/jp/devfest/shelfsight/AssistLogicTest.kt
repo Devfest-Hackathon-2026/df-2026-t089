@@ -5,7 +5,6 @@ import jp.devfest.shelfsight.assist.Command
 import jp.devfest.shelfsight.assist.Commands
 import jp.devfest.shelfsight.assist.ContextAdjust
 import jp.devfest.shelfsight.assist.ContextAdjust.Candidate
-import jp.devfest.shelfsight.assist.Focus
 import jp.devfest.shelfsight.assist.Listener
 import jp.devfest.shelfsight.assist.Narrator
 import jp.devfest.shelfsight.assist.PersonFilter
@@ -279,20 +278,6 @@ class AssistLogicTest {
         // 中央の近くに商品がない
         assertNull(SceneJudge.centerProduct(listOf(left)))
         assertNull(SceneJudge.centerProduct(emptyList()))
-    }
-
-    @Test
-    fun `long press picks the product, the shelf or asks to step back`() {
-        val small = { x: Float, y: Float -> floatArrayOf(x, y, x + 0.08f, y + 0.12f) }
-        val shelf = (0 until 4).flatMap { i -> listOf(small(0.05f + 0.22f * i, 0.1f), small(0.05f + 0.22f * i, 0.6f)) }
-        assertEquals(Focus.SHELF, SceneJudge.focus(shelf).first)
-        // 大きな枠があっても、商品 1 つにはしない
-        assertEquals(Focus.STEP_BACK, SceneJudge.focus(listOf(floatArrayOf(0.2f, 0.15f, 0.8f, 0.85f), small(0f, 0f))).first)
-        // 少し大きめの商品が 2 つ並んでいる（どちらとも決まらない）
-        assertEquals(Focus.STEP_BACK, SceneJudge.focus(listOf(floatArrayOf(0.1f, 0.2f, 0.45f, 0.7f), floatArrayOf(0.5f, 0.2f, 0.85f, 0.7f))).first)
-        // 商品が 3 つだけ
-        assertEquals(Focus.STEP_BACK, SceneJudge.focus(listOf(small(0.1f, 0.4f), small(0.4f, 0.4f), small(0.7f, 0.4f))).first)
-        assertEquals(Focus.NOTHING, SceneJudge.focus(emptyList()).first)
     }
 
     // ---------------------------------------------------------------- 自分の手を人と間違えない
