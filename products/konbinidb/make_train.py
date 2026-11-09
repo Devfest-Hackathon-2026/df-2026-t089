@@ -123,7 +123,16 @@ def main():
         labels[x["id"]] = x["cat"]
     long_sides = store_long_sides()
     OUT.mkdir(parents=True, exist_ok=True)
-    rows, skipped = [], 0
+    state = json.loads(MANIFEST.read_text(encoding="utf-8")) if MANIFEST.exists() else {}  # 止まっても続きから
+    rows, skipped_ids = state.get("rows", []), state.get("skipped_ids", [])
+    done = {r["id"] for r in rows} | set(skipped_ids)
+    items = [x for x in items if x["id"] not in done]
+
+    def save():
+        tmp = MANIFEST.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"variants": VARIANTS, "skipped": len(skipped_ids), "skipped_ids": skipped_ids, "rows": rows}, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(MANIFEST)
+
     for i, x in enumerate(items, 1):
         path = s.IMAGES / f"{x['id']}.webp"
         # 同じ商品なら毎回同じ変換になるよう商品ごとに乱数を分ける
@@ -131,7 +140,7 @@ def main():
         image = cv2.imdecode(np.fromfile(str(path), np.uint8), cv2.IMREAD_COLOR)
         found = detect(model, image) if image is not None else None
         if found is None:
-            skipped += 1
+            skipped_ids.append(x["id"])
         else:
             box, conf = found
             H, W = image.shape[:2]
@@ -143,9 +152,10 @@ def main():
                 encoded.tofile(str(OUT / f"{x['id']}_{n}.jpg"))
             rows.append({"id": x["id"], "name": x["name"], "chain": x["chain"], "cat": labels[x["id"]], "box": [round(v, 4) for v in box], "conf": round(conf, 3)})
         if i % 200 == 0 or i == len(items):
-            print(f"{i}/{len(items)} 除外 {skipped}", flush=True)
-    MANIFEST.write_text(json.dumps({"variants": VARIANTS, "skipped": skipped, "rows": rows}, ensure_ascii=False), encoding="utf-8")
-    print(f"{len(rows)} 商品, {len(rows) * VARIANTS} 枚, 除外 {skipped}", flush=True)
+            save()
+            print(f"{i}/{len(items)} 除外 {len(skipped_ids)}", flush=True)
+    save()
+    print(f"{len(rows)} 商品, {len(rows) * VARIANTS} 枚, 除外 {len(skipped_ids)}", flush=True)
 
 
 if __name__ == "__main__":
