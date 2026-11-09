@@ -60,9 +60,8 @@ main button { font:inherit; padding:4px 10px; border-radius:6px; border:1px soli
 <nav id="tabs"></nav><span class="mute" id="upd" style="margin-left:auto"></span></header>
 <div id="runbar"></div>
 <main id="main"></main>
-<script src="/store_tab.js"></script>
 <script>
-const TABS = { overview:"概要", detect:"① 切り出し", products:"② 商品テーブル", groups:"②b グループ", naming:"②c 命名", category:"②d カテゴリ", train:"③ YOLO境界検出の学習", classify:"③b 商品分類の学習", infer:"④ 推論・評価", store:"⑤ 店モデル" };
+const TABS = { overview:"概要", detect:"① 切り出し", products:"② 商品テーブル", groups:"②b グループ", naming:"②c 命名", category:"②d カテゴリ", train:"③ YOLO境界検出の学習", classify:"③b 商品分類の学習", infer:"④ 推論・評価" };
 const STAGES = { category:"②d 商品カテゴリ付け (Gemini)", embed:"③b 埋め込みの学習 (Modal GPU)", classify:"③b 商品分類の評価", compare:"②c 命名方法の比較", detect:"① 商品枠の検出 (OWLv2)", regroup:"②b しきい値の反映", crops:"② 切り抜き＋ルール判定", judge:"② ローカルモデル判定", group:"② 同じ商品のグループ化 (DINOv2)", name:"②c 商品名付け (Gemini)", train:"③ YOLO境界検出の学習", infer:"④ 推論・評価" };
 let S = null, tab = location.hash.slice(1) || "overview", selDet = null, selInf = null;
 const $ = (h) => { const t = document.createElement("template"); t.innerHTML = h.trim(); return t.content.firstChild; };
@@ -84,9 +83,9 @@ async function refresh() {
 // 入力中の欄や選択中の画像を壊さないよう、操作系タブは自動更新では作り直さない
 function render(force) {
   const m = document.getElementById("main");
-  if (!force && ["detect", "products", "groups", "naming", "category", "classify", "infer", "store"].includes(tab) && m.dataset.tab == tab) return;
+  if (!force && ["detect", "products", "groups", "naming", "category", "classify", "infer"].includes(tab) && m.dataset.tab == tab) return;
   m.dataset.tab = tab; m.innerHTML = "";
-  ({ overview, detect, products, groups, naming, category, train, classify, infer, store })[tab](m);
+  ({ overview, detect, products, groups, naming, category, train, classify, infer })[tab](m);
 }
 
 // 今動いている段階・進捗・残り時間・終了予定。残りは「今のフェーズの開始からのペース」で見積もる

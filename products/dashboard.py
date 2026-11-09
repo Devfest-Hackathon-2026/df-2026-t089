@@ -5,7 +5,7 @@
 import argparse, csv, json, math, os, subprocess, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import unquote, urlparse
 
 from common import TAXONOMY, WORK, category_levels, category_of, config, read_json, write_json
 
@@ -132,29 +132,6 @@ def summary(rows):
         s["named"] += bool(r[7] or r[8])
     s["products"] = len({(r[7], r[8]) for r in rows if r[7] or r[8]})
     return s
-
-
-def store_sim_view(q):
-    """⑤ 店モデル: ブラウザからの条件を確かめて 1 回歩かせる"""
-    import store_sim
-    cfg = {}
-    for k, lo, hi, kind in (("seed", 1, 9999, int), ("speed", 0.1, 1.5, float), ("drift", 0, 10, float), ("depth", 0, 5, float), ("px50", 10, 120, float)):
-        if k in q:
-            v = kind(q[k][0])
-            if not (math.isfinite(v) and lo <= v <= hi):
-                raise ValueError(f"bad {k}")
-            cfg[k] = v
-    for k, ok in (("mode", ("scan", "forward")), ("recog", ("real", "perfect"))):
-        if k in q:
-            if q[k][0] not in ok:
-                raise ValueError(f"bad {k}")
-            cfg[k] = q[k][0]
-    route = None
-    if "route" in q:
-        route = [tuple(float(x) for x in p.split(",")) for p in q["route"][0].split(";")]
-        if not 2 <= len(route) <= 200 or not all(len(p) == 2 and all(math.isfinite(x) for x in p) for p in route):
-            raise ValueError("bad route")
-    return store_sim.simulate(cfg, route=route)
 
 
 def run_script(name, args):
@@ -284,15 +261,6 @@ class H(BaseHTTPRequestHandler):
         path = unquote(urlparse(self.path).path)
         if path == "/":
             return self.send(200, (HERE / "dashboard.html").read_bytes(), TYPES[".html"])
-        if path == "/store_tab.js":
-            return self.send(200, (HERE / "store_tab.js").read_bytes(), "text/javascript; charset=utf-8")
-        if path == "/api/store_sim_batch":
-            return self.send(200, json.dumps(read_json(WORK / "store_sim_batch.json", {}), ensure_ascii=False).encode(), TYPES[".json"])
-        if path == "/api/store_sim":
-            try:
-                return self.send(200, json.dumps(store_sim_view(parse_qs(urlparse(self.path).query)), ensure_ascii=False).encode(), TYPES[".json"])
-            except ValueError as e:
-                return self.send(400, str(e).encode(), "text/plain; charset=utf-8")
         if path == "/api/compare":
             return self.send(200, json.dumps(compare_view(), ensure_ascii=False).encode(), TYPES[".json"])
         if path.startswith("/api/category_crops/"):  # 教師データの確認: そのカテゴリの全切り抜き（商品ごと、外したものも）

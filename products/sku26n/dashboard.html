@@ -79,6 +79,7 @@
     <input id="sQ" type="search" placeholder="商品名で絞り込み">
     <select id="sCat"><option value="">すべてのカテゴリ</option></select>
     <select id="sShow"><option value="all">すべて</option><option value="off">未選択だけ</option><option value="on">選択済みだけ</option></select>
+    <label><input id="sRep" type="checkbox" checked> 同じ商品名は代表1件だけ</label>
     <button id="sAll">このページを全部選ぶ</button>
     <button id="sNone">このページを全部外す</button>
     <span class="count" id="sCount"></span>
@@ -221,7 +222,7 @@ $("#heads").innerHTML = `<div>1. 店内画像<small>元の写真</small></div>` 
 // ------------------------------------------------------------ タブ
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
 const SEL_PER_PAGE = 200, DB_PER_PAGE = 100, TRAIN_PER_PAGE = 100;
-let crops = null, selected = new Set(), db = null;
+let crops = null, selected = new Set(), db = null, repIds = new Set();
 const sel = { page:0 }, dbs = { page:0 }, tr = { page:0 };
 
 async function showTab(name) {
@@ -241,6 +242,9 @@ async function loadCrops() {
   if (crops) return;
   const d = await (await fetch("/api/crops")).json();
   crops = d.crops; selected = new Set(d.selected);
+  const firstOfName = new Map();  // 同じ商品名（表記ゆれを除く）の最初の 1 件を代表にする
+  for (const r of crops) { const k = r[1].normalize("NFKC").replace(/\s/g, "").toLowerCase(); if (!firstOfName.has(k)) firstOfName.set(k, r[0]); }
+  repIds = new Set(firstOfName.values());
   const cats = [...new Set(crops.map(r => r[2]))].sort();
   $("#sCat").insertAdjacentHTML("beforeend", cats.map(c => `<option>${esc(c)}</option>`).join(""));
 }
@@ -275,8 +279,8 @@ function cropCard(r, cls) {
 
 let selRows = [];
 function renderSelect() {
-  const q = $("#sQ").value.trim(), cat = $("#sCat").value, show = $("#sShow").value;
-  const all = crops.filter(r => (!q || r[1].includes(q)) && (!cat || r[2] === cat) && (show === "all" || selected.has(r[0]) === (show === "on")));
+  const q = $("#sQ").value.trim(), cat = $("#sCat").value, show = $("#sShow").value, rep = $("#sRep").checked;
+  const all = crops.filter(r => (!rep || repIds.has(r[0])) && (!q || r[1].includes(q)) && (!cat || r[2] === cat) && (show === "all" || selected.has(r[0]) === (show === "on")));
   pager("s", sel, all.length, SEL_PER_PAGE);
   selRows = all.slice(sel.page * SEL_PER_PAGE, (sel.page + 1) * SEL_PER_PAGE);
   $("#sCount").textContent = `${all.length.toLocaleString()} 個を表示 / 選択済み ${selected.size.toLocaleString()} 個`;
@@ -320,7 +324,7 @@ $("#tCards").onclick = async e => {
 };
 
 const bind = (ids, state, render) => ids.forEach(id => $(id).oninput = () => { state.page = 0; render(); });
-bind(["#sQ", "#sCat", "#sShow"], sel, renderSelect);
+bind(["#sQ", "#sCat", "#sShow", "#sRep"], sel, renderSelect);
 bind(["#dQ", "#dCat", "#dChain", "#dImg"], dbs, renderDb);
 bind(["#tQ"], tr, renderTrain);
 for (const [p, state, render] of [["s", sel, renderSelect], ["d", dbs, renderDb], ["t", tr, renderTrain]]) {
