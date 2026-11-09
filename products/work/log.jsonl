@@ -702,3 +702,9 @@
 {"t": "2026-11-06 18:59:30", "stage": "infer", "msg": "検出 yolo11n_640_gpu（640px）· 埋め込み MobileNetV3-small 128px（学習） · 照合先 20806 枚 / 279 商品 · 周辺カテゴリ補正 λ(ジャンル, 細分類, カテゴリ)=(0.05, 0.05, 0.1)"}
 {"t": "2026-11-06 19:00:34", "stage": "infer", "msg": "評価", "images": 57, "ms_total_mean": 520, "ms_total_p90": 692, "ms_detect_mean": 184, "ms_crop_mean": 98, "ms_embed_mean": 197, "ms_match_mean": 40, "dets_mean": 130.4, "detector": "yolo11n_640_gpu (640px)", "embedder": "MobileNetV3-small 128px（学習）", "gallery_crops": 20806, "gallery_products": 279, "context_lambda": [0.05, 0.05, 0.1], "cpu": "このPCの CPU（12 スレッド）, onnxruntime", "val_precision(B)": 0.686, "val_recall(B)": 0.535, "val_mAP50(B)": 0.615, "val_mAP50-95(B)": 0.339}
 {"t": "2026-11-06 19:00:34", "stage": "infer", "msg": "完了"}
+{"t": "2026-11-09 12:31:28", "stage": "container", "msg": "開始", "argv": ["--n", "60"]}
+{"t": "2026-11-09 12:31:28", "stage": "container", "msg": "gemini-3-flash-preview で容器を判定: 60 枚"}
+{"t": "2026-11-09 12:31:44", "stage": "container", "msg": "60 枚を判定 / 費用 約 $0.070", "error": null}
+{"t": "2026-11-09 12:31:44", "stage": "container", "msg": "完了"}
+{"t": "2026-11-09 12:32:05", "stage": "container", "msg": "開始", "argv": []}
+{"t": "2026-11-09 12:32:05", "stage": "container", "msg": "gemini-3-flash-preview で容器を判定: 8261 枚"}
