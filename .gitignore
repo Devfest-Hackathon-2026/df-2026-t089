@@ -78,3 +78,5 @@ products/work/yolo/**/*.jpg
 tools/.venv-clip/
 
 backend/maps.db
+.vercel
+.env*

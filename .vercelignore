@@ -1,0 +1,21 @@
+# デプロイするものだけを許可する（写真・重み・作業データをアップロードしない）
+/*
+!/api
+!/backend
+/backend/.venv
+/backend/maps.db
+/backend/test_backend.py
+!/vercel.json
+!/requirements.txt
+!/products
+/products/*
+!/products/store_model.py
+!/app
+/app/*
+!/app/src
+/app/src/*
+!/app/src/main
+/app/src/main/*
+!/app/src/main/assets
+/app/src/main/assets/*
+!/app/src/main/assets/store_themes.json

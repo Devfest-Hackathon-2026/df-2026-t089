@@ -1,9 +1,12 @@
 """GPS から店を特定し（Google Places）、店ごとの 2D モデルを SQLite に保存する。"""
+import hashlib
 import json
 import sqlite3
 import time
 
 import httpx
+from vercel.blob import get_blob, put_blob
+from vercel.blob.errors import BlobNotFoundError
 
 PLACES_URL = "https://places.googleapis.com/v1/places:searchNearby"
 SEARCH_RADIUS_M = 80.0   # 店内の GPS は数十 m ずれる
@@ -29,8 +32,38 @@ class PlacesResolver:
         return {"place_id": places[0]["id"], "name": places[0]["displayName"]["text"]}
 
 
+def observations_of(model):
+    return sum(f.get("obs") or 0.0 for f in model["fixtures"])
+
+
+class BlobMapStore:
+    """Vercel Blob（非公開）に店ごとの JSON を置く。Vercel の関数はファイルを残せないため。"""
+
+    @staticmethod
+    def _path(place_id):
+        return "maps/" + hashlib.sha256(place_id.encode()).hexdigest() + ".json"
+
+    def get(self, place_id):
+        try:
+            result = get_blob(self._path(place_id), access="private")
+        except BlobNotFoundError:
+            return None
+        return json.loads(bytes(result.body))
+
+    def save(self, place_id, name, model):
+        """@return (保存したか, 今の版)。観測量が今の地図より少なければ保存しない"""
+        observations = observations_of(model)
+        current = self.get(place_id)
+        if current is not None and observations < current["observations"]:
+            return False, current["version"]
+        version = 1 if current is None else current["version"] + 1
+        record = {"place_id": place_id, "name": name, "model": model, "observations": observations, "version": version, "updated_at": time.time()}
+        put_blob(self._path(place_id), json.dumps(record, ensure_ascii=False).encode(), access="private", allow_overwrite=True, content_type="application/json")
+        return True, version
+
+
 class MapStore:
-    """店ごとに 1 つの 2D モデル。歩いた範囲が狭い地図で、よく観測された地図を上書きしない。"""
+    """店ごとに 1 つの 2D モデル（手元で動かすときの SQLite）。歩いた範囲が狭い地図で、よく観測された地図を上書きしない。"""
 
     def __init__(self, path):
         self.db = sqlite3.connect(path, check_same_thread=False)
@@ -47,7 +80,7 @@ class MapStore:
 
     def save(self, place_id, name, model):
         """@return (保存したか, 今の版)。観測量が今の地図より少なければ保存しない"""
-        observations = sum(f.get("obs") or 0.0 for f in model["fixtures"])
+        observations = observations_of(model)
         with self.db:
             current = self.db.execute("select observations, version from maps where place_id = ?", (place_id,)).fetchone()
             if current is not None and observations < current[0]:

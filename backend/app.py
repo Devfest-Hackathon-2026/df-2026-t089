@@ -14,11 +14,12 @@ import secrets
 from pathlib import Path
 from typing import Annotated, Literal, Optional
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from solver import solve
-from stores import MapStore, PlacesResolver
+from stores import BlobMapStore, MapStore, PlacesResolver
 
 Coord = Annotated[float, Field(ge=-1000.0, le=1000.0)]
 Point = tuple[Coord, Coord]
@@ -84,7 +85,10 @@ def create_app(store, resolver, api_key):
             raise HTTPException(401, "bad api key")
 
     def resolve_store(loc):
-        place = resolver.nearest(loc.lat, loc.lng)
+        try:
+            place = resolver.nearest(loc.lat, loc.lng)
+        except httpx.HTTPError as e:
+            raise HTTPException(503, "store lookup is unavailable") from e
         if place is None:
             raise HTTPException(404, "no convenience store near this location")
         return place
@@ -111,7 +115,8 @@ def create_app(store, resolver, api_key):
 def from_env():
     api_key = os.environ["BACKEND_API_KEY"]   # 無ければ起動させない
     db = os.environ.get("BACKEND_DB", str(Path(__file__).resolve().parent / "maps.db"))
-    return create_app(MapStore(db), PlacesResolver(os.environ["GCP_API_KEY"]), api_key)
+    store = BlobMapStore() if os.environ.get("VERCEL") else MapStore(db)
+    return create_app(store, PlacesResolver(os.environ["GCP_API_KEY"]), api_key)
 
 
 if os.environ.get("BACKEND_API_KEY"):
