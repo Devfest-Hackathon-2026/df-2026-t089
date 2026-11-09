@@ -115,6 +115,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     @Volatile private var showModel = false
     @Volatile private var deviceAt: Vec3? = null
     private lateinit var modelText: ScrollView
+    private lateinit var storeLabels: StoreLabelsView
     private lateinit var modelLabel: TextView
     private lateinit var debugOverlay: DebugOverlay
     private lateinit var tabs: List<Button>
@@ -166,6 +167,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         }
         androidx.core.view.ViewCompat.addAccessibilityAction(touch, "商品名を調べる") { _, _ -> onProductTap(); true }
         debugOverlay = DebugOverlay(this, debug)
+        storeLabels = StoreLabelsView(this).apply { visibility = View.GONE }
         modelLabel = TextView(this).apply {
             setTextColor(android.graphics.Color.WHITE)
             textSize = 11f
@@ -189,6 +191,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         setContentView(FrameLayout(this).apply {
             addView(gl)
             addView(debugOverlay, FrameLayout.LayoutParams(-1, -1))
+            addView(storeLabels, FrameLayout.LayoutParams(-1, -1))
             addView(touch, FrameLayout.LayoutParams(-1, -1))
             addView(modelText, FrameLayout.LayoutParams(-1, resources.displayMetrics.heightPixels / 3, Gravity.BOTTOM))
             addView(tabBar, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
@@ -279,8 +282,10 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val frame = try { s.update() } catch (e: Exception) { return }
         val camera = frame.camera
         // 3D モデルを見ている間も、下の認識と地図づくりは止めない
-        if (showModel) storeRenderer.draw(storeView, orbit, viewW, viewH, deviceAt, (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M)
-        else background.draw(frame)
+        if (showModel) {
+            storeLabels.labels = storeRenderer.draw(storeView, orbit, viewW, viewH, deviceAt, (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, shelfMap.snapshot())
+            storeLabels.postInvalidate()
+        } else background.draw(frame)
         // 画面の表示用: センサー画像の正規化座標が、画面のどこに来るか
         val corners = FloatArray(6)
         frame.transformCoordinates2d(Coordinates2d.IMAGE_NORMALIZED, floatArrayOf(0f, 0f, 1f, 0f, 0f, 1f), Coordinates2d.VIEW_NORMALIZED, corners)
@@ -648,6 +653,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         tabs.forEachIndexed { i, b -> b.alpha = if ((i == 1) == model) 1f else 0.55f }
         debugOverlay.visibility = if (model) View.GONE else View.VISIBLE
         modelText.visibility = if (model) View.VISIBLE else View.GONE
+        storeLabels.visibility = modelText.visibility
         if (model) storeView?.let { fitOrbit(it) }
     }
 
@@ -668,12 +674,20 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private var orbitX = 0f
     private var orbitY = 0f
 
-    /** 3D タブの操作: 1 本指で回転、2 本指でつまんで拡大。 */
+    /** 3D タブの操作: 1 本指で回転、2 本指でつまんで拡大、そのままドラッグで移動。 */
     private fun orbitTouch(e: MotionEvent): Boolean {
         orbitScale.onTouchEvent(e)
-        if (e.actionMasked == MotionEvent.ACTION_MOVE && e.pointerCount == 1) orbit.rotate(e.x - orbitX, e.y - orbitY)
-        orbitX = e.x
-        orbitY = e.y
+        // 離れていく指は数えない（残った指の位置へ視点が飛ばないように）
+        val leaving = if (e.actionMasked == MotionEvent.ACTION_POINTER_UP) e.actionIndex else -1
+        val fingers = (0 until e.pointerCount).filter { it != leaving }
+        val x = fingers.map { e.getX(it) }.average().toFloat()
+        val y = fingers.map { e.getY(it) }.average().toFloat()
+        if (e.actionMasked == MotionEvent.ACTION_MOVE) when (e.pointerCount) {
+            1 -> orbit.rotate(x - orbitX, y - orbitY)
+            2 -> orbit.pan(x - orbitX, y - orbitY)
+        }
+        orbitX = x
+        orbitY = y
         return true
     }
 
