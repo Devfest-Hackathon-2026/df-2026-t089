@@ -84,6 +84,42 @@ def top5_boxes(view: Path, predict):
 
 
 @app.function(gpu=["L4", "A10G", "L40S", "T4"], volumes={"/data": volume}, timeout=2 * 3600, cpu=8, memory=32768)
+def clip_top5(head_bytes: bytes):
+    """学習済みの MobileCLIP の分類層で、全部の枠の Top-5 を出す"""
+    import io
+    import numpy as np
+    import onnxruntime as ort
+    import torch
+    import torch.nn as nn
+    from PIL import Image
+
+    view = Path("/tmp/view")
+    view.mkdir()
+    with zipfile.ZipFile("/data/view.zip") as z:
+        z.extractall(view)
+    ckpt = torch.load(io.BytesIO(head_bytes), map_location="cuda")
+    classes = ckpt["classes"]
+    head = nn.Sequential(nn.Linear(ckpt["dim"], 512), nn.ReLU(), nn.Dropout(0.3), nn.Linear(512, len(classes))).cuda()
+    head.load_state_dict(ckpt["state"])
+    head.eval()
+    try:
+        ort.preload_dlls()
+    except Exception:
+        pass
+    session = ort.InferenceSession(REMOTE_ONNX, providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
+    input_name = session.get_inputs()[0].name
+
+    def rank(images):
+        x = np.stack([np.asarray(i.resize((CLIP_SIZE, CLIP_SIZE), Image.BILINEAR), np.float32) / 255 for i in images]).transpose(0, 3, 1, 2)
+        e = session.run(None, {input_name: x})[0]
+        with torch.no_grad():
+            top = head(torch.from_numpy(e / np.linalg.norm(e, axis=1, keepdims=True)).cuda()).softmax(1).topk(5, dim=1)
+        return [[[classes[i], round(p, 4)] for i, p in zip(ids, probs)] for ids, probs in zip(top.indices.tolist(), top.values.tolist())]
+
+    yield json.dumps(top5_boxes(view, rank), separators=(",", ":"))
+
+
+@app.function(gpu=["L4", "A10G", "L40S", "T4"], volumes={"/data": volume}, timeout=2 * 3600, cpu=8, memory=32768)
 def predict_top5():
     """学習済みの 2 モデルで Top-5 を出す。全部の枠と、商品名付きの切り抜き（原因の調査用）。埋め込みも返す"""
     import numpy as np
