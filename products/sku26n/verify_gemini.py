@@ -13,8 +13,8 @@ from PIL import Image
 
 HERE = Path(__file__).resolve().parent
 sys.path[:0] = [str(HERE), str(HERE.parent), str(HERE.parent / "konbinidb")]
+from dashboard import WORK, named_crops  # noqa: E402  products/dashboard.py と同名なので、他より先に読む
 from classify import CATALOG, MODEL, TAX  # noqa: E402
-from dashboard import WORK, named_crops  # noqa: E402
 from label_gemini import inline, load  # noqa: E402
 from s3_compare import GEMINI, gemini_key  # noqa: E402
 
