@@ -35,13 +35,15 @@ internal class StoreModelRenderer {
      * @param phone 端末の姿勢（画面の右 +x、上 +y、カメラの向き -z の 4×4 行列）。[floorY] はそこから見積もった床の高さ。
      * @return 画面に重ねる文字（棚のジャンルが先、商品名は見えた回数の多い順）
      */
-    fun draw(view: StoreView?, orbit: OrbitCamera, width: Int, height: Int, phone: FloatArray?, floorY: Float, items: List<MapItem>, people: List<PersonMarker>, topView: Boolean = false): List<ScreenLabel> {
+    fun draw(view: StoreView?, orbit: OrbitCamera, width: Int, height: Int, phone: FloatArray?, floorY: Float, items: List<MapItem>, people: List<PersonMarker>, topView: Boolean = false,
+        layers: Set<StoreLayer> = StoreLayer.values().toSet()): List<ScreenLabel> {
         val e = begin(orbit, width, height, 50f, topView)
         useLines(boxLines)
         if (view?.room != null) {
             val r = view.room
-            box(view.yaw, r[0], r[1], r[2], r[3], floorY, 0f, FLOOR)
+            if (StoreLayer.FLOOR in layers) box(view.yaw, r[0], r[1], r[2], r[3], floorY, 0f, FLOOR)
             for (f in view.fixtures) {
+                if ((if (f.kind == "glass") StoreLayer.GLASS else StoreLayer.SHELF) !in layers) continue
                 val lo = f.c - f.d / 2; val hi = f.c + f.d / 2
                 for (i in 0 until f.n) {
                     val a = f.moduleStart(i); val b = f.moduleEnd(i)
@@ -51,16 +53,19 @@ internal class StoreModelRenderer {
                 }
             }
         }
-        if (phone != null) drawPhone(phone)
-        for (p in people) drawPerson(p.position.x, floorY, p.position.z, if (p.motion == PersonMotion.APPROACHING) APPROACHING else OTHER_PERSON)
-        drawProductViewArrows(items)
-        val restored = items.map { GlassProjection.corrected(it, view) }
+        if (phone != null && StoreLayer.PHONE in layers) drawPhone(phone)
+        if (StoreLayer.PERSON in layers) for (p in people) drawPerson(p.position.x, floorY, p.position.z, if (p.motion == PersonMotion.APPROACHING) APPROACHING else OTHER_PERSON)
+        if (StoreLayer.SIGHT in layers) drawProductViewArrows(items)
+        val correcting = StoreLayer.MIRROR in layers
+        val restored = items.map { if (correcting) GlassProjection.corrected(it, view) else null }
         drawRestoreLines(items, restored)
-        if (topView) { drawMirrorLines(view, floorY); drawRansac(view, floorY) }
+        if (topView && correcting) drawMirrorLines(view, floorY)
+        if (topView && StoreLayer.RANSAC in layers) drawRansac(view, floorY)
         GLES20.glDisableVertexAttribArray(position)
-        drawPoints(items, restored)
-        if (topView) drawMirrorPoints(view, floorY)
-        return personLabels(people, phone, floorY, width, height) + labels(view, items, e, floorY, width, height)
+        drawPoints(items, restored, StoreLayer.POINT in layers)
+        if (topView && correcting) drawMirrorPoints(view, floorY)
+        return (if (StoreLayer.PERSON in layers) personLabels(people, phone, floorY, width, height) else emptyList()) +
+            labels(view, items, e, floorY, width, height, StoreLayer.GENRE in layers, StoreLayer.CATEGORY in layers)
     }
 
     private fun personLabels(people: List<PersonMarker>, phone: FloatArray?, floorY: Float, width: Int, height: Int): List<ScreenLabel> = people.mapNotNull { p ->
@@ -152,7 +157,7 @@ internal class StoreModelRenderer {
     }
 
     /** ガラス越しの元の点は薄いオレンジ、ガラス面へ戻した点はふつうの色で描く。 */
-    private fun drawPoints(items: List<MapItem>, restored: List<Vec3?>) {
+    private fun drawPoints(items: List<MapItem>, restored: List<Vec3?>, plain: Boolean) {
         val n = minOf(items.size, ShelfMap.MAX_ITEMS)
         fun draw(col: FloatArray, at: (Int) -> Vec3?) {
             pointBuffer.clear()
@@ -161,7 +166,7 @@ internal class StoreModelRenderer {
             pointBuffer.position(0)
             if (count > 0) drawPointBuffer(count, col, POINT_SIZE)
         }
-        draw(POINT) { i -> items[i].position.takeIf { restored[i] == null } }
+        if (plain) draw(POINT) { i -> items[i].position.takeIf { restored[i] == null } }
         draw(RAW_POINT) { i -> items[i].position.takeIf { restored[i] != null } }
         draw(POINT) { i -> restored[i] }
     }
@@ -271,9 +276,9 @@ internal class StoreModelRenderer {
         GLES20.glDisableVertexAttribArray(pointPosition)
     }
 
-    private fun labels(view: StoreView?, items: List<MapItem>, eye: Vec3, floorY: Float, width: Int, height: Int): List<ScreenLabel> {
+    private fun labels(view: StoreView?, items: List<MapItem>, eye: Vec3, floorY: Float, width: Int, height: Int, genres: Boolean, categories: Boolean): List<ScreenLabel> {
         val out = ArrayList<ScreenLabel>()
-        if (view?.room != null) {
+        if (genres && view?.room != null) {
             val cs = Math.cos(view.yaw); val sn = Math.sin(view.yaw)
             for (s in StoreLabels.shelves(view)) {
                 val x = (s.u * cs - s.v * sn).toFloat()
@@ -282,7 +287,7 @@ internal class StoreModelRenderer {
             }
         }
         // 近づいた点だけ名前を出す
-        for (item in items.filter { it.position.distanceTo(eye) < NAME_RANGE_M }.sortedByDescending { it.seen }) {
+        if (categories) for (item in items.filter { it.position.distanceTo(eye) < NAME_RANGE_M }.sortedByDescending { it.seen }) {
             val p = item.position
             screen(p.x, p.y, p.z, width, height)?.let { out += ScreenLabel(it[0], it[1] - POINT_SIZE / 2, item.name, false) }
         }
@@ -329,17 +334,17 @@ internal class StoreModelRenderer {
 
     private companion object {
         fun rgb(hex: Int) = floatArrayOf((hex shr 16 and 255) / 255f, (hex shr 8 and 255) / 255f, (hex and 255) / 255f)
-        val SHELF = rgb(0xc8ccd2)
-        val FLOOR = rgb(0x565d68)
-        val ME = rgb(0xf0efec)
+        val SHELF = rgb(StoreLayer.SHELF.color)
+        val FLOOR = rgb(StoreLayer.FLOOR.color)
+        val ME = rgb(StoreLayer.PHONE.color)
         val ARROW = rgb(0xff7a45)
-        val POINT = rgb(0xffd23f)
+        val POINT = rgb(StoreLayer.POINT.color)
         val RAW_POINT = rgb(0xffd9a8)
-        val RESTORE_LINE = rgb(0xff8c00)
-        val GLASS = rgb(0x4fd1c5)
-        val RANSAC = rgb(0xff4fd8)
+        val RESTORE_LINE = rgb(StoreLayer.MIRROR.color)
+        val GLASS = rgb(StoreLayer.GLASS.color)
+        val RANSAC = rgb(StoreLayer.RANSAC.color)
         val MIRROR_POINT = rgb(0xff5a36)
-        val PRODUCT_VIEW = rgb(0x63e6ff)
+        val PRODUCT_VIEW = rgb(StoreLayer.SIGHT.color)
         const val LINE_WIDTH = 2f
         const val THIN_LINE_WIDTH = 1f
         const val RANSAC_LINE_WIDTH = 5f
@@ -355,7 +360,7 @@ internal class StoreModelRenderer {
         const val ARROW_HEAD_M = 0.18f
         val MOVING = rgb(0xaeb4bd)
         val APPROACHING = rgb(0xff4d4d)
-        val OTHER_PERSON = rgb(0x5ad1e6)
+        val OTHER_PERSON = rgb(StoreLayer.PERSON.color)
         const val PERSON_LABEL_Y = 1.9f
         const val SOURCE_SIZE = 44f
         /** 縦長の画面でも左右の音源が入るよう、店のモデルより広く写す。 */
