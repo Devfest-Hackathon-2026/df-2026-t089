@@ -9,29 +9,27 @@ import org.junit.Test
 
 class ProductViewArrowTest {
     @Test
-    fun `product arrow ends at the measured point and follows camera forward`() {
+    fun `sight line runs from where the product was seen to its point`() {
         val point = Vec3(2f, 1f, -3f)
         val vertices = FloatBuffer.allocate(ProductViewArrow.FLOATS)
-        ProductViewArrow.append(point, Vec3(0f, 0f, -1f), vertices)
+        ProductViewArrow.append(point, Vec3(2f, 1.4f, 0f), vertices)
         assertEquals(ProductViewArrow.FLOATS, vertices.position())
-        assertEquals(2f, vertices.get(0), 1e-5f)
-        assertEquals(1f, vertices.get(1), 1e-5f)
-        assertEquals(-2.62f, vertices.get(2), 1e-5f) // tail is behind the product
+        assertEquals(1.4f, vertices.get(1), 1e-5f)
+        assertEquals(0f, vertices.get(2), 1e-5f)
         assertEquals(point.x, vertices.get(3), 1e-5f)
         assertEquals(point.y, vertices.get(4), 1e-5f)
         assertEquals(point.z, vertices.get(5), 1e-5f)
     }
 
     @Test
-    fun `new sighting updates the direction without changing an earlier render snapshot`() {
+    fun `new sighting updates where it was seen without changing an earlier render snapshot`() {
         val map = ShelfMap()
         val p = Vec3(1f, 1f, 2f)
-        map.add("product", null, null, p, 0.1f, 0.2f, 1L, Vec3(0f, -0.4f, -2f))
+        map.add("product", null, null, p, 0.1f, 0.2f, 1L, Vec3(0f, 1f, 0f))
         val before = map.snapshot().single()
-        assertEquals(-1f, before.viewForward!!.z, 1e-5f)
-        map.add("product", null, null, p, 0.1f, 0.2f, 2L, Vec3(3f, 0f, 0f))
+        map.add("product", null, null, p, 0.1f, 0.2f, 2L, Vec3(3f, 1f, 2f))
         val after = map.snapshot().single()
-        assertEquals(1f, after.viewForward!!.x, 1e-5f)
-        assertEquals(-1f, before.viewForward!!.z, 1e-5f)
+        assertEquals(3f, after.cameraAt!!.x, 1e-5f)
+        assertEquals(0f, before.cameraAt!!.x, 1e-5f)
     }
 }

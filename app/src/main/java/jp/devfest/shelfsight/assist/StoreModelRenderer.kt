@@ -174,14 +174,14 @@ internal class StoreModelRenderer {
         useLines(boxLines)
     }
 
-    /** The tip marks the product point; the shaft shows the camera's horizontal look direction. */
+    /** 商品を見た場所から点まで、細い線で視線を描く。 */
     private fun drawProductViewArrows(items: List<MapItem>) {
         productArrowBuffer.clear()
         var n = 0
         for (item in items) {
-            val forward = item.viewForward ?: continue
+            val camera = item.cameraAt ?: continue
             if (n == ShelfMap.MAX_ITEMS) break
-            ProductViewArrow.append(item.position, forward, productArrowBuffer)
+            ProductViewArrow.append(item.position, camera, productArrowBuffer)
             n++
         }
         if (n == 0) return
@@ -191,7 +191,9 @@ internal class StoreModelRenderer {
         Matrix.multiplyMM(result, 0, viewProjection, 0, model, 0)
         GLES20.glUniformMatrix4fv(mvp, 1, false, result, 0)
         GLES20.glUniform3fv(color, 1, PRODUCT_VIEW, 0)
+        GLES20.glLineWidth(THIN_LINE_WIDTH)
         GLES20.glDrawArrays(GLES20.GL_LINES, 0, n * ProductViewArrow.FLOATS / 3)
+        GLES20.glLineWidth(LINE_WIDTH)
         useLines(boxLines)
     }
 

@@ -12,9 +12,7 @@ data class Wall(val center: Vec3, val normal: Vec3, val radius: Float)
 class MapItem(
     val name: String, val genre: String?, val fine: String?,
     var position: Vec3, var widthM: Float, var heightM: Float, var seen: Int, var lastSeen: Long,
-    /** Horizontal camera forward vector at the latest observation of this product. */
-    var viewForward: Vec3? = null,
-    /** Camera origin of the latest observation; the ray to [position] is used for glass correction. */
+    /** この商品を最後に見たときのカメラの場所。[position] までの視線の表示とガラスの補正に使う。 */
     var cameraAt: Vec3? = null,
 )
 
@@ -30,20 +28,16 @@ class ShelfMap {
 
     @Synchronized
     fun snapshot(): List<MapItem> = items.map {
-        MapItem(it.name, it.genre, it.fine, it.position, it.widthM, it.heightM, it.seen, it.lastSeen, it.viewForward, it.cameraAt)
+        MapItem(it.name, it.genre, it.fine, it.position, it.widthM, it.heightM, it.seen, it.lastSeen, it.cameraAt)
     }
 
     /** 新しく見えた商品を足す。近くに同じ名前の商品があれば、それに重ねる。 */
     @Synchronized
     fun add(name: String, genre: String?, fine: String?, position: Vec3, widthM: Float, heightM: Float, now: Long,
-        viewForward: Vec3? = null, cameraAt: Vec3? = null) {
-        val direction = viewForward?.let { v ->
-            val length = sqrt(v.x * v.x + v.z * v.z)
-            if (length < 1e-4f) null else Vec3(v.x / length, 0f, v.z / length)
-        }
+        cameraAt: Vec3? = null) {
         val same = items.filter { it.name == name && it.position.distanceTo(position) < MERGE_M }.minByOrNull { it.position.distanceTo(position) }
         if (same == null) {
-            items += MapItem(name, genre, fine, position, widthM, heightM, 1, now, direction, cameraAt)
+            items += MapItem(name, genre, fine, position, widthM, heightM, 1, now, cameraAt)
             if (items.size > MAX_ITEMS) items.remove(items.minBy { it.lastSeen })
             return
         }
@@ -57,7 +51,6 @@ class ShelfMap {
         same.heightM += (heightM - same.heightM) * k
         same.seen++
         same.lastSeen = now
-        if (direction != null) same.viewForward = direction
         if (cameraAt != null) same.cameraAt = cameraAt
     }
 

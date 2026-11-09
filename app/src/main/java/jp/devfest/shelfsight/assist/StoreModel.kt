@@ -45,7 +45,7 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
     private data class ModuleLayout(val start: Double, val widths: List<Double>)
     private data class Pairing(val front: Run, val back: Run, val score: Double)
     private data class Rect(val u0: Double, val v0: Double, val u1: Double, val v1: Double)
-    private class Candidate(var draft: Draft, var fixture: StoreFixture, var explains: Set<Pt>, val bonus: Double, val through: Set<Pt> = emptySet(), val own: Int = 0)
+    private class Candidate(var draft: Draft, var fixture: StoreFixture, var explains: Set<Pt>, val bonus: Double, val through: Set<Pt> = emptySet())
 
     private val cells = LinkedHashMap<Pair<Int, Int>, Cell>()
     private val counters = LinkedHashMap<Pair<Int, Int>, Int>()
@@ -442,25 +442,27 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
         Rect(f.c - f.d / 2, f.a, f.c + f.d / 2, f.b)
     else Rect(f.a, f.c - f.d / 2, f.b, f.c + f.d / 2)
 
-    /** Liang-Barsky line clipping. A path segment is free space, including between sampled poses. */
-    private fun crosses(p: DoubleArray, q: DoubleArray, r: Rect, inset: Double): Boolean {
+    /** Liang-Barsky line clipping. @return the parameters where p-q enters and leaves [r], or null. */
+    private fun clip(p: DoubleArray, q: DoubleArray, r: Rect, inset: Double): DoubleArray? {
         val lo = doubleArrayOf(r.u0 + inset, r.v0 + inset)
         val hi = doubleArrayOf(r.u1 - inset, r.v1 - inset)
-        if (lo[0] >= hi[0] || lo[1] >= hi[1]) return false
+        if (lo[0] >= hi[0] || lo[1] >= hi[1]) return null
         var enter = 0.0; var leave = 1.0
         for (axis in 0..1) {
             val delta = q[axis] - p[axis]
             if (abs(delta) < 1e-9) {
-                if (p[axis] <= lo[axis] || p[axis] >= hi[axis]) return false
+                if (p[axis] <= lo[axis] || p[axis] >= hi[axis]) return null
             } else {
                 val a = (lo[axis] - p[axis]) / delta
                 val b = (hi[axis] - p[axis]) / delta
                 enter = max(enter, min(a, b)); leave = min(leave, max(a, b))
-                if (enter >= leave) return false
+                if (enter >= leave) return null
             }
         }
-        return true
+        return doubleArrayOf(enter, leave)
     }
+
+    private fun crosses(p: DoubleArray, q: DoubleArray, r: Rect, inset: Double) = clip(p, q, r, inset) != null
 
     private fun cornerSupport(d: Draft, all: List<Draft>): Int {
         fun endpoints(r: Run): List<DoubleArray> = if (r.ax == 0)
@@ -541,6 +543,36 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
         return core <= max(6, pts.size / 50)
     }
 
+    /** 棚を長手方向に 10 cm ずつ見て、視線が突き抜けた区間を除いた、棚として残せる区間の draft を返す。棚は透けないため。 */
+    private fun carve(d: Draft, f: StoreFixture, pts: List<Pt>): List<Draft> {
+        val r = rect(f)
+        val along = 1 - d.axis
+        val lo = f.a; val hi = f.b
+        val n = max(1, ((hi - lo) / 0.1 + 0.999).toInt())
+        val cover = IntArray(n)
+        for (p in pts) {
+            if (maxOf(r.u0 - p.p[0], p.p[0] - r.u1, r.v0 - p.p[1], p.p[1] - r.v1) <= EXPLAIN) continue   // この棚の点（奥行きの誤差も含む）
+            for (cam in p.cameras) {
+                val hit = clip(cam, p.p, r, 0.02) ?: continue
+                val a0 = cam[along] + hit[0] * (p.p[along] - cam[along])
+                val a1 = cam[along] + hit[1] * (p.p[along] - cam[along])
+                for (i in max(0, ((min(a0, a1) - lo) / 0.1).toInt())..min(n - 1, ((max(a0, a1) - lo) / 0.1).toInt())) cover[i]++
+            }
+        }
+        val pieces = ArrayList<Draft>()
+        var i = 0
+        while (i < n) {
+            if (cover[i] >= SIGHT_MIN) { i++; continue }
+            var j = i
+            while (j < n && cover[j] < SIGHT_MIN) j++
+            val a = lo + i * 0.1; val b = min(hi, lo + j * 0.1)
+            // 削った端は測った位置のまま
+            if (b - a >= MIN_LEN) pieces += Draft(d.kind, d.axis, d.c, a, b, d.d, d.faces.map { Run(it.ax, it.c, it.a, it.b, it.s, it.w, it.pts, true) })
+            i = j
+        }
+        return pieces
+    }
+
     /** カメラから棚の向こうの点へ、棚を突き抜けて届いた点。不透明な棚では起きない。 */
     private fun seeThrough(f: StoreFixture, pts: List<Pt>): Set<Pt> {
         val r = rect(f)
@@ -549,8 +581,6 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
             ((cam[f.axis] < low && p.p[f.axis] > high) || (cam[f.axis] > high && p.p[f.axis] < low)) && crosses(cam, p.p, r, 0.1)
         } }
     }
-
-    private fun glassViews(own: Int) = max(3, own / 8)
 
     private fun glassFront(f: StoreFixture, d: Draft): StoreFixture {
         val sign = d.faces[0].s
@@ -657,28 +687,36 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
         val drafts = classify(runs, frameTrail)
         val opaque = ArrayList<Candidate>(); val doubtful = ArrayList<Candidate>()
         val pending = ArrayList(drafts)
+        fun candidate(d: Draft, f: StoreFixture, through: Set<Pt> = emptySet()): Candidate {
+            val kept = d.faces.flatMap { it.pts }.filterTo(HashSet()) { it.p[1 - d.axis] >= d.a - 0.1 && it.p[1 - d.axis] <= d.b + 0.1 }
+            val r = rect(f)
+            val near = pts.filterTo(HashSet()) { it.p[0] >= r.u0 - EXPLAIN && it.p[0] <= r.u1 + EXPLAIN && it.p[1] >= r.v0 - EXPLAIN && it.p[1] <= r.v1 + EXPLAIN }
+            return Candidate(d, f, near + kept, CORNER_BONUS * cornerSupport(d, drafts), through)
+        }
         while (pending.isNotEmpty()) {
             val d = pending.removeAt(0)
-            val own = d.faces.flatMapTo(HashSet()) { it.pts }
             val single = d.faces.size == 1 && d.kind != "end"
-            // 面があれば、その裏に棚がある。歩いた線や視線に当たるなら棚を薄くして、面の位置は動かさない
-            val fits = (if (single) DEPTH_SCALES else listOf(1.0)).mapNotNull { scale ->
+            // 面があれば、その裏に棚がある。歩いた線に当たるなら棚を薄くする。視線が通る区間は棚を削る（棚は透けない）
+            var best: Triple<Draft, StoreFixture, List<Draft>>? = null
+            var bestLength = -1.0
+            for (scale in if (single) DEPTH_SCALES else listOf(1.0)) {
                 val depth = d.d * scale
                 val trial = Draft(d.kind, d.axis, if (single) d.faces[0].c - d.faces[0].s * depth / 2 else d.c, d.a, d.b, depth, d.faces)
                 val f = build(trial)
-                if (valid(f, trial, pts, frameTrail)) Triple(trial, f, seeThrough(f, pts)) else null
+                if (!valid(f, trial, pts, frameTrail)) continue
+                val pieces = carve(trial, f, pts)
+                val length = pieces.sumOf { it.b - it.a }
+                if (best == null || length > bestLength + 1e-6) { best = Triple(trial, f, pieces); bestLength = length }
             }
-            val clear = fits.filter { it.third.size < glassViews(own.size) }
-            if (clear.isEmpty() && d.faces.size == 2) {   // 島として成り立たなくても、面ごとの棚は残す
-                for (r in d.faces) pending += Draft("wall", r.ax, r.c - r.s * GONDOLA_DEPTH / 2, r.a, r.b, GONDOLA_DEPTH, listOf(r))
+            if (best == null || best.third.isEmpty()) {
+                if (d.faces.size == 2) {   // 島として成り立たなくても、面ごとの棚は残す
+                    for (r in d.faces) pending += Draft("wall", r.ax, r.c - r.s * GONDOLA_DEPTH / 2, r.a, r.b, GONDOLA_DEPTH, listOf(r))
+                } else if (best != null && (d.kind == "wall" || d.kind == "case")) {   // 全長を視線に貫かれる面の説明は、壁際のガラスだけ
+                    doubtful += candidate(best.first, best.second, seeThrough(best.second, pts))
+                }
                 continue
             }
-            val (draft, f, through) = clear.firstOrNull() ?: fits.firstOrNull() ?: continue
-            val r = rect(f)
-            val near = pts.filterTo(HashSet()) { it.p[0] >= r.u0 - EXPLAIN && it.p[0] <= r.u1 + EXPLAIN && it.p[1] >= r.v0 - EXPLAIN && it.p[1] <= r.v1 + EXPLAIN }
-            val c = Candidate(draft, f, near + own, CORNER_BONUS * cornerSupport(draft, drafts), through, own.size)
-            if (clear.isNotEmpty()) opaque += c
-            else if (f.kind == "wall" || f.kind == "case") doubtful += c   // 視線に貫かれる棚はない。残る説明は壁際のガラスだけ
+            for (piece in best.third) opaque += candidate(piece, build(piece))
         }
         val accepted = ArrayList<Candidate>()
         choose(opaque, accepted)

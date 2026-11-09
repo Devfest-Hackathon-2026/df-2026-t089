@@ -473,23 +473,28 @@ class StoreModel:
         return (c - depth / 2, a, c + depth / 2, b) if f["axis"] == 0 else (a, c - depth / 2, b, c + depth / 2)
 
     @staticmethod
-    def _crosses(p, q, rect, inset):
+    def _clip(p, q, rect, inset):
+        """線分 p-q が rect の内側を通る区間の媒介変数 (入る, 出る)。通らなければ None"""
         lo = (rect[0] + inset, rect[1] + inset)
         hi = (rect[2] - inset, rect[3] - inset)
         if lo[0] >= hi[0] or lo[1] >= hi[1]:
-            return False
+            return None
         enter, leave = 0.0, 1.0
         for axis in (0, 1):
             delta = q[axis] - p[axis]
             if abs(delta) < 1e-9:
                 if p[axis] <= lo[axis] or p[axis] >= hi[axis]:
-                    return False
+                    return None
             else:
                 a, b = (lo[axis] - p[axis]) / delta, (hi[axis] - p[axis]) / delta
                 enter, leave = max(enter, min(a, b)), min(leave, max(a, b))
                 if enter >= leave:
-                    return False
-        return True
+                    return None
+        return enter, leave
+
+    @staticmethod
+    def _crosses(p, q, rect, inset):
+        return StoreModel._clip(p, q, rect, inset) is not None
 
     @staticmethod
     def _corner_support(draft, drafts):
@@ -572,6 +577,35 @@ class StoreModel:
             return True
         return core <= max(6, len(pts) // 50)
 
+    def _carve(self, draft, fixture, pts):
+        """棚を長手方向に 10 cm ずつ見て、視線が突き抜けた区間を除いた、棚として残せる区間の draft を返す。棚は透けないため"""
+        kind, axis, c, _, _, depth, faces = draft
+        rect, along, lo, hi = self._rect(fixture), 1 - axis, fixture["a"], fixture["b"]
+        n = max(1, int((hi - lo) / 0.1 + 0.999))
+        cover = [0] * n
+        for p in pts:
+            if max(rect[0] - p[0], p[0] - rect[2], rect[1] - p[1], p[1] - rect[3]) <= EXPLAIN:   # この棚の点（奥行きの誤差も含む）
+                continue
+            for cam in p[6]:
+                hit = self._clip(cam, p[:2], rect, 0.02)
+                if hit:
+                    a0, a1 = sorted(cam[along] + t * (p[along] - cam[along]) for t in hit)
+                    for i in range(max(0, int((a0 - lo) / 0.1)), min(n - 1, int((a1 - lo) / 0.1)) + 1):
+                        cover[i] += 1
+        pieces, i = [], 0
+        while i < n:
+            if cover[i] >= SIGHT_MIN:
+                i += 1
+                continue
+            j = i
+            while j < n and cover[j] < SIGHT_MIN:
+                j += 1
+            a, b = lo + i * 0.1, min(hi, lo + j * 0.1)
+            if b - a >= MIN_LEN:
+                pieces.append((kind, axis, c, a, b, depth, [{**r, "corner": True} for r in faces]))   # 削った端は測った位置のまま
+            i = j
+        return pieces
+
     def _see_through(self, fixture, pts):
         """カメラから棚の向こうの点へ、棚を突き抜けて届いた点。不透明な棚では起きない"""
         rect, across, out = self._rect(fixture), fixture["axis"], set()
@@ -582,10 +616,6 @@ class StoreModel:
                     out.add(id(p))
                     break
         return out
-
-    @staticmethod
-    def _glass_views(own):
-        return max(3, own // 8)
 
     @staticmethod
     def _glass_front(fixture, draft):
@@ -687,33 +717,35 @@ class StoreModel:
         self._snap_corners(runs)
         drafts = self._classify(runs, trail)
         opaque, doubtful, pending = [], [], list(drafts)
+
+        def candidate(draft, fixture, through=frozenset()):
+            kept = {id(p) for face in draft[6] for p in face["pts"] if draft[3] - 0.1 <= p[1 - draft[1]] <= draft[4] + 0.1}
+            rect = self._rect(fixture)
+            near = {id(p) for p in pts if rect[0] - EXPLAIN <= p[0] <= rect[2] + EXPLAIN and rect[1] - EXPLAIN <= p[1] <= rect[3] + EXPLAIN}
+            return {"draft": draft, "fixture": fixture, "explains": near | kept, "bonus": CORNER_BONUS * self._corner_support(draft, drafts), "through": through}
+
         while pending:
             draft = pending.pop(0)
             kind, axis, c, a, b, depth, faces = draft
-            own = {id(p) for face in faces for p in face["pts"]}
-            # 面があれば、その裏に棚がある。歩いた線や視線に当たるなら棚を薄くして、面の位置は動かさない
-            fits = []
-            for scale in (DEPTH_SCALES if len(faces) == 1 and kind != "end" else (1.0,)):
+            single = len(faces) == 1 and kind != "end"
+            # 面があれば、その裏に棚がある。歩いた線に当たるなら棚を薄くする。視線が通る区間は棚を削る（棚は透けない）
+            best = None
+            for scale in (DEPTH_SCALES if single else (1.0,)):
                 d = depth * scale
-                trial = (kind, axis, faces[0]["c"] - faces[0]["s"] * d / 2 if len(faces) == 1 and kind != "end" else c, a, b, d, faces)
+                trial = (kind, axis, faces[0]["c"] - faces[0]["s"] * d / 2 if single else c, a, b, d, faces)
                 fixture = self._build(trial)
                 if self._valid(fixture, trial, pts, trail):
-                    fits.append((trial, fixture, self._see_through(fixture, pts)))
-            clear = [f for f in fits if len(f[2]) < self._glass_views(len(own))]
-            if not clear and len(faces) == 2:   # 島として成り立たなくても、面ごとの棚は残す
-                pending += [("wall", r["ax"], r["c"] - r["s"] * GONDOLA_DEPTH / 2, r["a"], r["b"], GONDOLA_DEPTH, [r]) for r in faces]
+                    pieces = self._carve(trial, fixture, pts)
+                    length = sum(p[4] - p[3] for p in pieces)
+                    if best is None or length > best[0] + 1e-6:
+                        best = (length, trial, fixture, pieces)
+            if best is None or not best[3]:
+                if len(faces) == 2:   # 島として成り立たなくても、面ごとの棚は残す
+                    pending += [("wall", r["ax"], r["c"] - r["s"] * GONDOLA_DEPTH / 2, r["a"], r["b"], GONDOLA_DEPTH, [r]) for r in faces]
+                elif best is not None and kind in ("wall", "case"):   # 全長を視線に貫かれる面の説明は、壁際のガラスだけ
+                    doubtful.append(candidate(best[1], best[2], self._see_through(best[2], pts)))
                 continue
-            chosen = (clear or fits or [None])[0]
-            if chosen is None:
-                continue
-            draft, fixture, through = chosen
-            rect = self._rect(fixture)
-            near = {id(p) for p in pts if rect[0] - EXPLAIN <= p[0] <= rect[2] + EXPLAIN and rect[1] - EXPLAIN <= p[1] <= rect[3] + EXPLAIN}
-            item = {"draft": draft, "fixture": fixture, "explains": near | own, "bonus": CORNER_BONUS * self._corner_support(draft, drafts), "through": through, "own": len(own)}
-            if clear:
-                opaque.append(item)
-            elif fixture["kind"] in ("wall", "case"):   # 視線に貫かれる棚はない。残る説明は壁際のガラスだけ
-                doubtful.append(item)
+            opaque += [candidate(piece, self._build(piece)) for piece in best[3]]
         accepted = self._choose(opaque, [])
         explained = set().union(*(c["explains"] for c in accepted))
         for c in doubtful:
