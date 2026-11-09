@@ -10,6 +10,7 @@ import modal
 ONNX = Path(__file__).resolve().parents[1] / "work" / "models" / "mobileclip_s0_vision.onnx"
 REMOTE_ONNX = "/root/mobileclip_s0_vision.onnx"
 CLIP_SIZE = 256
+STORE_WEIGHT = 10.0  # 店内の棚から切り出した画像の損失の重み（加工したコンビニDB の画像は 1）
 volume = modal.Volume.from_name("convenience-products-two-models", create_if_missing=True)
 image = (modal.Image.debian_slim(python_version="3.12")
          .apt_install("libgl1", "libglib2.0-0")
@@ -22,7 +23,7 @@ def link_dataset(root: Path, manifest: list[dict]) -> Path:
     """ultralytics の分類データの形（train|val/カテゴリ/画像）にリンクを作る"""
     ds = root / "ds"
     for row in manifest:
-        target = ds / row["split"] / row["cat"] / Path(row["path"]).name
+        target = ds / row["split"] / row["cat"] / f"{row['source']}__{Path(row['path']).name}"
         target.parent.mkdir(parents=True, exist_ok=True)
         if not target.exists():
             target.symlink_to(root / row["path"])
@@ -64,15 +65,42 @@ def classify_boxes(view: Path, predict) -> "Iterator[dict]":
     yield {"type": "pred", "json": json.dumps({"images": result}, separators=(",", ":"))}
 
 
-def train_yolo(root, ds, epochs, imgsz, batch, q, errors):
+def train_yolo(root, ds, epochs, imgsz, batch, q, errors, device=0, project="/tmp/runs"):
+    import torch.nn.functional as F
     from ultralytics import YOLO
+    from ultralytics.data.dataset import ClassificationDataset
+    from ultralytics.models.yolo.classify.train import ClassificationTrainer
+
+    class WeightedDataset(ClassificationDataset):
+        def __getitem__(self, i):
+            sample = super().__getitem__(i)
+            sample["weight"] = STORE_WEIGHT if Path(self.samples[i][0]).name.startswith("crop__") else 1.0
+            return sample
+
+    def weighted_loss(preds, batch):
+        preds = preds[1] if isinstance(preds, (list, tuple)) else preds
+        weight = batch["weight"].to(preds.device, dtype=preds.dtype)
+        loss = (weight * F.cross_entropy(preds, batch["cls"], reduction="none")).sum() / weight.sum()
+        return loss, {"loss": loss.detach()}
+
+    class WeightedTrainer(ClassificationTrainer):
+        def build_dataset(self, img_path, mode="train", batch=None):
+            if mode != "train":
+                return super().build_dataset(img_path, mode, batch)
+            return WeightedDataset(img_path, self.args, augment=True, prefix="train", names=self.data["names"])
+
+        def _setup_train(self, *args, **kwargs):
+            super()._setup_train(*args, **kwargs)
+            # EMA を作ったあとで差し替える。保存される EMA のモデルには標準の損失が残り、普通に読み込める
+            self.model.criterion = weighted_loss
+
     def epoch_end(trainer):
         q.put({"type": "yolo_epoch", "epoch": trainer.epoch + 1, "metrics": {k: float(v) for k, v in trainer.metrics.items() if isinstance(v, (int, float))}})
     try:
         model = YOLO("yolo26n-cls.pt")
         model.add_callback("on_fit_epoch_end", epoch_end)
         # パッケージの文字が裏返らないよう左右反転は使わない
-        model.train(data=str(ds), epochs=epochs, imgsz=imgsz, batch=batch, device=0, workers=8, project="/tmp/runs", name="yolo",
+        model.train(trainer=WeightedTrainer, data=str(ds), epochs=epochs, imgsz=imgsz, batch=batch, device=device, workers=8 if device == 0 else 0, project=project, name="yolo",
                     exist_ok=True, plots=False, verbose=False, fliplr=0.0)
     except Exception as exc:
         errors.append(repr(exc))
@@ -144,6 +172,7 @@ def train_both(epochs: int, imgsz: int, batch: int, clip_epochs: int):
     train_rows = [r for r in manifest if r["split"] == "train"]
     X, y = torch.from_numpy(embed_rows(train_rows)).cuda(), torch.tensor([index[r["cat"]] for r in train_rows]).cuda()
     X_val, y_val = torch.from_numpy(embed_rows(held_out)).cuda(), torch.tensor([index[r["cat"]] for r in held_out]).cuda()
+    sample_weight = torch.tensor([STORE_WEIGHT if r["source"] == "crop" else 1.0 for r in train_rows], dtype=X.dtype, device=X.device)
     counts = torch.bincount(y, minlength=len(classes)).float().clamp(min=1)
     head = nn.Sequential(nn.Linear(X.shape[1], 512), nn.ReLU(), nn.Dropout(0.3), nn.Linear(512, len(classes))).cuda()
     opt = torch.optim.AdamW(head.parameters(), lr=1e-3, weight_decay=1e-3)
@@ -155,7 +184,8 @@ def train_both(epochs: int, imgsz: int, batch: int, clip_epochs: int):
         perm = torch.randperm(len(X), device=X.device)
         for k in range(0, len(X), 512):
             idx = perm[k:k + 512]
-            loss = F.cross_entropy(head(X[idx]), y[idx], weight=weight)
+            losses = F.cross_entropy(head(X[idx]), y[idx], weight=weight, reduction="none")
+            loss = (sample_weight[idx] * losses).sum() / sample_weight[idx].sum()
             opt.zero_grad()
             loss.backward()
             opt.step()
