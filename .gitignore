@@ -77,3 +77,4 @@ products/work/embed_runs/**/*.npz
 products/work/yolo/**/*.jpg
 tools/.venv-clip/
 
+backend/maps.db
