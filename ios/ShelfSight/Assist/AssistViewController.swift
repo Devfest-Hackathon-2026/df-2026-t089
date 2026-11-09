@@ -9,7 +9,7 @@ import UIKit
  * ② 棚が 1 つ写っている: 商品を認識し、LLM で何があるかを短く自然な文にして話す（場違いな商品は言わない）
  * ③ スマホのすぐ前に商品がある（画面の中央の深度だけで決める、NearProduct）: 長押しで Cloud Vision API で文字を読み（1 回の接近で 1 回だけ呼ぶ）、
  *    その文字からカテゴリを決めて（端末の辞書で決めきれなければ Gemini、CategoryJudge）、商品名、カテゴリの順に言う
- * ④ 人が近づいてくる: その人の方向からピコピコ鳴らす（productOnly の間は止めている）
+ * ④ 人が近づいてくる: その人の方向からピコピコ鳴らす（productOnly の間も動く）
  *
  * 棚の種類の判別（歩行中の 8 列 × 7 分類）と 3D の地図は入れていない（Android 版も止めている）。
  *
@@ -21,8 +21,8 @@ import UIKit
 final class Assist: NSObject, ARSessionDelegate {
     // ------------------------------------------------------------ 定数（Android 版と同じ）
     /**
-     * 商品の解析だけを動かし、その時間を計る（Android 版の PRODUCT_ONLY と同じ）。前の解析が終わったらすぐ次を回し、
-     * 人の検出・記録・面の検出・深度は止める。長押し・質問・棚の説明は動く。
+     * 商品の解析を、前の解析が終わったらすぐ次を回し、その時間を計る（Android 版の PRODUCT_ONLY と同じ）。
+     * 記録・面の検出（地図）は止める。人の検出（④）・長押し・質問・棚の説明は動く。
      */
     static let productOnly = true
     /// 商品の解析の間隔（productOnly でないとき）。
@@ -213,8 +213,17 @@ final class Assist: NSObject, ARSessionDelegate {
             pendingCapture = nil
             lookupWorker.async { target(f) }
         }
+        // ④ 人の検出は、商品だけを計るときも回す（地図・面の検出・記録は止めたまま）
+        if now - lastPerson >= Self.personIntervalMs && personBusy.tryAcquire() {
+            if let f = FrameCapture.capture(frame, depthEnabled: true, usualLongSide: Self.personLongSide) {
+                lastPerson = now
+                personWorker.async { [self] in runPeople(f); personBusy.release() }
+            } else {
+                personBusy.release()
+            }
+        }
         if Self.productOnly {
-            // 商品の解析だけを、前の解析が終わったらすぐ次を回す（人の検出と記録は止める）。
+            // 商品の解析を、前の解析が終わったらすぐ次を回す（記録と面の検出は止める）。
             // 残りのメモリが少ないときは休む（増え続ける原因がほかにあっても、OS に止められないように）
             let available = Memory.availableMB()
             if available < Self.minAvailableMB {
@@ -233,14 +242,6 @@ final class Assist: NSObject, ARSessionDelegate {
                 }
             }
             return
-        }
-        if now - lastPerson >= Self.personIntervalMs && personBusy.tryAcquire() {
-            if let f = FrameCapture.capture(frame, depthEnabled: true, usualLongSide: Self.personLongSide) {
-                lastPerson = now
-                personWorker.async { [self] in runPeople(f); personBusy.release() }
-            } else {
-                personBusy.release()
-            }
         }
         let fast = speedMps > Self.fastMps || turnDps > Self.fastDps
         if now - lastScene >= Self.sceneIntervalMs && fast {

@@ -367,8 +367,16 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                 lookupWorker.execute { target(f) }
             }
         }
+        // ④ 人の検出は、商品だけを計るときも回す（地図・棚の種類は止めたまま。iOS 版と同じ）
+        if (now - lastPerson >= PERSON_INTERVAL_MS && personBusy.compareAndSet(false, true)) {
+            val f = FrameCapture.capture(frame, camera, rotation, depthEnabled = true)
+            if (f == null) personBusy.set(false) else {
+                lastPerson = now
+                personWorker.execute { try { runPeople(f) } finally { personBusy.set(false) } }
+            }
+        }
         if (PRODUCT_ONLY) {
-            // 商品の解析だけを、前の解析が終わったらすぐ次を回す（地図・棚の種類・人の検出は止める）
+            // 商品の解析を、前の解析が終わったらすぐ次を回す（地図・棚の種類は止める）
             if (sceneBusy.compareAndSet(false, true)) {
                 val t0 = SystemClock.elapsedRealtime()
                 // 深度は、すぐ前の商品の判定（NearProduct）に使うので、商品だけを計るときも撮る（iOS 版と同じ）
@@ -380,13 +388,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                 }
             }
             return
-        }
-        if (now - lastPerson >= PERSON_INTERVAL_MS && personBusy.compareAndSet(false, true)) {
-            val f = FrameCapture.capture(frame, camera, rotation, depthEnabled = true)
-            if (f == null) personBusy.set(false) else {
-                lastPerson = now
-                personWorker.execute { try { runPeople(f) } finally { personBusy.set(false) } }
-            }
         }
         val fast = speedMps > FAST_MPS || turnDps > FAST_DPS
         if (now - lastScene >= SCENE_INTERVAL_MS && fast) {
@@ -924,7 +925,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         /** 商品の解析の間隔。棚の種類（[COARSE_INTERVAL_MS]）を先に、商品は後から分かればよい。 */
         const val SCENE_INTERVAL_MS = 2000L
         /**
-         * 一時的な計測用: 商品の解析だけを動かし、3D の地図・棚の種類（7 分類）・人の検出は止める。
+         * 一時的な計測用: 3D の地図・棚の種類（7 分類）の自動の判別は止め、商品の解析と人の検出（④）を動かす。
          * 解析は前の解析が終わったらすぐ次を回し、かかった時間を画面とログ（タグ Assist）に出す。元に戻すときは false にする。
          */
         const val PRODUCT_ONLY = true
