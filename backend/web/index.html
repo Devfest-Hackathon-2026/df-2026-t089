@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShelfSight 店舗マップ</title>
+<meta name="description" content="ShelfSight で歩いて作られたコンビニの店内を 3D で見る">
+<style>
+  :root {
+    --ink: #222; --muted: #6a6a6a; --line: #ebebeb; --soft: #f7f7f7; --accent: #e8622a;
+    --radius: 16px; --shadow: 0 6px 20px rgba(0, 0, 0, .12);
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: #fff; color: var(--ink);
+    font: 15px/1.5 -apple-system, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", "Segoe UI", sans-serif;
+  }
+  a { color: inherit; text-decoration: none; }
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+  header { position: sticky; top: 0; z-index: 10; background: #fff; border-bottom: 1px solid var(--line); }
+  .bar { max-width: 1280px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; gap: 24px; }
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 18px; color: var(--accent); white-space: nowrap; }
+  .brand svg { width: 26px; height: 26px; }
+  .search { flex: 1; max-width: 420px; margin: 0 auto; }
+  .search input {
+    width: 100%; padding: 12px 22px; font: inherit; color: inherit; background: #fff;
+    border: 1px solid var(--line); border-radius: 999px; box-shadow: 0 1px 2px rgba(0, 0, 0, .08), 0 4px 12px rgba(0, 0, 0, .05);
+  }
+  .search input::placeholder { color: var(--muted); }
+  .count { color: var(--muted); font-size: 14px; white-space: nowrap; }
+
+  main { max-width: 1280px; margin: 0 auto; padding: 28px 24px 64px; }
+  .grid { display: grid; gap: 36px 24px; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); }
+  .card { display: block; border-radius: var(--radius); }
+  .thumb {
+    display: block; width: 100%; aspect-ratio: 20 / 19;
+    background: var(--soft); border-radius: var(--radius); transition: box-shadow .2s;
+  }
+  .card:hover .thumb { box-shadow: var(--shadow); }
+  .card h2 { margin: 12px 0 0; font-size: 15px; font-weight: 600; }
+  .card p { margin: 0; color: var(--muted); }
+  .message { padding: 96px 16px; text-align: center; color: var(--muted); }
+  .message h1 { margin: 0 0 6px; font-size: 22px; color: var(--ink); }
+  .message button, .message a.button {
+    margin-top: 18px; padding: 11px 22px; font: inherit; font-weight: 600; color: var(--ink);
+    background: #fff; border: 1px solid var(--ink); border-radius: 10px; cursor: pointer; display: inline-block;
+  }
+
+  .back { display: inline-block; margin-bottom: 14px; font-weight: 600; text-decoration: underline; }
+  .detail h1 { margin: 0; font-size: 26px; font-weight: 600; outline: none; }
+  .sub { margin: 2px 0 20px; color: var(--muted); }
+  .layout { display: grid; gap: 32px; grid-template-columns: minmax(0, 1fr) 340px; align-items: start; }
+  .viewer { position: relative; height: min(68vh, 680px); background: #fff; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .viewer canvas { display: block; width: 100%; height: 100%; }
+  .hint { position: absolute; left: 14px; bottom: 12px; padding: 4px 12px; font-size: 13px; color: var(--muted); background: rgba(255, 255, 255, .9); border-radius: 999px; pointer-events: none; }
+  .panel { padding: 24px; border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); position: sticky; top: 92px; }
+  .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 0; }
+  .facts dt { font-size: 13px; color: var(--muted); }
+  .facts dd { margin: 0; font-size: 20px; font-weight: 600; }
+  .panel h2 { margin: 22px 0 10px; padding-top: 20px; font-size: 15px; font-weight: 600; border-top: 1px solid var(--line); }
+  .zones { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 300px; overflow-y: auto; }
+  .zones li { display: flex; align-items: center; gap: 10px; }
+  .zones i { flex: none; width: 12px; height: 12px; border-radius: 4px; border: 1px solid rgba(0, 0, 0, .08); }
+  .zones span { margin-left: auto; color: var(--muted); font-size: 13px; }
+  .empty { margin: 0; color: var(--muted); }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    .panel { position: static; }
+    .viewer { height: 56vh; }
+  }
+  @media (max-width: 560px) {
+    .bar { padding: 10px 16px; gap: 12px; }
+    .brand span, .count { display: none; }
+    main { padding: 20px 16px 48px; }
+  }
+</style>
+<script type="importmap">
+{"imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <a class="brand" href="#" aria-label="ShelfSight 店舗一覧へ">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9.5 12 3l9 6.5V21H3z"/><path d="M8 21v-7h8v7"/><path d="M8 17.5h8"/></svg>
+      <span>ShelfSight</span>
+    </a>
+    <div class="search"><input id="q" type="search" placeholder="店舗名で探す" aria-label="店舗名で探す" autocomplete="off"></div>
+    <div class="count" id="count" role="status"></div>
+  </div>
+</header>
+<main id="main"><p class="message">読み込み中…</p></main>
+<noscript><p class="message">店内の表示には JavaScript が必要です。</p></noscript>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+// サーバの値（店名・売り場名）は textContent でしか入れない
+function el(tag, props = {}, ...children) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...children);
+  return node;
+}
+
+const main = document.getElementById("main");
+const search = document.getElementById("q");
+const count = document.getElementById("count");
+
+const PASTELS = ["#f6c9a8", "#b9dcc8", "#bcd3ee", "#f3dd9d", "#d7c6ec", "#f2bfc9", "#a9dcdc", "#dcd7b0", "#c8d6a3", "#e6c8b4"];
+const NEUTRAL = "#ece9e3";
+const COLORS = { case: "#d6e6f0", register: "#4a4a4a" };
+
+function moduleThemes(f) {
+  return Array.from({ length: f.n }, (_, i) => f.themes?.["+"]?.[i] ?? f.themes?.["-"]?.[i] ?? null);
+}
+
+function themesOf(model) {
+  const racks = new Map();
+  for (const f of model.fixtures) for (const t of new Set(moduleThemes(f).filter(Boolean))) racks.set(t, (racks.get(t) ?? 0) + 1);
+  const sorted = [...racks].sort((a, b) => b[1] - a[1]);
+  return sorted.map(([name, n], i) => ({ name, racks: n, color: PASTELS[i % PASTELS.length] }));
+}
+
+function modulesOf(f) {
+  const themes = moduleThemes(f);
+  const widths = f.widths?.length === f.n ? f.widths : Array(f.n).fill(f.w);
+  const scale = (f.b - f.a) / widths.reduce((s, w) => s + w, 0);
+  let along = f.a;
+  return widths.map((width, i) => {
+    const length = width * scale;
+    const gap = Math.min(0.04, length * 0.1) / 2;
+    const [from, to] = [along + gap, along + length - gap];
+    along += length;
+    const [near, far] = [f.c - f.d / 2, f.c + f.d / 2];
+    return { theme: themes[i], ...(f.axis === 0 ? { x0: near, x1: far, z0: from, z1: to } : { x0: from, x1: to, z0: near, z1: far }) };
+  });
+}
+
+function bounds(model) {
+  const b = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
+  const add = (x, z) => { b.x0 = Math.min(b.x0, x); b.x1 = Math.max(b.x1, x); b.z0 = Math.min(b.z0, z); b.z1 = Math.max(b.z1, z); };
+  for (const f of model.fixtures) {
+    const near = f.c - f.d / 2, far = f.c + f.d / 2;
+    if (f.axis === 0) { add(near, f.a); add(far, f.b); } else { add(f.a, near); add(f.b, far); }
+  }
+  if (model.room) { add(model.room[0], model.room[1]); add(model.room[2], model.room[3]); }
+  return b;
+}
+
+function label(text) {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  const font = '600 44px "Hiragino Sans","Noto Sans JP","Yu Gothic UI",sans-serif';
+  ctx.font = font;
+  canvas.width = ctx.measureText(text).width + 56;
+  canvas.height = 76;
+  ctx.font = font;
+  ctx.fillStyle = "rgba(255,255,255,.94)";
+  ctx.beginPath();
+  ctx.roundRect(0, 0, canvas.width, canvas.height, 38);
+  ctx.fill();
+  ctx.fillStyle = "#222";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, 28, 40);
+  const map = new THREE.CanvasTexture(canvas);
+  map.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map, depthTest: false }));
+  sprite.scale.set(0.3 * canvas.width / canvas.height, 0.3, 1);
+  sprite.renderOrder = 10;
+  return sprite;
+}
+
+function buildScene(model) {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color("#ffffff");
+  const b = bounds(model);
+  const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2, spanX = b.x1 - b.x0, spanZ = b.z1 - b.z0;
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xece8e1, 2.3));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+  const reach = Math.max(spanX, spanZ) + 3;
+  sun.position.set(cx - reach * 0.4, reach * 1.1, cz + reach * 0.5);
+  sun.target.position.set(cx, 0, cz);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.radius = 6;
+  Object.assign(sun.shadow.camera, { left: -reach, right: reach, top: reach, bottom: -reach, far: reach * 3 });
+  scene.add(sun, sun.target);
+
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(reach * 4, reach * 4), new THREE.ShadowMaterial({ opacity: 0.13 }));
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.set(cx, 0, cz);
+  floor.receiveShadow = true;
+  scene.add(floor);
+
+  if (model.room) {
+    const [x0, z0, x1, z1] = model.room;
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, 0.02, z1 - z0), new THREE.MeshBasicMaterial({ color: "#f7f6f3" }));
+    plate.position.set((x0 + x1) / 2, -0.012, (z0 + z1) / 2);
+    scene.add(plate);
+  }
+
+  const colors = new Map(themesOf(model).map(t => [t.name, t.color]));
+  const top = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.9 });
+  const glass = new THREE.MeshStandardMaterial({ color: "#b7d6e6", roughness: 0.2, transparent: true, opacity: 0.32 });
+  const sides = new Map();
+  const side = color => sides.get(color) ?? sides.set(color, new THREE.MeshStandardMaterial({ color, roughness: 0.9 })).get(color);
+
+  for (const f of model.fixtures) {
+    for (const m of modulesOf(f)) {
+      const color = COLORS[f.kind] ?? colors.get(m.theme) ?? NEUTRAL;
+      const material = f.kind === "glass" ? glass : [side(color), side(color), top, side(color), side(color), side(color)];
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(m.x1 - m.x0, f.h, m.z1 - m.z0), material);
+      mesh.position.set((m.x0 + m.x1) / 2, f.h / 2, (m.z0 + m.z1) / 2);
+      mesh.castShadow = f.kind !== "glass";
+      scene.add(mesh);
+    }
+
+    const widths = f.widths?.length === f.n ? f.widths : Array(f.n).fill(f.w);
+    const scale = (f.b - f.a) / widths.reduce((s, w) => s + w, 0);
+    for (const key of ["+", "-"]) {
+      const names = f.themes?.[key] ?? [];
+      const offset = (key === "+" ? 1 : -1) * f.d / 4;
+      const y = f.h + (key === "+" ? 0.3 : 0.68);   // 両面の売り場の名札が重ならないように
+      let start = 0, at = f.a;
+      names.forEach((name, i) => {
+        const w = widths[i] * scale;
+        if (names[i + 1] !== name) {
+          if (name) {
+            const center = (f.a + widths.slice(0, start).reduce((s, x) => s + x * scale, 0) + at + w) / 2;
+            const tag = label(name);
+            if (f.axis === 0) tag.position.set(f.c + offset, y, center); else tag.position.set(center, y, f.c + offset);
+            scene.add(tag);
+          }
+          start = i + 1;
+        }
+        at += w;
+      });
+    }
+  }
+  return { scene, center: new THREE.Vector3(cx, 0.6, cz), span: Math.max(spanX, spanZ, 3) };
+}
+
+function frame(camera, center, span, aspect) {
+  const fit = span * 0.6 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.min(1, aspect);
+  camera.position.set(center.x + fit * 0.48, center.y + fit * 0.72, center.z + fit * 0.62);
+  camera.lookAt(center);
+}
+
+function dispose(scene) {
+  scene.traverse(o => {
+    o.geometry?.dispose();
+    for (const m of [o.material].flat()) { m?.map?.dispose(); m?.dispose(); }
+  });
+}
+
+let stores = [];
+
+const SVG = "http://www.w3.org/2000/svg";
+
+/** 店の棚を斜め上から見た図。手前の棚が後ろの棚を隠すよう、奥から順に描く。 */
+function thumbnail(store) {
+  const svg = document.createElementNS(SVG, "svg");
+  svg.classList.add("thumb");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", `${store.name} の店内の図`);
+  const project = ([x, y, z]) => [(x - z) * 0.866, (x + z) * 0.5 - y];
+  const shapes = [];
+  const polygon = (points, fill) => shapes.push({ points: points.map(project), fill });
+
+  const { model } = store;
+  if (model.room) {
+    const [x0, z0, x1, z1] = model.room;
+    polygon([[x0, 0, z0], [x1, 0, z0], [x1, 0, z1], [x0, 0, z1]], "#ffffff");
+  }
+  const colors = new Map(themesOf(model).map(t => [t.name, t.color]));
+  const boxes = model.fixtures.flatMap(f => modulesOf(f).map(m => ({ ...m, h: f.h, color: COLORS[f.kind] ?? colors.get(m.theme) ?? NEUTRAL })));
+  boxes.sort((a, b) => a.x0 + a.z0 - (b.x0 + b.z0));
+  for (const { x0, x1, z0, z1, h, color } of boxes) {
+    polygon([[x1, h, z0], [x1, h, z1], [x1, 0, z1], [x1, 0, z0]], `color-mix(in srgb, ${color} 84%, #000)`);
+    polygon([[x0, h, z1], [x1, h, z1], [x1, 0, z1], [x0, 0, z1]], color);
+    polygon([[x0, h, z0], [x1, h, z0], [x1, h, z1], [x0, h, z1]], "#ffffff");
+  }
+
+  const all = shapes.flatMap(s => s.points);
+  const [left, right, up, down] = [Math.min(...all.map(p => p[0])), Math.max(...all.map(p => p[0])), Math.min(...all.map(p => p[1])), Math.max(...all.map(p => p[1]))];
+  const pad = Math.max(right - left, down - up) * 0.12;
+  svg.setAttribute("viewBox", `${left - pad} ${up - pad} ${right - left + 2 * pad} ${down - up + 2 * pad}`);
+  for (const { points, fill } of shapes) {
+    const shape = document.createElementNS(SVG, "polygon");
+    shape.setAttribute("points", points.map(p => p.map(v => v.toFixed(3)).join(",")).join(" "));
+    shape.setAttribute("fill", fill);
+    shape.setAttribute("stroke", "rgba(0,0,0,.08)");
+    shape.setAttribute("stroke-width", "0.02");
+    svg.append(shape);
+  }
+  return svg;
+}
+
+const route = id => "#/store/" + encodeURIComponent(id);
+const day = seconds => new Date(seconds * 1000).toLocaleDateString("ja-JP");
+
+function message(title, body, action) {
+  main.replaceChildren(el("div", { className: "message" }, el("h1", { textContent: title }), el("p", { textContent: body }), ...(action ? [action] : [])));
+}
+
+function showList() {
+  const q = search.value.trim().toLowerCase();
+  const shown = stores.filter(s => s.name.toLowerCase().includes(q));
+  count.textContent = `${shown.length} 店舗`;
+  document.title = "ShelfSight 店舗マップ";
+  if (!stores.length) return message("まだ店舗が登録されていません", "アプリで店内を歩くと、ここに店内の地図が並びます。");
+  if (!shown.length) return message("見つかりませんでした", `「${search.value}」に一致する店舗はありません。`);
+  main.replaceChildren(el("div", { className: "grid" }, ...shown.map(store => {
+    const themes = themesOf(store.model).length;
+    return el("a", { className: "card", href: route(store.place_id) }, thumbnail(store),
+      el("h2", { textContent: store.name }),
+      el("p", { textContent: `棚 ${store.model.fixtures.length} 台${themes ? ` · 売り場 ${themes}` : ""}` }),
+      el("p", { textContent: `${day(store.updated_at)} 更新` }));
+  })));
+}
+
+let closeViewer = () => {};
+
+function showStore(id) {
+  const store = stores.find(s => s.place_id === id);
+  if (!store) return message("この店舗は見つかりません", "一覧からもう一度選んでください。", el("a", { className: "button", href: "#", textContent: "店舗一覧へ" }));
+  document.title = `${store.name} | ShelfSight`;
+  count.textContent = "";
+
+  const model = store.model;
+  const themes = themesOf(model);
+  const length = model.fixtures.reduce((s, f) => s + f.b - f.a, 0);
+  const floor = model.room ? Math.abs((model.room[2] - model.room[0]) * (model.room[3] - model.room[1])) : null;
+  const fact = (name, value) => [el("dt", { textContent: name }), el("dd", { textContent: value })];
+  const heading = el("h1", { textContent: store.name, tabIndex: -1 });
+  const viewer = el("div", { className: "viewer" });
+  const facts = [
+    ...fact("棚", `${model.fixtures.length} 台`), ...fact("棚の長さ", `${length.toFixed(1)} m`),
+    ...fact("売り場", `${themes.length}`), ...(floor ? fact("床面積", `約 ${Math.round(floor)} m²`) : []),
+  ];
+  const zones = themes.length
+    ? el("ul", { className: "zones" }, ...themes.map(t => {
+        const dot = el("i");
+        dot.style.background = t.color;
+        return el("li", {}, dot, t.name, el("span", { textContent: `${t.racks} 台` }));
+      }))
+    : el("p", { className: "empty", textContent: "売り場はまだ分かっていません。" });
+
+  main.replaceChildren(el("div", { className: "detail" },
+    el("a", { className: "back", href: "#", textContent: "店舗一覧へ戻る" }),
+    heading,
+    el("p", { className: "sub", textContent: `${day(store.updated_at)} 更新 · 第 ${store.version} 版` }),
+    el("div", { className: "layout" }, viewer,
+      el("aside", { className: "panel" }, el("dl", { className: "facts" }, ...facts), el("h2", { textContent: "売り場" }), zones))));
+  heading.focus();
+
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+  } catch {
+    viewer.append(el("p", { className: "message", textContent: "このブラウザでは 3D を表示できません。" }));
+    return;
+  }
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.domElement.setAttribute("role", "img");
+  renderer.domElement.setAttribute("aria-label", `${store.name} の店内の 3D 図。棚 ${model.fixtures.length} 台。売り場の一覧は隣の欄にあります。`);
+  viewer.append(renderer.domElement, el("div", { className: "hint", textContent: "ドラッグで回転・スクロールで拡大" }));
+
+  const { scene, center, span } = buildScene(model);
+  const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 200);
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.maxPolarAngle = Math.PI / 2 - 0.06;
+  controls.minDistance = 2;
+  controls.maxDistance = span * 6;
+  controls.target.copy(center);
+  let framed = false;
+  const resize = () => {
+    const { clientWidth: w, clientHeight: h } = viewer;
+    if (!w || !h) return;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    if (!framed) { frame(camera, center, span, camera.aspect); framed = true; }
+  };
+  const observer = new ResizeObserver(resize);
+  observer.observe(viewer);
+  resize();
+  let raf;
+  const loop = () => {
+    raf = requestAnimationFrame(loop);
+    controls.update();
+    renderer.render(scene, camera);
+  };
+  loop();
+  closeViewer = () => {
+    cancelAnimationFrame(raf);
+    observer.disconnect();
+    controls.dispose();
+    dispose(scene);
+    renderer.dispose();
+    renderer.forceContextLoss();
+    closeViewer = () => {};
+  };
+}
+
+function navigate() {
+  closeViewer();
+  const hash = location.hash.match(/^#\/store\/(.+)$/);
+  document.querySelector(".search").style.visibility = hash ? "hidden" : "visible";
+  if (hash) showStore(decodeURIComponent(hash[1])); else { showList(); window.scrollTo(0, 0); }
+}
+
+async function load() {
+  try {
+    const response = await fetch("/v1/stores");
+    if (!response.ok) throw new Error(response.status);
+    stores = await response.json();
+  } catch {
+    const retry = el("button", { textContent: "もう一度読み込む", onclick: load });
+    return message("店舗を読み込めませんでした", "通信の状態を確かめて、もう一度お試しください。", retry);
+  }
+  navigate();
+}
+
+search.addEventListener("input", showList);
+addEventListener("hashchange", navigate);
+load();
+</script>
+</body>
+</html>

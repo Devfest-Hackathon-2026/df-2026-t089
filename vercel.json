@@ -2,7 +2,7 @@
   "functions": {
     "api/index.py": {
       "maxDuration": 60,
-      "includeFiles": "{backend/*.py,products/store_model.py,app/src/main/assets/store_themes.json}"
+      "includeFiles": "{backend/*.py,backend/web/*,products/store_model.py,app/src/main/assets/store_themes.json}"
     }
   },
   "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }]
