@@ -16,7 +16,6 @@ import jp.devfest.shelfsight.assist.SceneJudge
 import jp.devfest.shelfsight.assist.ShelfMap
 import jp.devfest.shelfsight.assist.ShelfPrior
 import jp.devfest.shelfsight.assist.ShelfDescriber
-import jp.devfest.shelfsight.assist.VisionProductParser
 import jp.devfest.shelfsight.assist.Wav
 import jp.devfest.shelfsight.model.NormalizedBox
 import jp.devfest.shelfsight.model.Vec3
@@ -151,47 +150,6 @@ class AssistLogicTest {
     fun `row names`() {
         assertEquals(listOf("上の段", "下の段"), ShelfDescriber.rowNames(2))
         assertEquals(listOf("いちばん上の段", "上から2段目", "上から3段目", "いちばん下の段"), ShelfDescriber.rowNames(4))
-    }
-
-    // ---------------------------------------------------------------- ③ Cloud Vision の応答
-
-    @Test
-    fun `maker and product come from web detection`() {
-        val json = """{"responses":[{"webDetection":{
-            "bestGuessLabels":[{"label":"サントリー 伊右衛門"}],
-            "webEntities":[{"description":"Iyemon","score":0.8},{"description":"Green tea","score":0.6}],
-            "pagesWithMatchingImages":[{"pageTitle":"伊右衛門 | サントリー"}],
-            "fullMatchingImages":[{"url":"x"}]}}]}"""
-        val a = VisionProductParser.parse(json, 1000)!!
-        assertEquals("サントリー", a.maker)
-        assertEquals("伊右衛門", a.product)
-        assertEquals("サントリーの、伊右衛門です。", a.spoken())
-    }
-
-    @Test
-    fun `generic web guesses fall back to the logo and the largest printed text`() {
-        val json = """{"responses":[{
-            "webDetection":{"bestGuessLabels":[{"label":"snack"}],"webEntities":[{"description":"Food","score":0.9}]},
-            "logoAnnotations":[{"description":"Calbee"}],
-            "fullTextAnnotation":{"pages":[{"blocks":[{"paragraphs":[{"words":[
-              {"symbols":[{"text":"ポ","boundingBox":{"vertices":[{"x":0,"y":100},{"x":50,"y":100},{"x":50,"y":200},{"x":0,"y":200}]}},
-                          {"text":"テ","boundingBox":{"vertices":[{"x":50,"y":100},{"x":100,"y":100},{"x":100,"y":200},{"x":50,"y":200}]}},
-                          {"text":"ト","boundingBox":{"vertices":[{"x":100,"y":100},{"x":150,"y":100},{"x":150,"y":200},{"x":100,"y":200}]},
-                           "property":{"detectedBreak":{"type":"LINE_BREAK"}}}]}]}]}]}]}}]}"""
-        val a = VisionProductParser.parse(json, 1000)!!
-        assertEquals("カルビー", a.maker)
-        assertEquals("ポテト", a.product)
-    }
-
-    @Test
-    fun `nothing useful gives null`() {
-        assertNull(VisionProductParser.parse("""{"responses":[{"webDetection":{"bestGuessLabels":[{"label":"bottle"}]}}]}""", 1000))
-    }
-
-    @Test
-    fun `the request asks for web, logo and text in one call`() {
-        val r = VisionProductParser.request("AAAA")
-        assertTrue("WEB_DETECTION" in r && "LOGO_DETECTION" in r && "DOCUMENT_TEXT_DETECTION" in r)
     }
 
     // ---------------------------------------------------------------- 写っているものの判定

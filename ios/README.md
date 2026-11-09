@@ -33,7 +33,7 @@ VoiceOver が有効なときは、ダブルタップが質問、ダブルタッ�
 | `ocr/CloudVisionOcr.kt`（応答の読み方） | `OCR/ProductReading.swift` | ML Kit の予備はなし |
 | `ar/FrameCapture.kt`・`Unprojector.kt` | `AR/*.swift` | 座標の決まりは同じ（カメラ座標は +X が右、+Y が上、-Z が前） |
 
-手前の商品 1 つ（③）は、Cloud Vision で印字の文字だけを読み、その文字から種類を決めます（`Assist/ProductCategory.swift`）。端末の辞書（`Assist/category_rules.json`）で決めきれないときだけ、読み取った文字を Gemini に渡して決めます（画像は送りません）。商品名、種類の順に言い、お酒の手がかりがあるときは「お酒」と必ず言います。Android 版にはまだありません。調べるたびに、送った画像・応答・答えを `Documents/lookup/` に残します（「ファイル」アプリか USB でつないだ PC から取り出せる）。
+手前の商品 1 つ（③）は、Cloud Vision で印字の文字だけを読み、その文字から種類を決めます（`Assist/ProductCategory.swift`）。端末の辞書（`Assist/category_rules.json`）で決めきれないときだけ、読み取った文字を Gemini に渡して決めます（画像は送りません）。商品名、種類の順に言い、お酒の手がかりがあるときは「お酒」と必ず言います。Android 版も同じです（辞書は `app/src/main/assets/category_rules.json` に同じものを置き、単体テストで同じかを確かめています）。調べるたびに、送った画像・応答・答えを `Documents/lookup/` に残します（「ファイル」アプリか USB でつないだ PC から取り出せる）。
 
 モデルと照合先は Android 版と同じファイル（`app/src/main/assets/products/` と `coarse/categories.json`）を、ビルドのときにそのままアプリに入れます。
 

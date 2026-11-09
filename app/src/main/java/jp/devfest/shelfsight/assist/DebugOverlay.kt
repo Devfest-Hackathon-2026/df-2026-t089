@@ -54,7 +54,10 @@ class AssistDebug {
     @Volatile var describeInfo = ""
     @Volatile var productsAt = 0L
 
-    // ③ 長押し
+    // ③ 近い商品（[NearProduct]、商品の解析のたびに測る）と長押し
+    @Volatile var near = ""
+    @Volatile var nearBox: FloatArray? = null
+    @Volatile var nearDistance: Float? = null
     @Volatile var longPress = ""
     @Volatile var focusBox: FloatArray? = null
     @Volatile var focusAt = 0L
@@ -75,7 +78,7 @@ class AssistDebug {
  * 上: 歩行中の判別の 8 列の分類と確率（下線＝地図の棚のラベルで直した列）。
  * 映像の上: 棚の種類と境界（黄の縦線）、地図に貯めた棚のラベル（色の点と票の割合）、
  * 商品の枠（緑＝説明に使った、橙＝場違いとして外した、灰＝最後の解析の枠）、
- * 長押しで調べた範囲（水色）、人の枠（赤＝人、紫の点線＝自分の手として外した）。下: 文字の一覧。
+ * 近い商品（太い緑の枠と上の緑の帯）、長押しで調べた範囲（水色）、人の枠（赤＝人、紫の点線＝自分の手として外した）。下: 文字の一覧。
  */
 class DebugOverlay(context: Context, private val d: AssistDebug) : View(context) {
     private val density = resources.displayMetrics.density
@@ -98,6 +101,7 @@ class DebugOverlay(context: Context, private val d: AssistDebug) : View(context)
         val now = SystemClock.elapsedRealtime()
         val top = drawColumns(canvas)
         drawImageLayer(canvas, now)
+        drawNearBanner(canvas, now, top)
         drawPanel(canvas, top)
         postInvalidateDelayed(REFRESH_MS)
     }
@@ -163,6 +167,12 @@ class DebugOverlay(context: Context, private val d: AssistDebug) : View(context)
             for (p in d.kept) rect(canvas, p.left, p.top, p.right, p.bottom, GREEN, short(p.name))
             for (p in d.removed) rect(canvas, p.left, p.top, p.right, p.bottom, ORANGE, "×" + short(p.name))
         }
+        // 近い商品（商品の解析のたびに測ったもの）
+        if (now - d.sceneAt < STALE_MS) d.nearBox?.let { b ->
+            box.strokeWidth = 4 * density
+            rect(canvas, b[0], b[1], b[2], b[3], GREEN, "近い商品")
+            box.strokeWidth = 2 * density
+        }
         // 長押しで調べた範囲
         if (now - d.focusAt < PRODUCTS_MS) d.focusBox?.let { b ->
             box.strokeWidth = 4 * density
@@ -173,6 +183,17 @@ class DebugOverlay(context: Context, private val d: AssistDebug) : View(context)
         if (now - d.peopleAt < STALE_MS) for (p in d.people) {
             rect(canvas, p.box.left, p.box.top, p.box.right, p.box.bottom, if (p.ownHand) PURPLE else RED, p.label, dash = p.ownHand)
         }
+    }
+
+    /** 近い商品が見えている間、画面の上に大きな緑の帯を出す（読み取れたことがひと目で分かるように。iOS 版と同じ）。 */
+    private fun drawNearBanner(canvas: Canvas, now: Long, top: Float) {
+        if (now - d.sceneAt >= NEAR_BANNER_MS || d.nearBox == null) return
+        val label = "● 近い商品あり  " + (d.nearDistance?.let { "%.2fm".format(it) } ?: "")
+        val h = big.textSize * 1.6f
+        val y = maxOf(top, 36 * density) + 8 * density
+        fill.color = 0xE04CAF50.toInt()
+        canvas.drawRect(0f, y, width.toFloat(), y + h, fill)
+        canvas.drawText(label, (width - big.measureText(label)) / 2, y + h / 2 + big.textSize / 3, big)
     }
 
     private fun drawPanel(canvas: Canvas, top: Float) {
@@ -187,6 +208,7 @@ class DebugOverlay(context: Context, private val d: AssistDebug) : View(context)
             add("② 主な分類: ${d.mainGroup ?: "-"}  使った ${d.kept.size} / 外した ${d.removed.size} / 名前なし ${d.unnamed}  ${d.describeInfo}（${age(d.productsAt)}）")
             if (d.removed.isNotEmpty()) add("   外した: " + d.removed.groupBy { it.genre ?: "?" }.entries.joinToString("、") { "${it.key}×${it.value.size}" })
             if (d.description.isNotEmpty()) add("   説明: ${d.description}")
+            add("③ 近い商品: ${d.near.ifEmpty { "-" }}")
             add("③ 長押し:${d.longPress.ifEmpty { "-" }}（${age(d.focusAt)}）")
             if (d.lookup.isNotEmpty()) add("   商品: ${d.lookup}")
             add("④ 人: ${d.peopleInfo.ifEmpty { "-" }}")
@@ -248,6 +270,7 @@ class DebugOverlay(context: Context, private val d: AssistDebug) : View(context)
         const val REFRESH_MS = 100L
         const val STALE_MS = 3000L
         const val PRODUCTS_MS = 8000L
+        const val NEAR_BANNER_MS = 1500L
         const val GRAY = 0xFF9E9E9E.toInt()
         const val BLUE = 0xFF448AFF.toInt()
         const val GREEN = 0xFF4CAF50.toInt()

@@ -61,7 +61,8 @@ import kotlin.math.sqrt
  *    同じ棚をもう一度向いたら、貯めたラベルで列の分類と商品の名前を直す（読み上げはしない）
  * ② 棚が 1 つ写っている: 商品を認識し、LLM で何があるかを短く自然な文にして話す（場違いな商品は言わない）
  * ③ ボタン: 正面の棚の大まかな種類（歩行中の判別の 7 分類）を言う
- * ④ 長押し: 画面の中央にある商品 1 つを Cloud Vision API で調べ、社名と商品名を言う（押すたびに 1 回呼ぶ）
+ * ④ スマホのすぐ前に商品がある（画面の中央の深度だけで決める、[NearProduct]）: 長押しで Cloud Vision API で文字を読み（1 回の接近で 1 回だけ呼ぶ）、
+ *    その文字からカテゴリを決めて（端末の辞書で決めきれなければ Gemini、[CategoryJudge]）、商品名、カテゴリの順に言う（iOS 版と同じ）
  * ④ 人が近づいてくる: その人の方向からピコピコ鳴らす
  *
  * 操作
@@ -144,17 +145,21 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private val recognizer by lazy { ProductRecognizer(this) }
     private val personDetector by lazy { MediaPipePersonDetector(this) }
     private val tracker = PersonTracker()
-    private val lookup = ProductLookup(BuildConfig.CLOUD_VISION_API_KEY)
-    private val narrator = Narrator(
-        BuildConfig.GEMINI_API_KEY.takeIf { it.isNotEmpty() }
-            // 話す文を作るだけなので、速い lite のモデルから試す（flash は 6〜9 秒、lite は 2 秒ほど）
-            ?.let { GeminiClient(it, BuildConfig.GEMINI_MODELS.split(",").map(String::trim).filter(String::isNotEmpty).sortedBy { m -> "lite" !in m }) },
-    )
+    private val lookup by lazy {
+        ProductLookup(
+            BuildConfig.CLOUD_VISION_API_KEY,
+            CategoryJudge(CategoryRules.parse(assets.open("category_rules.json").bufferedReader().readText()), geminiClient()),
+            getExternalFilesDir("lookup"),
+        )
+    }
+    private val narrator = Narrator(geminiClient())
     private val judge = SceneJudge()
     private val recorder by lazy { Recorder(java.io.File(getExternalFilesDir(null), "records")) }
     /** 商品のジャンル（26 種類）→ 歩行中の判別と同じ 7 分類。場違いな商品を外すのに使う。 */
     private val groups by lazy { ShelfDescriber.Groups.parse(assets.open("coarse/categories.json").bufferedReader().readText()) }
 
+    /** 近い商品（[NearProduct]）を最後に見た時刻。しばらく見えなければ、次に見えたときを新しい接近とする（sceneWorker だけで使う）。 */
+    private var nearSeenAt = 0L
     private var lastScene = 0L
     private var lastPerson = 0L
     private var greeted = false
@@ -188,7 +193,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             @android.annotation.SuppressLint("ClickableViewAccessibility")
             override fun onTouchEvent(event: MotionEvent): Boolean = gestures.onTouchEvent(event)
         }.apply {
-            contentDescription = "長押しで、画面の真ん中の商品を調べる。2回たたくと質問"
+            contentDescription = "長押しで、手前の商品や棚を調べる。2回たたくと質問"
             isClickable = true
             isLongClickable = true
             // TalkBack から: ダブルタップ＝クリック（質問）、ダブルタップ長押し＝長押し
@@ -274,7 +279,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         gl.onResume()
         if (!greeted) {
             greeted = true
-            voice.say("準備ができました。画面の下のボタンで、正面の棚の種類を言います。画面を長押しすると、画面の真ん中の商品の名前を調べます。2回たたくと、質問できます。")
+            voice.say("準備ができました。画面の下のボタンで、正面の棚の種類を言います。長押しで、手前の商品や棚を調べます。2回たたくと、質問できます。")
             voice.prepare(listOf("調べています"))
         }
     }
@@ -361,7 +366,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             // 商品の解析だけを、前の解析が終わったらすぐ次を回す（地図・棚の種類・人の検出は止める）
             if (sceneBusy.compareAndSet(false, true)) {
                 val t0 = SystemClock.elapsedRealtime()
-                val f = FrameCapture.capture(frame, camera, rotation, depthEnabled = false, usualLongSide = SCENE_LONG_SIDE)
+                // 深度は、すぐ前の商品の判定（NearProduct）に使うので、商品だけを計るときも撮る（iOS 版と同じ）
+                val f = FrameCapture.capture(frame, camera, rotation, depthEnabled = depthSupported, usualLongSide = SCENE_LONG_SIDE)
                 if (f == null) sceneBusy.set(false) else {
                     val captureMs = SystemClock.elapsedRealtime() - t0
                     val heading = debug.headingDeg
@@ -421,7 +427,18 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             // 棚の種類は別の周期の最後の結果（古すぎれば使わない）
             val shelfView = latestShelves.takeIf { now - latestShelvesAt < SHELF_FRESH_MS }
             val shelves = shelfView?.segments.orEmpty()
-            judge.update(SceneEvidence(shelves.size, boxes))
+            // スマホのすぐ前の商品（枠は使わず、画面の中央の深度だけで決める）
+            val reading = if (depthSupported) NearProduct.measure(f.geometry) else null
+            val near = reading?.pick
+            judge.update(SceneEvidence(shelves.size, boxes, near != null))
+            // 新しく近い商品が見えたら、前に調べた結果を忘れる（次の長押しで Cloud Vision を 1 回呼ぶ）
+            if (near != null) {
+                if (nearSeenAt == 0L || now - nearSeenAt > NEAR_GAP_MS) lookup.newApproach()
+                nearSeenAt = now
+            }
+            debug.nearBox = near?.box
+            debug.nearDistance = near?.distanceM
+            debug.near = reading?.describe() ?: "深度が使えない機種なので、近い商品を判定できません（長押しでは画面の中央の枠で調べる）"
             // 商品の名前は、その場所の棚の種類（地図のラベル、なければ最後の判別の列）に合うものへ寄せる
             val products = recognizer.recognize(image, boxes, { b -> shelfFor(b, f, walls, eye, shelfView) }, groups::of)
             val recognizeMs = SystemClock.elapsedRealtime() - now - detectMs
@@ -444,7 +461,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             debug.motion = "%.1fm/s %.0f°/s".format(speedMps, turnDps)
             Log.i(TAG, "scene: detect ${detectMs}ms, name ${recognizeMs}ms, boxes ${boxes.size}, named ${products.size} " +
                 "(by shelf ${recognizer.lastShelfCount}), walls ${walls.size}, " +
-                "shelves ${shelves.joinToString("|") { it.category }}")
+                "shelves ${shelves.joinToString("|") { it.category }}, near ${reading?.describe() ?: "-"}")
             val camera = cameraPosition(f)
             if (judge.scene != Scene.ONE_SHELF && leftOneShelfAt == 0L) leftOneShelfAt = now
             if (judge.scene == Scene.ONE_SHELF) leftOneShelfAt = 0L
@@ -539,41 +556,41 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     }
 
     /**
-     * 高解像度で撮った画像で、手前の商品 1 つを Cloud Vision で調べる。
-     * - 深度が使える機種: 画面の中央の深度だけで、近い商品があるかと調べる範囲を決める（[NearProduct]、枠は使わない）
-     * - 深度が使えない機種: 画面の中央にある商品の枠（[SceneJudge.centerProduct]、位置だけで選び、大きさは見ない）
+     * 撮った画像で、手前の商品 1 つ（④）か、棚の広い範囲（②）か、その間（一歩下がってもらう）かを決める（iOS 版と同じ）。
+     * 商品 1 つかどうかは、枠を使わず、画面の中央の深度だけで決める（[NearProduct]）。
+     * ARCore で近い商品を判定できなかったとき（深度に対応していない機種、または深度で距離を測れなかったとき）だけ、
+     * 棚でなければ画面の中央の商品の枠（[SceneJudge.centerProduct]）を調べる（[SceneJudge.focusWithFallback]）。
      */
     private fun runLongPress(f: CapturedFrame) {
         val image = JpegEncoder.toUprightBitmap(f, LOOKUP_LONG_SIDE)
         try {
             val boxes = recognizer.detect(image).map { it.first }
             val now = SystemClock.elapsedRealtime()
-            val box: FloatArray?
-            if (depthSupported) {
-                val reading = NearProduct.measure(f.geometry)
-                box = reading.pick?.box
-                Log.i(TAG, "long press: depth ${reading.describe()}, ${boxes.size} boxes")
-                debug.longPress = "深度で判定: ${reading.describe()}"
-                if (box == null) {
-                    voice.say(
-                        if (reading.centerM == null) "距離を測れませんでした。スマホを少し左右に動かしてから、もう一度長押ししてください。"
-                        else "商品が遠いです。調べたい商品を、スマホに近づけてください。"
-                    )
-                }
-            } else {
-                box = SceneJudge.centerProduct(boxes)
-                Log.i(TAG, "long press: no depth, ${boxes.size} boxes, center product ${if (box != null) "found" else "none"}")
-                debug.longPress = "深度なし: 枠 ${boxes.size} 個、中央の商品 ${if (box != null) "あり" else "なし"}"
-                if (box == null) voice.say("画面の真ん中に商品が見えません。調べたい商品を、画面の真ん中に写してください。")
-            }
+            val reading = if (depthSupported) NearProduct.measure(f.geometry) else null
+            val near = reading?.pick
+            val (focus, productBox, byCenterBox) = SceneJudge.focusWithFallback(boxes, near?.box, depthMeasured = reading?.centerM != null)
+            // 画面の中央の枠で選んだときは接近が分からないので、押すたびに調べ直す
+            if (byCenterBox) lookup.newApproach()
+            val nearText = (reading?.describe() ?: "深度なし") + if (byCenterBox) "、ARCore で判定できず画面の中央の枠で選んだ" else ""
+            Log.i(TAG, "long press: ${boxes.size} boxes, $nearText -> $focus")
+            debug.longPress = "$focus（枠 ${boxes.size} 個、$nearText）"
+            debug.nearBox = near?.box
+            debug.focusBox = productBox
+            debug.focusAt = now
             debug.productBoxes = boxes
             debug.sceneAt = now
-            debug.focusBox = box
-            debug.focusAt = now
-            if (box == null) return
-            lookup.newApproach()   // 押すたびに調べ直す（前の結果は使わない）
-            debug.lookup = "調べています…"
-            lookupProduct(image, box)
+            when (focus) {
+                Focus.PRODUCT -> lookupProduct(image, productBox!!)
+                Focus.SHELF -> {
+                    val products = recognizer.recognize(image, boxes, null, groups::of)
+                    describe(products, jpeg(image, NARRATE_LONG_SIDE), boxes.size, null, requested = true)
+                }
+                // ARCore の深度は、スマホを少し動かしたときの画像の違いから推定するので、動かさないと測れないことがある
+                Focus.STEP_BACK ->
+                    if (reading != null && reading.centerM == null) voice.say("距離を測れませんでした。スマホを少し左右に動かしてから、もう一度長押ししてください。")
+                    else voice.say("棚は一歩下がって全体を、商品はスマホに近づけて写してください。")
+                Focus.NOTHING -> voice.say("商品が見えません。棚か商品の方にスマホを向けてください。")
+            }
         } catch (e: RuntimeException) {
             Log.e(TAG, "long press failed", e)
             voice.say("調べられませんでした。")
@@ -582,8 +599,13 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         }
     }
 
-    /** 商品 1 つ（[box] の範囲）を切り抜いて Cloud Vision API で調べ、社名と商品名を言う。 */
+    /** ④ 手前の商品を Cloud Vision API で読み、商品名とカテゴリを言う。この接近ですでに調べていれば、API を呼ばずにその結果を言う。 */
     private fun lookupProduct(image: Bitmap, box: FloatArray) {
+        lookup.cachedResult?.let {
+            debug.lookup = "（この接近で調べた結果を使う）"
+            speakLookup(it)
+            return
+        }
         if (!lookup.configured) {
             voice.say("商品を調べる設定がされていません。")
             return
@@ -591,9 +613,9 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val crop = cropWithMargin(image, box, 0.08f)
         val t0 = SystemClock.elapsedRealtime()
         val result = try { lookup.lookup(crop) } finally { if (crop !== image) crop.recycle() }
+        val ms = SystemClock.elapsedRealtime() - t0
         result.exceptionOrNull()?.let { Log.w(TAG, "lookup failed", it) }
-        debug.lookup = result.fold({ it?.let { a -> "社名「${a.maker}」商品「${a.product}」" } ?: "分からない" }, { "失敗: ${it.message}" }) +
-            "（Cloud Vision ${SystemClock.elapsedRealtime() - t0}ms）"
+        debug.lookup = result.fold({ (it?.describe() ?: "分からない") + "（全体 ${ms}ms）" }, { "失敗: ${it.message}（Cloud Vision ${ms}ms）" })
         speakLookup(result)
     }
 
@@ -860,6 +882,12 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         return Vec3(m[12], m[13], m[14])
     }
 
+    /** Gemini（キーがなければ null）。話す文を作る・カテゴリを決めるだけなので、速い lite のモデルから試す（flash は 6〜9 秒、lite は 2 秒ほど）。 */
+    private fun geminiClient(): GeminiClient? = BuildConfig.GEMINI_API_KEY.takeIf { it.isNotEmpty() }?.let { key ->
+        val models = BuildConfig.GEMINI_MODELS.split(",").map(String::trim).filter(String::isNotEmpty).sortedBy { m -> "lite" !in m }
+        if (models.isEmpty()) null else GeminiClient(key, models)
+    }
+
     private fun cropWithMargin(image: Bitmap, b: FloatArray, margin: Float): Bitmap {
         val w = b[2] - b[0]
         val h = b[3] - b[1]
@@ -898,6 +926,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         const val SCENE_LONG_SIDE = 1280
         const val PERSON_LONG_SIDE = 640
         const val LOOKUP_LONG_SIDE = 1600
+        /** 近い商品がこれだけ見えなければ、次に見えたときを新しい接近とする。 */
+        const val NEAR_GAP_MS = 2000L
         const val MAX_CAMERA_IMAGE_WIDTH = 1920
         const val NARRATE_LONG_SIDE = 768
         const val QUESTION_LONG_SIDE = 1280
