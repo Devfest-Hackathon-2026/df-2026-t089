@@ -1,0 +1,8 @@
+sadie_d1_ku100.bin is derived from the SADIE II Database, subject D1 (Neumann KU100), 44.1 kHz HRIRs.
+Copyright 2018, University of York. Licensed under the Apache License, Version 2.0 (LICENSE-2.0.txt).
+
+Modified by this project: measurement directions were thinned to about 4 degree spacing and stored as 16-bit integers
+(tools/export_hrtf.py).
+
+Armstrong, C., Thresh, L., Murphy, D., Kearney, G. "A Perceptual Evaluation of Individual and Non-Individual HRTFs:
+A Case Study of the SADIE II Database." Applied Sciences 8(11), 2029, 2018. https://doi.org/10.3390/app8112029

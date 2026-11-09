@@ -85,7 +85,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private val background = CameraBackground()
 
     @Volatile private var listener: Listener? = null
-    private val mixer by lazy { SpatialMixer { listener } }
+    private val mixer by lazy { SpatialMixer(Hrtf.load(this)) { listener } }
     private val voice by lazy { Voice(this, mixer) }
     private val listening by lazy { Listening(this) }
 

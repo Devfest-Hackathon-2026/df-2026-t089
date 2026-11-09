@@ -8,18 +8,19 @@ import jp.devfest.shelfsight.model.Vec3
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.math.PI
+import kotlin.math.atan2
 import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * 声と効果音を、聞く人の向きに合わせて左右の耳へ振り分けて鳴らす。
+ * 声と効果音を、測定した頭部インパルス応答（[Hrtf]）で聞く人の両耳へ畳み込んで鳴らす。
  *
  * 位置を持つ音は、鳴っている間も毎ブロック（約 12ms）方向を計算し直すので、スマホの向きを変えても
  * 音は店の中の同じ場所にとどまる。声は 1 つずつ順番に、効果音（人の接近）は重ねて鳴らす。
  */
-class SpatialMixer(private val listener: () -> Listener?) : AutoCloseable {
+class SpatialMixer(private val hrtf: Hrtf, private val listener: () -> Listener?) : AutoCloseable {
     /** 鳴らす音。[pcm] はミキサーのサンプリング周波数のモノラル。[position] が null なら頭の中（正面）で鳴る。 */
     class Sound(
         val pcm: FloatArray,
@@ -28,11 +29,10 @@ class SpatialMixer(private val listener: () -> Listener?) : AutoCloseable {
         val onDone: (() -> Unit)? = null,
     ) {
         internal var frame = 0
-        internal var lpL = 0f
-        internal var lpR = 0f
-        internal var last: EarParams? = null
+        internal var direction = -1
+        internal var lastGain = 0f
         internal var doneCalled = false
-        internal val length get() = pcm.size + MAX_DELAY
+        internal val length get() = pcm.size + Hrtf.TAPS
     }
 
     /** 繰り返し鳴る音（接近してくる人）。間隔と位置は外から更新する。 */
@@ -152,23 +152,35 @@ class SpatialMixer(private val listener: () -> Listener?) : AutoCloseable {
 
     private fun render(s: Sound, outL: FloatArray, outR: FloatArray, l: Listener?, extraGain: Float) {
         val pos = s.position?.invoke()
-        val target = if (pos == null || l == null) CENTER else {
-            Binaural.params(Binaural.azimuth(l, pos), Binaural.horizontalDistance(l, pos), RATE)
+        if (pos == null || l == null) {   // 位置がない声は頭の中（正面）で鳴らす
+            for (k in 0 until BLOCK) {
+                if (s.frame >= s.length) return
+                val x = s.pcm.getOrElse(s.frame) { 0f } * s.gain * extraGain
+                outL[k] += x
+                outR[k] += x
+                s.frame++
+            }
+            return
         }
-        val from = s.last ?: target
-        s.last = target
-        val g = s.gain * extraGain
+        val distance = Binaural.horizontalDistance(l, pos)
+        val to = hrtf.nearest(Binaural.azimuth(l, pos), atan2(pos.y - l.position.y, distance))
+        val gainTo = Binaural.distanceGain(distance) * s.gain * extraGain
+        val from = if (s.direction < 0) to else s.direction
+        val gainFrom = if (s.direction < 0) gainTo else s.lastGain
+        s.direction = to
+        s.lastGain = gainTo
         for (k in 0 until BLOCK) {
             if (s.frame >= s.length) return
             val t = k.toFloat() / BLOCK
-            val dl = lerp(from.delayL, target.delayL, t) * RATE
-            val dr = lerp(from.delayR, target.delayR, t) * RATE
-            val xl = sample(s.pcm, s.frame - dl)
-            val xr = sample(s.pcm, s.frame - dr)
-            s.lpL += lerp(from.lowpassL, target.lowpassL, t) * (xl - s.lpL)
-            s.lpR += lerp(from.lowpassR, target.lowpassR, t) * (xr - s.lpR)
-            outL[k] += s.lpL * lerp(from.gainL, target.gainL, t) * g
-            outR[k] += s.lpR * lerp(from.gainR, target.gainR, t) * g
+            val g = lerp(gainFrom, gainTo, t)
+            var left0 = hrtf.convolve(s.pcm, s.frame, to, 0)
+            var right0 = hrtf.convolve(s.pcm, s.frame, to, 1)
+            if (from != to) {   // 方向が変わったブロックは、前の方向から滑らかに移す
+                left0 = lerp(hrtf.convolve(s.pcm, s.frame, from, 0), left0, t)
+                right0 = lerp(hrtf.convolve(s.pcm, s.frame, from, 1), right0, t)
+            }
+            outL[k] += left0 * g
+            outR[k] += right0 * g
             s.frame++
         }
     }
@@ -184,10 +196,8 @@ class SpatialMixer(private val listener: () -> Listener?) : AutoCloseable {
         private const val TAG = "SpatialMixer"
         const val RATE = 44100
         private const val BLOCK = 512
-        private const val MAX_DELAY = 64
         /** 声が鳴っている間の効果音の大きさ。 */
         private const val DUCK = 0.5f
-        private val CENTER = EarParams(1f, 1f, 0f, 0f, 1f, 1f)
 
         private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
 
