@@ -1,0 +1,1 @@
+{"model": "MobileNetV3-small", "size": 128, "dim": 128, "classes": 274, "train_crops": 9992, "epochs": 15}

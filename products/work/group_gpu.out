@@ -1,0 +1,27 @@
+[group] 開始 {'argv': ['--modal']}
+[group] Modal GPU で 69213 個を埋め込み（628 画像） 
+✓ Initialized. View run at 
+https://modal.com/apps/kfuhon/main/ap-TPsfnx18cd1DOpRhxhaX2P
+✓ Created objects.
+├── ✓ Uploaded C:\Users\kfuho\a\repos\df-2026-t089\products\gpu_dino.py
+├── ✓ Uploaded C:\Users\kfuho\a\repos\df-2026-t089\products\s2_group.py
+├── ✓ Uploaded C:\Users\kfuho\a\repos\df-2026-t089\products\s2_crops.py
+├── ✓ Uploaded C:\Users\kfuho\a\repos\df-2026-t089\products\common.py
+├── ✓ Created Function _download.
+└── ✓ Created Function Dino.*.
+
+[1ALoading weights:   0%|          | 0/223 [00:00<?, ?it/s]
+[1ALoading weights: 100%|██████████| 223/223 [00:00<00:00, 5060.90it/s]
+
+[1ALoading weights:   0%|          | 0/223 [00:00<?, ?it/s]
+[1ALoading weights: 100%|██████████| 223/223 [00:00<00:00, 4786.45it/s]
+
+[1ALoading weights:   0%|          | 0/223 [00:00<?, ?it/s]Loading weights: 100%|██████████| 223/223 [00:00<00:00, 2520.73it/s]
+
+[1ALoading weights:   0%|          | 0/223 [00:00<?, ?it/s]
+[1ALoading weights: 100%|██████████| 223/223 [00:00<00:00, 3127.10it/s]
+Stopping app - local entrypoint completed.
+✓ App completed. View run at 
+https://modal.com/apps/kfuhon/main/ap-TPsfnx18cd1DOpRhxhaX2P
+[group] 8609 グループ（2枚以上）に 19259 個 / 1枚だけ 55679 個 {'sim': 0.86, 'largest': [10, 9, 9, 8, 8, 8, 7, 7, 7, 7]}
+[group] 完了 

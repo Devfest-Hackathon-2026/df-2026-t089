@@ -1,0 +1,304 @@
+✓ Initialized. View run at 
+https://modal.com/apps/kfuhon/main/ap-4qZgaA7lkzhQVsIj8Zv6rv
+✓ Created objects.
+├── ✓ Uploaded C:\Users\kfuho\a\repos\df-2026-t089\products\s1_detect.py
+├── ✓ Uploaded C:\Users\kfuho\a\repos\df-2026-t089\products\s1_gpu.py
+├── ✓ Uploaded C:\Users\kfuho\a\repos\df-2026-t089\products\common.py
+├── ✓ Created Function _download.
+└── ✓ Created Function Owl.*.
+[detect] GPU で 618 枚を処理（48 枚は処理済み） {'gpu': ['L4', 'A10G', 'T4', 'L40S'], 'model': 'google/owlv2-base-patch16-ensemble'}
+
+[1ALoading weights:   0%|          | 0/418 [00:00<?, ?it/s]
+[1ALoading weights:  51%|█████     | 214/418 [00:00<00:00, 2130.42it/s]Loading weights: 100%|██████████| 418/418 [00:00<00:00, 1523.09it/s]
+
+[1ALoading weights:   0%|          | 0/418 [00:00<?, ?it/s]
+[1ALoading weights:  47%|████▋     | 197/418 [00:00<00:00, 1810.68it/s]
+[1ALoading weights:   0%|          | 0/418 [00:00<?, ?it/s]
+[1ALoading weights:  91%|█████████ | 379/418 [00:00<00:00, 1325.83it/s]
+[1ALoading weights:   0%|          | 0/418 [00:00<?, ?it/s]
+[1ALoading weights:  49%|████▉     | 205/418 [00:00<00:00, 1875.83it/s]Loading weights: 100%|██████████| 418/418 [00:00<00:00, 1483.47it/s]
+
+[1ALoading weights:  46%|████▌     | 191/418 [00:00<00:00, 1771.90it/s]
+[1ALoading weights:  94%|█████████▍| 393/418 [00:00<00:00, 1390.80it/s]Loading weights: 100%|██████████| 418/418 [00:00<00:00, 1528.68it/s]
+
+[1ALoading weights:  88%|████████▊ | 369/418 [00:00<00:00, 1409.23it/s]Loading weights: 100%|██████████| 418/418 [00:00<00:00, 1510.65it/s]
+an error occurred during closing of asynchronous generator <async_generator object async_merge at 0x000002B7E8D7B6E0>
+asyncgen: <async_generator object async_merge at 0x000002B7E8D7B6E0>
+Traceback (most recent call last):
+  File "C:\Users\kfuho\a\repos\df-2026-t089\.venv\Lib\site-packages\modal\_utils\async_utils.py", line 858, in __iter__
+    yield from run_async_gen(runner, self._async_iterable)
+GeneratorExit
+
+During handling of the above exception, another exception occurred:
+
+RuntimeError: aclose(): asynchronous generator is already running
+an error occurred during closing of asynchronous generator <async_generator object Synchronizer._run_generator_async at 0x000002B7E8D0F940>
+asyncgen: <async_generator object Synchronizer._run_generator_async at 0x000002B7E8D0F940>
+Traceback (most recent call last):
+  File "C:\Users\kfuho\a\repos\df-2026-t089\.venv\Lib\site-packages\modal\_utils\async_utils.py", line 858, in __iter__
+    yield from run_async_gen(runner, self._async_iterable)
+GeneratorExit
+
+During handling of the above exception, another exception occurred:
+
+RuntimeError: aclose(): asynchronous generator is already running
+[detect] 通信エラーで再送 (1/3): 残り 15 枚 {'error': "PermissionError(13, 'Access is denied')"}
+[detect] 88/666 枚 {'elapsed_s': 65}
+[detect] 128/666 枚 {'elapsed_s': 112}
+an error occurred during closing of asynchronous generator <async_generator object Synchronizer._run_generator_async at 0x000002B7E8EDF220>
+asyncgen: <async_generator object Synchronizer._run_generator_async at 0x000002B7E8EDF220>
+Traceback (most recent call last):
+  File "C:\Users\kfuho\a\repos\df-2026-t089\.venv\Lib\site-packages\modal\_utils\async_utils.py", line 858, in __iter__
+    yield from run_async_gen(runner, self._async_iterable)
+GeneratorExit
+
+During handling of the above exception, another exception occurred:
+
+RuntimeError: aclose(): asynchronous generator is already running
+an error occurred during closing of asynchronous generator <async_generator object async_merge at 0x000002B7E8D7B9C0>
+asyncgen: <async_generator object async_merge at 0x000002B7E8D7B9C0>
+Traceback (most recent call last):
+  File "C:\Users\kfuho\a\repos\df-2026-t089\.venv\Lib\site-packages\modal\_utils\async_utils.py", line 858, in __iter__
+    yield from run_async_gen(runner, self._async_iterable)
+GeneratorExit
+
+During handling of the above exception, another exception occurred:
+
+RuntimeError: aclose(): asynchronous generator is already running
+[detect] 通信エラーで再送 (1/3): 残り 25 枚 {'error': "PermissionError(13, 'The process cannot access the file because it is being used by another process')"}
+[detect] 168/666 枚 {'elapsed_s': 153}
+[detect] 208/666 枚 {'elapsed_s': 241}
+
+[1ALoading weights:   0%|          | 0/418 [00:00<?, ?it/s]Loading weights: 100%|██████████| 418/418 [00:00<00:00, 5858.40it/s]
+
+[1ALoading weights:   0%|          | 0/418 [00:00<?, ?it/s]
+[1ALoading weights: 100%|██████████| 418/418 [00:00<00:00, 6090.87it/s]
+
+[1ALoading weights:   0%|          | 0/418 [00:00<?, ?it/s]
+[1ALoading weights: 100%|██████████| 418/418 [00:00<00:00, 5154.63it/s]
+
+[1ALoading weights:   0%|          | 0/418 [00:00<?, ?it/s]
+[1ALoading weights: 100%|██████████| 418/418 [00:00<00:00, 5799.91it/s]
+Task was destroyed but it is pending!
+task: <Task cancelling name='Task-485' coro=<async_merge.<locals>.producer() running at C:\Users\kfuho\a\repos\df-2026-t089\.venv\Lib\site-packages\modal\_utils\async_utils.py:1093> wait_for=<Future pending cb=[shield.<locals>._outer_done_callback() at C:\Program Files\Python312\Lib\asyncio\tasks.py:922, Task.task_wakeup()]> cb=[gather.<locals>._done_callback() at C:\Program Files\Python312\Lib\asyncio\tasks.py:767]>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1397' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-875' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-905' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-938' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-970' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1000' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1034' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1074' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1096' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1112' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1146' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1160' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1188' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1202' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1229' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1257' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1271' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1298' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1324' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1355' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1369' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1640' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1428' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1544' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1599' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1725' coro=<Synchronizer._run_function_async() running at C:\Users\kfuho\a\repos\df-2026-t089\.venv\Lib\site-packages\synchronicity\synchronizer.py:605> wait_for=<Future pending cb=[shield.<locals>._outer_done_callback() at C:\Program Files\Python312\Lib\asyncio\tasks.py:922, Task.task_wakeup()]> cb=[shield.<locals>._inner_done_callback() at C:\Program Files\Python312\Lib\asyncio\tasks.py:905]>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1717' coro=<<async_generator_athrow without __name__>()> wait_for=<Future pending cb=[shield.<locals>._outer_done_callback() at C:\Program Files\Python312\Lib\asyncio\tasks.py:922, Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1727' coro=<wait_for() running at C:\Program Files\Python312\Lib\asyncio\tasks.py:472> cb=[shield.<locals>._inner_done_callback() at C:\Program Files\Python312\Lib\asyncio\tasks.py:905]>
+┌─ Modal Warning ─────────────────────────────────────────────────────────────┐
+│ coroutine 'wait_for' was never awaited                                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1668' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task cancelling name='Task-3664' coro=<async_merge.<locals>.producer() running at C:\Users\kfuho\a\repos\df-2026-t089\.venv\Lib\site-packages\modal\_utils\async_utils.py:1093> wait_for=<Future pending cb=[shield.<locals>._outer_done_callback() at C:\Program Files\Python312\Lib\asyncio\tasks.py:922, Task.task_wakeup()]> cb=[gather.<locals>._done_callback() at C:\Program Files\Python312\Lib\asyncio\tasks.py:767]>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-4101' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-4014' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-4036' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-4068' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-4086' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-4235' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-4133' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-4183' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-4379' coro=<Synchronizer._run_function_async() running at C:\Users\kfuho\a\repos\df-2026-t089\.venv\Lib\site-packages\synchronicity\synchronizer.py:605> wait_for=<Future pending cb=[shield.<locals>._outer_done_callback() at C:\Program Files\Python312\Lib\asyncio\tasks.py:922, Task.task_wakeup()]> cb=[shield.<locals>._inner_done_callback() at C:\Program Files\Python312\Lib\asyncio\tasks.py:905]>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-4372' coro=<<async_generator_athrow without __name__>()> wait_for=<Future pending cb=[shield.<locals>._outer_done_callback() at C:\Program Files\Python312\Lib\asyncio\tasks.py:922, Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-4382' coro=<wait_for() running at C:\Program Files\Python312\Lib\asyncio\tasks.py:520> wait_for=<Future finished result=None> cb=[shield.<locals>._inner_done_callback() at C:\Program Files\Python312\Lib\asyncio\tasks.py:905]>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-4277' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-4330' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+[detect] 248/666 枚 {'elapsed_s': 375}
+[detect] 288/666 枚 {'elapsed_s': 475}
+[detect] 328/666 枚 {'elapsed_s': 535}
+
+[1ALoading weights:   0%|          | 0/418 [00:00<?, ?it/s]Loading weights: 100%|██████████| 418/418 [00:00<00:00, 5056.92it/s]
+
+[1ALoading weights:   0%|          | 0/418 [00:00<?, ?it/s]
+[1ALoading weights: 100%|██████████| 418/418 [00:00<00:00, 15832.28it/s]
+
+[1ALoading weights:   0%|          | 0/418 [00:00<?, ?it/s]
+[1ALoading weights: 100%|██████████| 418/418 [00:00<00:00, 4842.06it/s]
+[detect] 368/666 枚 {'elapsed_s': 656}
+an error occurred during closing of asynchronous generator <async_generator object async_merge at 0x000002B7E8D7BE10>
+asyncgen: <async_generator object async_merge at 0x000002B7E8D7BE10>
+Traceback (most recent call last):
+  File "C:\Users\kfuho\a\repos\df-2026-t089\.venv\Lib\site-packages\modal\_utils\async_utils.py", line 858, in __iter__
+    yield from run_async_gen(runner, self._async_iterable)
+GeneratorExit
+
+During handling of the above exception, another exception occurred:
+
+RuntimeError: aclose(): asynchronous generator is already running
+an error occurred during closing of asynchronous generator <async_generator object Synchronizer._run_generator_async at 0x000002B7E8EDEE90>
+asyncgen: <async_generator object Synchronizer._run_generator_async at 0x000002B7E8EDEE90>
+Traceback (most recent call last):
+  File "C:\Users\kfuho\a\repos\df-2026-t089\.venv\Lib\site-packages\modal\_utils\async_utils.py", line 858, in __iter__
+    yield from run_async_gen(runner, self._async_iterable)
+GeneratorExit
+
+During handling of the above exception, another exception occurred:
+
+RuntimeError: aclose(): asynchronous generator is already running
+[detect] 通信エラーで再送 (1/3): 残り 20 枚 {'error': "PermissionError(13, 'The process cannot access the file because it is being used by another process')"}
+Task was destroyed but it is pending!
+task: <Task cancelling name='Task-14468' coro=<async_merge.<locals>.producer() running at C:\Users\kfuho\a\repos\df-2026-t089\.venv\Lib\site-packages\modal\_utils\async_utils.py:1093> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at C:\Program Files\Python312\Lib\asyncio\futures.py:387, <1 more>, Task.task_wakeup()]> cb=[gather.<locals>._done_callback() at C:\Program Files\Python312\Lib\asyncio\tasks.py:767]>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-15023' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-14820' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-14883' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-15251' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-15311' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-15402' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-15114' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-15275' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-15326' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-15353' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-15524' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-15430' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-15481' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Exception ignored in: <coroutine object Synchronizer._run_function_async at 0x000002B7E8D3FB00>
+Traceback (most recent call last):
+  File "C:\Users\kfuho\a\repos\df-2026-t089\.venv\Lib\site-packages\synchronicity\synchronizer.py", line 645, in _run_function_async
+    shielded_task.cancel()  # cancel the shielded task, preventing timeouts
+    ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\Python312\Lib\asyncio\base_events.py", line 795, in call_soon
+    self._check_closed()
+  File "C:\Program Files\Python312\Lib\asyncio\base_events.py", line 541, in _check_closed
+    raise RuntimeError('Event loop is closed')
+RuntimeError: Event loop is closed
+Task was destroyed but it is pending!
+task: <Task cancelling name='Task-15683' coro=<wait_for() running at C:\Program Files\Python312\Lib\asyncio\tasks.py:520> wait_for=<Future cancelled>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-15689' coro=<<async_generator_athrow without __name__>()> wait_for=<Future pending cb=[shield.<locals>._outer_done_callback() at C:\Program Files\Python312\Lib\asyncio\tasks.py:922, Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-15561' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-15616' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-15645' coro=<Event.wait() running at C:\Program Files\Python312\Lib\asyncio\locks.py:212> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+[detect] 408/666 枚 {'elapsed_s': 791}
+
+[1ALoading weights:   0%|          | 0/418 [00:00<?, ?it/s]Loading weights: 100%|██████████| 418/418 [00:00<00:00, 8106.21it/s]
+[detect] 448/666 枚 {'elapsed_s': 894}
+[detect] 488/666 枚 {'elapsed_s': 922}
+[detect] 528/666 枚 {'elapsed_s': 948}
+[detect] 568/666 枚 {'elapsed_s': 984}
+[detect] 608/666 枚 {'elapsed_s': 1033}
+an error occurred during closing of asynchronous generator <async_generator object Synchronizer._run_generator_async at 0x000002B7E8D0FE00>
+asyncgen: <async_generator object Synchronizer._run_generator_async at 0x000002B7E8D0FE00>
+Traceback (most recent call last):
+  File "C:\Users\kfuho\a\repos\df-2026-t089\.venv\Lib\site-packages\modal\_utils\async_utils.py", line 858, in __iter__
+    yield from run_async_gen(runner, self._async_iterable)
+GeneratorExit
+
+During handling of the above exception, another exception occurred:
+
+RuntimeError: aclose(): asynchronous generator is already running
+an error occurred during closing of asynchronous generator <async_generator object async_merge at 0x000002B7E8D7B9C0>
+asyncgen: <async_generator object async_merge at 0x000002B7E8D7B9C0>
+Traceback (most recent call last):
+  File "C:\Users\kfuho\a\repos\df-2026-t089\.venv\Lib\site-packages\modal\_utils\async_utils.py", line 858, in __iter__
+    yield from run_async_gen(runner, self._async_iterable)
+GeneratorExit
+
+During handling of the above exception, another exception occurred:
+
+RuntimeError: aclose(): asynchronous generator is already running
+[detect] 通信エラーで再送 (1/3): 残り 3 枚 {'error': "PermissionError(13, 'Access is denied')"}
+[detect] 648/666 枚 {'elapsed_s': 1108}
+[detect] 666/666 枚 {'elapsed_s': 1132}
+[detect] GPU 処理完了 618 枚 / 1132 秒 
+Stopping app - local entrypoint completed.
+✓ App completed. View run at 
+https://modal.com/apps/kfuhon/main/ap-4qZgaA7lkzhQVsIj8Zv6rv
+Task was destroyed but it is pending!
+task: <Task cancelling name='Task-23596' coro=<async_merge.<locals>.producer() running at C:\Users\kfuho\a\repos\df-2026-t089\.venv\Lib\site-packages\modal\_utils\async_utils.py:1093> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at C:\Program Files\Python312\Lib\asyncio\futures.py:387, <1 more>, Task.task_wakeup()]> cb=[gather.<locals>._done_callback() at C:\Program Files\Python312\Lib\asyncio\tasks.py:767]>
+Exception ignored in: <coroutine object Synchronizer._run_function_async at 0x000002B7E8D3D300>
+Traceback (most recent call last):
+  File "C:\Users\kfuho\a\repos\df-2026-t089\.venv\Lib\site-packages\synchronicity\synchronizer.py", line 645, in _run_function_async
+    shielded_task.cancel()  # cancel the shielded task, preventing timeouts
+    ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\Python312\Lib\asyncio\base_events.py", line 795, in call_soon
+    self._check_closed()
+  File "C:\Program Files\Python312\Lib\asyncio\base_events.py", line 541, in _check_closed
+    raise RuntimeError('Event loop is closed')
+RuntimeError: Event loop is closed
+Task was destroyed but it is pending!
+task: <Task cancelling name='Task-25057' coro=<wait_for() running at C:\Program Files\Python312\Lib\asyncio\tasks.py:520> wait_for=<Future cancelled>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-25062' coro=<<async_generator_athrow without __name__>()> wait_for=<Future pending cb=[shield.<locals>._outer_done_callback() at C:\Program Files\Python312\Lib\asyncio\tasks.py:922, Task.task_wakeup()]>>

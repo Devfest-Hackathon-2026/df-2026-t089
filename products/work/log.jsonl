@@ -1,0 +1,704 @@
+{"t": "2026-11-06 04:03:10", "stage": "detect", "msg": "開始", "argv": ["--only", "IMG_8179.JPG", "20261105_182108827.jpg"]}
+{"t": "2026-11-06 04:03:39", "stage": "detect", "msg": "2 枚中 2 枚を処理", "model": "google/owlv2-base-patch16-ensemble", "queries": ["a product package", "a bottle", "a can", "a box", "a bag of snacks", "a plastic pouch", "a carton"]}
+{"t": "2026-11-06 04:04:27", "stage": "detect", "msg": "エラー: AttributeError(\"'Owlv2Processor' object has no attribute 'post_process_object_detection'\")"}
+{"t": "2026-11-06 04:04:51", "stage": "detect", "msg": "開始", "argv": ["--only", "IMG_8179.JPG", "20261105_182108827.jpg"]}
+{"t": "2026-11-06 04:04:54", "stage": "detect", "msg": "2 枚中 2 枚を処理", "model": "google/owlv2-base-patch16-ensemble", "queries": ["a product package", "a bottle", "a can", "a box", "a bag of snacks", "a plastic pouch", "a carton"]}
+{"t": "2026-11-06 04:05:35", "stage": "detect", "msg": "20261105_182108827.jpg: 183 個 (>=0.2) / 候補 971 個, 41.2s"}
+{"t": "2026-11-06 04:06:20", "stage": "detect", "msg": "IMG_8179.JPG: 143 個 (>=0.2) / 候補 1034 個, 45.5s"}
+{"t": "2026-11-06 04:06:20", "stage": "detect", "msg": "完了"}
+{"t": "2026-11-06 04:07:04", "stage": "cluster", "msg": "開始", "argv": []}
+{"t": "2026-11-06 04:07:25", "stage": "cluster", "msg": "326 個の切り抜きを埋め込み", "images": 2, "threshold": 0.2}
+{"t": "2026-11-06 04:07:26", "stage": "cluster", "msg": "26 クラスタ（3 枚以上）/ 全 199 クラスタ", "crops": 326, "clustered": 130, "sim": 0.85}
+{"t": "2026-11-06 04:07:26", "stage": "cluster", "msg": "完了"}
+{"t": "2026-11-06 04:07:28", "stage": "detect", "msg": "開始", "argv": []}
+{"t": "2026-11-06 04:07:31", "stage": "detect", "msg": "666 枚中 664 枚を処理", "model": "google/owlv2-base-patch16-ensemble", "queries": ["a product package", "a bottle", "a can", "a box", "a bag of snacks", "a plastic pouch", "a carton"]}
+{"t": "2026-11-06 04:12:15", "stage": "detect", "msg": "開始", "argv": []}
+{"t": "2026-11-06 04:12:17", "stage": "detect", "msg": "666 枚中 664 枚を処理", "model": "google/owlv2-base-patch16-ensemble", "queries": ["a product package", "a bottle", "a can", "a box", "a bag of snacks", "a plastic pouch", "a carton"]}
+{"t": "2026-11-06 04:12:58", "stage": "detect", "msg": "20261105_183630304.jpg: 16 個 (>=0.2) / 候補 159 個, 40.7s"}
+{"t": "2026-11-06 04:13:47", "stage": "detect", "msg": "IMG_8528.JPG: 6 個 (>=0.2) / 候補 79 個, 49.0s"}
+{"t": "2026-11-06 04:14:39", "stage": "detect", "msg": "PXL_20261105_132651307.jpg: 342 個 (>=0.2) / 候補 1247 個, 52.4s"}
+{"t": "2026-11-06 04:15:22", "stage": "detect", "msg": "PXL_20261105_132940518.jpg: 248 個 (>=0.2) / 候補 1112 個, 42.6s"}
+{"t": "2026-11-06 04:16:05", "stage": "detect", "msg": "IMG_8224.JPG: 45 個 (>=0.2) / 候補 339 個, 42.7s"}
+{"t": "2026-11-06 04:16:48", "stage": "detect", "msg": "IMG_8469.JPG: 116 個 (>=0.2) / 候補 1028 個, 43.0s"}
+{"t": "2026-11-06 04:17:31", "stage": "detect", "msg": "IMG_8365.JPG: 49 個 (>=0.2) / 候補 364 個, 43.6s"}
+{"t": "2026-11-06 04:18:14", "stage": "detect", "msg": "IMG_8370.JPG: 62 個 (>=0.2) / 候補 528 個, 42.4s"}
+{"t": "2026-11-06 04:19:04", "stage": "detect", "msg": "20261105_183206815.jpg: 55 個 (>=0.2) / 候補 298 個, 50.6s"}
+{"t": "2026-11-06 04:19:58", "stage": "detect", "msg": "20261105_183458345.jpg: 115 個 (>=0.2) / 候補 499 個, 53.2s"}
+{"t": "2026-11-06 04:20:54", "stage": "detect", "msg": "IMG_8231.JPG: 163 個 (>=0.2) / 候補 1092 個, 56.9s"}
+{"t": "2026-11-06 04:21:00", "stage": "cluster", "msg": "開始", "argv": []}
+{"t": "2026-11-06 04:22:15", "stage": "detect", "msg": "IMG_8391.JPG: 238 個 (>=0.2) / 候補 1358 個, 80.0s"}
+{"t": "2026-11-06 04:23:17", "stage": "cluster", "msg": "1313 個の切り抜きを埋め込み（32×32px 未満の 86 個は除外）", "images": 13, "threshold": 0.21}
+{"t": "2026-11-06 04:23:19", "stage": "cluster", "msg": "98 クラスタ（3 枚以上）/ 全 747 クラスタ", "crops": 1313, "clustered": 561, "sim": 0.85}
+{"t": "2026-11-06 04:23:19", "stage": "cluster", "msg": "完了"}
+{"t": "2026-11-06 04:23:30", "stage": "detect", "msg": "IMG_8456.JPG: 189 個 (>=0.2) / 候補 1228 個, 75.3s"}
+{"t": "2026-11-06 04:24:14", "stage": "detect", "msg": "IMG_8517.JPG: 100 個 (>=0.2) / 候補 324 個, 44.1s"}
+{"t": "2026-11-06 04:24:55", "stage": "detect", "msg": "IMG_8502.JPG: 236 個 (>=0.2) / 候補 1240 個, 40.8s"}
+{"t": "2026-11-06 04:25:41", "stage": "detect", "msg": "20261105_183610606.jpg: 17 個 (>=0.2) / 候補 178 個, 45.7s"}
+{"t": "2026-11-06 04:26:30", "stage": "detect", "msg": "IMG_8384.JPG: 206 個 (>=0.2) / 候補 1004 個, 49.9s"}
+{"t": "2026-11-06 04:27:25", "stage": "detect", "msg": "IMG_8443.JPG: 311 個 (>=0.2) / 候補 1666 個, 54.7s"}
+{"t": "2026-11-06 04:28:32", "stage": "detect", "msg": "IMG_8488.JPG: 196 個 (>=0.2) / 候補 998 個, 66.3s"}
+{"t": "2026-11-06 04:29:23", "stage": "detect", "msg": "20261105_183435680.jpg: 39 個 (>=0.2) / 候補 171 個, 51.6s"}
+{"t": "2026-11-06 04:30:07", "stage": "detect", "msg": "IMG_8398.JPG: 96 個 (>=0.2) / 候補 539 個, 44.0s"}
+{"t": "2026-11-06 04:30:54", "stage": "detect", "msg": "IMG_8353.JPG: 38 個 (>=0.2) / 候補 263 個, 46.9s"}
+{"t": "2026-11-06 04:31:38", "stage": "detect", "msg": "IMG_8494.JPG: 54 個 (>=0.2) / 候補 623 個, 44.0s"}
+{"t": "2026-11-06 04:32:22", "stage": "detect", "msg": "20261105_182935325.jpg: 112 個 (>=0.2) / 候補 688 個, 43.5s"}
+{"t": "2026-11-06 04:33:08", "stage": "detect", "msg": "IMG_8212.JPG: 133 個 (>=0.2) / 候補 530 個, 46.5s"}
+{"t": "2026-11-06 04:33:51", "stage": "detect", "msg": "IMG_8207.JPG: 346 個 (>=0.2) / 候補 1540 個, 43.1s"}
+{"t": "2026-11-06 04:34:34", "stage": "detect", "msg": "IMG_8346.JPG: 239 個 (>=0.2) / 候補 969 個, 42.8s"}
+{"t": "2026-11-06 04:35:18", "stage": "detect", "msg": "20261105_183257184.jpg: 141 個 (>=0.2) / 候補 546 個, 44.0s"}
+{"t": "2026-11-06 04:36:02", "stage": "detect", "msg": "IMG_8481.JPG: 112 個 (>=0.2) / 候補 854 個, 44.3s"}
+{"t": "2026-11-06 04:36:49", "stage": "detect", "msg": "IMG_8521.JPG: 22 個 (>=0.2) / 候補 172 個, 46.1s"}
+{"t": "2026-11-06 04:37:33", "stage": "detect", "msg": "20261105_182837131.jpg: 96 個 (>=0.2) / 候補 642 個, 44.3s"}
+{"t": "2026-11-06 04:38:17", "stage": "detect", "msg": "IMG_8460.JPG: 60 個 (>=0.2) / 候補 589 個, 44.3s"}
+{"t": "2026-11-06 04:39:10", "stage": "detect", "msg": "IMG_8475.JPG: 98 個 (>=0.2) / 候補 653 個, 52.8s"}
+{"t": "2026-11-06 04:39:25", "stage": "detect", "msg": "GPU で 3 枚を処理（663 枚は処理済み）", "gpu": "L4", "model": "google/owlv2-base-patch16-ensemble"}
+{"t": "2026-11-06 04:40:00", "stage": "detect", "msg": "IMG_8379.JPG: 102 個 (>=0.2) / 候補 960 個, 49.8s"}
+{"t": "2026-11-06 04:40:46", "stage": "detect", "msg": "IMG_8534.JPG: 45 個 (>=0.2) / 候補 192 個, 46.2s"}
+{"t": "2026-11-06 04:41:31", "stage": "detect", "msg": "IMG_8238.JPG: 332 個 (>=0.2) / 候補 1806 個, 45.1s"}
+{"t": "2026-11-06 04:42:16", "stage": "detect", "msg": "20261105_182856702.jpg: 83 個 (>=0.2) / 候補 520 個, 45.0s"}
+{"t": "2026-11-06 04:42:59", "stage": "detect", "msg": "20261105_182839385.jpg: 41 個 (>=0.2) / 候補 414 個, 43.1s"}
+{"t": "2026-11-06 04:43:45", "stage": "detect", "msg": "IMG_8296.JPG: 166 個 (>=0.2) / 候補 1213 個, 45.3s"}
+{"t": "2026-11-06 04:44:32", "stage": "detect", "msg": "IMG_8410.JPG: 52 個 (>=0.2) / 候補 588 個, 47.5s"}
+{"t": "2026-11-06 04:45:16", "stage": "detect", "msg": "20261105_183502553.jpg: 59 個 (>=0.2) / 候補 214 個, 44.0s"}
+{"t": "2026-11-06 04:46:07", "stage": "detect", "msg": "IMG_8405.JPG: 208 個 (>=0.2) / 候補 999 個, 51.1s"}
+{"t": "2026-11-06 04:46:59", "stage": "detect", "msg": "IMG_8309.JPG: 316 個 (>=0.2) / 候補 1673 個, 51.9s"}
+{"t": "2026-11-06 04:47:00", "stage": "detect", "msg": "GPU 処理完了 3 枚 / 455 秒"}
+{"t": "2026-11-06 04:48:13", "stage": "detect", "msg": "GPU で 618 枚を処理（48 枚は処理済み）", "gpu": "L4", "model": "google/owlv2-base-patch16-ensemble"}
+{"t": "2026-11-06 05:01:39", "stage": "detect", "msg": "GPU で 618 枚を処理（48 枚は処理済み）", "gpu": "L4", "model": "google/owlv2-base-patch16-ensemble"}
+{"t": "2026-11-06 05:04:31", "stage": "detect", "msg": "GPU で 618 枚を処理（48 枚は処理済み）", "gpu": "L4", "model": "google/owlv2-base-patch16-ensemble"}
+{"t": "2026-11-06 05:06:00", "stage": "crops", "msg": "開始", "argv": []}
+{"t": "2026-11-06 05:12:07", "stage": "crops", "msg": "切り抜き 7902 個 / ルールで除外 300 個", "threshold": 0.18, "reasons": {"小さすぎ": 294, "手動で誤検出": 1, "極端に細長い": 5}}
+{"t": "2026-11-06 05:12:07", "stage": "crops", "msg": "完了"}
+{"t": "2026-11-06 05:13:03", "stage": "judge", "msg": "開始", "argv": []}
+{"t": "2026-11-06 05:13:05", "stage": "judge", "msg": "7602 個中 3338 個を特定不能と判定", "max_bad": 0.6, "dropped_by": {"a blurry photo": 2455, "a rows of many different products": 223, "an empty store shelf": 208, "a shelf edge": 179, "a store sign": 103, "a price tag": 78, "a refrigerator door": 34, "a wall": 16, "a packaged food": 13, "an advertising poster": 11, "a floor": 10, "a ceiling": 4, "a box of a product": 2, "a cosmetic product": 1, "a carton of milk": 1}}
+{"t": "2026-11-06 05:13:05", "stage": "judge", "msg": "完了"}
+{"t": "2026-11-06 05:13:38", "stage": "judge", "msg": "開始", "argv": []}
+{"t": "2026-11-06 05:13:41", "stage": "judge", "msg": "7602 個中 1877 個を特定不能と判定", "max_bad": 0.7, "dropped_by": {"a shelf edge": 521, "an empty store shelf": 362, "a wall": 211, "rows of many different products": 165, "a store sign": 158, "a person": 134, "a floor": 109, "a price tag": 93, "a refrigerator door": 88, "a ceiling": 24, "an advertising poster": 12}}
+{"t": "2026-11-06 05:13:41", "stage": "judge", "msg": "完了"}
+{"t": "2026-11-06 05:15:11", "stage": "detect", "msg": "GPU で 618 枚を処理（48 枚は処理済み）", "gpu": ["L4", "A10G", "T4", "L40S"], "model": "google/owlv2-base-patch16-ensemble"}
+{"t": "2026-11-06 05:16:01", "stage": "detect", "msg": "通信エラーで再送 (1/3): 残り 15 枚", "error": "PermissionError(13, 'Access is denied')"}
+{"t": "2026-11-06 05:16:17", "stage": "detect", "msg": "88/666 枚", "elapsed_s": 65}
+{"t": "2026-11-06 05:17:04", "stage": "detect", "msg": "128/666 枚", "elapsed_s": 112}
+{"t": "2026-11-06 05:17:19", "stage": "crops", "msg": "開始", "argv": []}
+{"t": "2026-11-06 05:17:19", "stage": "detect", "msg": "通信エラーで再送 (1/3): 残り 25 枚", "error": "PermissionError(13, 'The process cannot access the file because it is being used by another process')"}
+{"t": "2026-11-06 05:17:44", "stage": "detect", "msg": "168/666 枚", "elapsed_s": 153}
+{"t": "2026-11-06 05:18:54", "stage": "crops", "msg": "エラー: PermissionError(13, 'The process cannot access the file because it is being used by another process')"}
+{"t": "2026-11-06 05:18:59", "stage": "crops", "msg": "開始", "argv": []}
+{"t": "2026-11-06 05:19:12", "stage": "detect", "msg": "208/666 枚", "elapsed_s": 241}
+{"t": "2026-11-06 05:21:26", "stage": "detect", "msg": "248/666 枚", "elapsed_s": 375}
+{"t": "2026-11-06 05:23:06", "stage": "detect", "msg": "288/666 枚", "elapsed_s": 475}
+{"t": "2026-11-06 05:24:07", "stage": "detect", "msg": "328/666 枚", "elapsed_s": 535}
+{"t": "2026-11-06 05:26:07", "stage": "detect", "msg": "368/666 枚", "elapsed_s": 656}
+{"t": "2026-11-06 05:27:19", "stage": "detect", "msg": "通信エラーで再送 (1/3): 残り 20 枚", "error": "PermissionError(13, 'The process cannot access the file because it is being used by another process')"}
+{"t": "2026-11-06 05:28:23", "stage": "detect", "msg": "408/666 枚", "elapsed_s": 791}
+{"t": "2026-11-06 05:30:05", "stage": "detect", "msg": "448/666 枚", "elapsed_s": 894}
+{"t": "2026-11-06 05:30:34", "stage": "detect", "msg": "488/666 枚", "elapsed_s": 922}
+{"t": "2026-11-06 05:31:00", "stage": "detect", "msg": "528/666 枚", "elapsed_s": 948}
+{"t": "2026-11-06 05:31:36", "stage": "detect", "msg": "568/666 枚", "elapsed_s": 984}
+{"t": "2026-11-06 05:32:24", "stage": "detect", "msg": "608/666 枚", "elapsed_s": 1033}
+{"t": "2026-11-06 05:33:35", "stage": "crops", "msg": "エラー: PermissionError(13, 'Permission denied')"}
+{"t": "2026-11-06 05:33:35", "stage": "detect", "msg": "通信エラーで再送 (1/3): 残り 3 枚", "error": "PermissionError(13, 'Access is denied')"}
+{"t": "2026-11-06 05:33:39", "stage": "detect", "msg": "648/666 枚", "elapsed_s": 1108}
+{"t": "2026-11-06 05:34:03", "stage": "detect", "msg": "666/666 枚", "elapsed_s": 1132}
+{"t": "2026-11-06 05:34:03", "stage": "detect", "msg": "GPU 処理完了 618 枚 / 1132 秒"}
+{"t": "2026-11-06 05:34:15", "stage": "crops", "msg": "開始", "argv": []}
+{"t": "2026-11-06 05:51:45", "stage": "group", "msg": "開始", "argv": ["--modal"]}
+{"t": "2026-11-06 05:51:47", "stage": "group", "msg": "Modal GPU で 5725 個を埋め込み（47 画像）"}
+{"t": "2026-11-06 05:53:47", "stage": "group", "msg": "516 グループ（2枚以上）に 3050 個 / 1枚だけ 2675 個", "sim": 0.8, "largest": [832, 252, 85, 49, 44, 44, 34, 29, 19, 19]}
+{"t": "2026-11-06 05:53:47", "stage": "group", "msg": "完了"}
+{"t": "2026-11-06 05:54:46", "stage": "group", "msg": "開始", "argv": ["--only-group"]}
+{"t": "2026-11-06 05:54:48", "stage": "group", "msg": "しきい値 0.86 でつなぎ直し（埋め込み済み 5725/5725 個）"}
+{"t": "2026-11-06 05:54:49", "stage": "group", "msg": "449 グループ（2枚以上）に 1358 個 / 1枚だけ 4367 個", "sim": 0.86, "largest": [34, 27, 23, 18, 14, 14, 13, 13, 11, 11]}
+{"t": "2026-11-06 05:54:49", "stage": "group", "msg": "完了"}
+{"t": "2026-11-06 05:56:10", "stage": "crops", "msg": "開始", "argv": ["--modal"]}
+{"t": "2026-11-06 05:58:59", "stage": "crops", "msg": "切り抜き 99548 個（666 画像）/ ルールで除外 531 個 / 埋め込みが必要 55295 個", "threshold": 0.18, "reasons": {"小さすぎ": 377, "手動で誤検出": 1, "極端に細長い": 134, "ほぼ無地": 19}}
+{"t": "2026-11-06 06:03:30", "stage": "crops", "msg": "Modal で 373/373 画像を埋め込み", "providers": ["CUDAExecutionProvider"]}
+{"t": "2026-11-06 06:04:02", "stage": "crops", "msg": "埋め込み済み 99017 個"}
+{"t": "2026-11-06 06:04:03", "stage": "crops", "msg": "完了"}
+{"t": "2026-11-06 06:04:59", "stage": "judge", "msg": "開始", "argv": []}
+{"t": "2026-11-06 06:05:03", "stage": "judge", "msg": "99017 個中 24079 個を特定不能と判定", "max_bad": 0.7, "dropped_by": {"a shelf edge": 7418, "an empty store shelf": 4666, "a wall": 2517, "rows of many different products": 2080, "a person": 1895, "a store sign": 1568, "a refrigerator door": 1535, "a floor": 984, "a price tag": 858, "a ceiling": 320, "an advertising poster": 229, "a packaged food": 6, "a product hanging on a hook": 2, "a cosmetic product": 1}}
+{"t": "2026-11-06 06:05:03", "stage": "judge", "msg": "完了"}
+{"t": "2026-11-06 06:05:16", "stage": "group", "msg": "開始", "argv": ["--modal"]}
+{"t": "2026-11-06 06:05:19", "stage": "group", "msg": "Modal GPU で 69213 個を埋め込み（628 画像）"}
+{"t": "2026-11-06 06:11:42", "stage": "group", "msg": "8609 グループ（2枚以上）に 19259 個 / 1枚だけ 55679 個", "sim": 0.86, "largest": [10, 9, 9, 8, 8, 8, 7, 7, 7, 7]}
+{"t": "2026-11-06 06:11:43", "stage": "group", "msg": "完了"}
+{"t": "2026-11-06 06:18:54", "stage": "group", "msg": "開始", "argv": ["--only-group"]}
+{"t": "2026-11-06 06:19:12", "stage": "group", "msg": "しきい値 0.86・色 0.8 でつなぎ直し（埋め込み済み 74938/74938 個）"}
+{"t": "2026-11-06 06:19:12", "stage": "group", "msg": "色の特徴を 74938 個計算"}
+{"t": "2026-11-06 06:23:45", "stage": "group", "msg": "7091 グループ（2枚以上）に 15460 個 / 1枚だけ 59478 個", "sim": 0.86, "color": 0.8, "largest": [9, 9, 8, 7, 7, 7, 7, 6, 6, 6]}
+{"t": "2026-11-06 06:23:46", "stage": "group", "msg": "完了"}
+{"t": "2026-11-06 06:26:43", "stage": "compare", "msg": "開始", "argv": []}
+{"t": "2026-11-06 06:26:45", "stage": "compare", "msg": "20 枚を 7 方法で命名", "methods": ["vision_web", "vision_text_logo", "gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.8-flash", "gemini-3-flash-preview+search"]}
+{"t": "2026-11-06 06:26:49", "stage": "compare", "msg": "vision_web: 命名 0/20 枚, エラー 20", "sec_mean": 1.03}
+{"t": "2026-11-06 06:26:53", "stage": "compare", "msg": "vision_text_logo: 命名 0/20 枚, エラー 20", "sec_mean": 0.99}
+{"t": "2026-11-06 06:27:53", "stage": "compare", "msg": "gemini-3.1-flash-lite: 命名 15/20 枚, エラー 3", "sec_mean": 11.01}
+{"t": "2026-11-06 06:29:15", "stage": "compare", "msg": "gemini-3.5-flash-lite: 命名 14/20 枚, エラー 5", "sec_mean": 16.23}
+{"t": "2026-11-06 06:30:34", "stage": "compare", "msg": "gemini-3-flash-preview: 命名 15/20 枚, エラー 5", "sec_mean": 17.0}
+{"t": "2026-11-06 06:34:47", "stage": "compare", "msg": "gemini-3.8-flash: 命名 0/20 枚, エラー 20", "sec_mean": 58.82}
+{"t": "2026-11-06 06:37:47", "stage": "compare", "msg": "gemini-3-flash-preview+search: 命名 0/20 枚, エラー 20", "sec_mean": 45.02}
+{"t": "2026-11-06 06:37:47", "stage": "compare", "msg": "完了"}
+{"t": "2026-11-06 06:58:41", "stage": "train", "msg": "開始", "argv": ["--modal", "--model", "yolo11s.pt", "--epochs", "80", "--batch", "16"]}
+{"t": "2026-11-06 06:58:47", "stage": "train", "msg": "データセット: train 609 枚 / val 57 枚, 枠 99546 個", "threshold": 0.18}
+{"t": "2026-11-06 06:59:21", "stage": "name", "msg": "開始", "argv": ["--n", "3"]}
+{"t": "2026-11-06 06:59:22", "stage": "name", "msg": "gemini-3-flash-preview で 7091 グループ中 未命名 3 グループを命名（今回の上限 3）"}
+{"t": "2026-11-06 06:59:53", "stage": "name", "msg": "命名 3 グループ / 結果が悪い 0 グループ / 費用 約 $0.002", "error": null}
+{"t": "2026-11-06 06:59:53", "stage": "name", "msg": "完了"}
+{"t": "2026-11-06 07:00:21", "stage": "name", "msg": "開始", "argv": ["--n", "100000"]}
+{"t": "2026-11-06 07:00:21", "stage": "name", "msg": "gemini-3-flash-preview で 7091 グループ中 未命名 7088 グループを命名（今回の上限 100000）"}
+{"t": "2026-11-06 07:01:06", "stage": "name", "msg": "グループ #3: エラー", "error": "HTTP 429: You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini"}
+{"t": "2026-11-06 07:01:07", "stage": "name", "msg": "グループ #5: エラー", "error": "HTTP 429: You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini"}
+{"t": "2026-11-06 07:01:18", "stage": "name", "msg": "グループ #8: エラー", "error": "HTTP 429: You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini"}
+{"t": "2026-11-06 07:01:23", "stage": "name", "msg": "グループ #9: エラー", "error": "HTTP 429: You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini"}
+{"t": "2026-11-06 07:01:23", "stage": "name", "msg": "命名 3 グループ / 結果が悪い 0 グループ / 費用 約 $0.002 / 1日の上限で停止", "error": "HTTP 429: You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini"}
+{"t": "2026-11-06 07:01:23", "stage": "name", "msg": "完了"}
+{"t": "2026-11-06 07:15:12", "stage": "name", "msg": "開始", "argv": ["--n", "100000"]}
+{"t": "2026-11-06 07:15:13", "stage": "name", "msg": "gemini-3-flash-preview で 7091 グループ中 未命名 7085 グループを命名（今回の上限 100000）"}
+{"t": "2026-11-06 07:15:43", "stage": "name", "msg": "グループ #182: エラー", "error": "Extra data: line 5 column 4 (char 78)"}
+{"t": "2026-11-06 07:15:44", "stage": "name", "msg": "グループ #183: エラー", "error": "Extra data: line 5 column 4 (char 85)"}
+{"t": "2026-11-06 07:15:44", "stage": "name", "msg": "グループ #185: エラー", "error": "Extra data: line 5 column 4 (char 83)"}
+{"t": "2026-11-06 07:15:50", "stage": "name", "msg": "グループ #227: エラー", "error": "Extra data: line 5 column 4 (char 90)"}
+{"t": "2026-11-06 07:16:43", "stage": "name", "msg": "エラー: PermissionError(13, 'Permission denied')"}
+{"t": "2026-11-06 07:18:39", "stage": "name", "msg": "開始", "argv": ["--n", "100000"]}
+{"t": "2026-11-06 07:18:40", "stage": "name", "msg": "gemini-3-flash-preview で 7091 グループ中 未命名 6549 グループを命名（今回の上限 100000）"}
+{"t": "2026-11-06 07:19:01", "stage": "train", "msg": "ONNX を書き出し: work/detector.onnx", "run": "yolo11s_960_gpu"}
+{"t": "2026-11-06 07:19:01", "stage": "train", "msg": "完了"}
+{"t": "2026-11-06 07:20:35", "stage": "classify", "msg": "開始", "argv": []}
+{"t": "2026-11-06 07:20:42", "stage": "classify", "msg": "MobileCLIP-S0（アプリと同じ）: Top-1 0.368 / Top-5 0.656（既知 209 枚, 未知 379 枚, 照合先 2574 枚）"}
+{"t": "2026-11-06 07:20:42", "stage": "classify", "msg": "DINOv2-small: Top-1 0.263 / Top-5 0.579（既知 209 枚, 未知 379 枚, 照合先 2574 枚）"}
+{"t": "2026-11-06 07:20:42", "stage": "classify", "msg": "完了"}
+{"t": "2026-11-06 07:21:28", "stage": "infer", "msg": "開始", "argv": []}
+{"t": "2026-11-06 07:21:30", "stage": "infer", "msg": "商品テーブル 4322 件で推論", "detector_imgsz": 960}
+{"t": "2026-11-06 07:24:37", "stage": "name", "msg": "グループ #1974: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Read timed out. (read timeout=120)"}
+{"t": "2026-11-06 07:25:04", "stage": "name", "msg": "エラー: PermissionError(13, 'Permission denied')"}
+{"t": "2026-11-06 07:32:04", "stage": "name", "msg": "開始", "argv": ["--n", "100000"]}
+{"t": "2026-11-06 07:32:06", "stage": "name", "msg": "gemini-3-flash-preview で 7091 グループ中 未命名 4770 グループを命名（今回の上限 100000）"}
+{"t": "2026-11-06 07:32:30", "stage": "compare", "msg": "開始", "argv": ["--methods", "gemma-4-26b-a4b-it,gemma-4-31b-it"]}
+{"t": "2026-11-06 07:32:35", "stage": "compare", "msg": "20 枚を 2 方法で命名", "methods": ["gemma-4-26b-a4b-it", "gemma-4-31b-it"]}
+{"t": "2026-11-06 07:35:41", "stage": "classify", "msg": "開始", "argv": []}
+{"t": "2026-11-06 07:36:14", "stage": "classify", "msg": "MobileCLIP-S0（アプリと同じ）: Top-1 0.315 / Top-5 0.558（既知 575 枚, 未知 751 枚, 照合先 5536 枚）"}
+{"t": "2026-11-06 07:36:16", "stage": "classify", "msg": "DINOv2-small: Top-1 0.266 / Top-5 0.532（既知 575 枚, 未知 751 枚, 照合先 5536 枚）"}
+{"t": "2026-11-06 07:36:17", "stage": "classify", "msg": "MobileCLIP 上位10件 → DINOv2 で再順位: Top-1 0.271 / Top-5 0.557（既知 575 枚, 未知 751 枚, 照合先 5536 枚）"}
+{"t": "2026-11-06 07:36:18", "stage": "classify", "msg": "MobileCLIP と DINOv2 の平均: Top-1 0.285 / Top-5 0.583（既知 575 枚, 未知 751 枚, 照合先 5536 枚）"}
+{"t": "2026-11-06 07:36:19", "stage": "classify", "msg": "完了"}
+{"t": "2026-11-06 07:38:53", "stage": "compare", "msg": "gemma-4-26b-a4b-it: 命名 8/20 枚, エラー 10", "sec_mean": 76.41}
+{"t": "2026-11-06 07:38:53", "stage": "train", "msg": "開始", "argv": ["--modal", "--model", "yolo11n.pt", "--imgsz", "640", "--epochs", "80", "--batch", "32"]}
+{"t": "2026-11-06 07:39:35", "stage": "train", "msg": "データセット: train 609 枚 / val 57 枚, 枠 99546 個", "threshold": 0.18}
+{"t": "2026-11-06 07:40:59", "stage": "name", "msg": "グループ #3718: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Read timed out. (read timeout=120)"}
+{"t": "2026-11-06 07:41:07", "stage": "name", "msg": "グループ #3789: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:08", "stage": "name", "msg": "グループ #3809: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:08", "stage": "name", "msg": "グループ #3811: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:08", "stage": "name", "msg": "グループ #3813: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:08", "stage": "name", "msg": "グループ #3814: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:08", "stage": "name", "msg": "グループ #3815: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:08", "stage": "name", "msg": "グループ #3816: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:09", "stage": "name", "msg": "グループ #3824: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:10", "stage": "name", "msg": "グループ #3840: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:10", "stage": "name", "msg": "グループ #3841: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:10", "stage": "name", "msg": "グループ #3843: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:10", "stage": "name", "msg": "グループ #3850: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:10", "stage": "name", "msg": "グループ #3851: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:10", "stage": "name", "msg": "グループ #3853: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:10", "stage": "name", "msg": "グループ #3854: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:10", "stage": "name", "msg": "グループ #3859: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:10", "stage": "name", "msg": "グループ #3860: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:10", "stage": "name", "msg": "グループ #3862: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:10", "stage": "name", "msg": "グループ #3863: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:10", "stage": "name", "msg": "グループ #3864: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:13", "stage": "name", "msg": "グループ #3904: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:14", "stage": "name", "msg": "グループ #3922: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:15", "stage": "name", "msg": "グループ #3934: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:41:16", "stage": "name", "msg": "グループ #3944: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent?key=<API_KEY>"}
+{"t": "2026-11-06 07:42:54", "stage": "infer", "msg": "評価", "images": 65, "ms_total_mean": 18791, "ms_total_p90": 40900, "ms_detect_mean": 1138, "ms_embed_mean": 17649, "dets_mean": 185.2, "gallery_products": 4322, "cpu": "PC CPU, onnxruntime", "val_precision(B)": 0.711, "val_recall(B)": 0.613, "val_mAP50(B)": 0.677, "val_mAP50-95(B)": 0.407}
+{"t": "2026-11-06 07:42:54", "stage": "infer", "msg": "完了"}
+{"t": "2026-11-06 07:43:05", "stage": "compare", "msg": "gemma-4-31b-it: 命名 5/20 枚, エラー 10", "sec_mean": 45.61}
+{"t": "2026-11-06 07:43:05", "stage": "compare", "msg": "完了"}
+{"t": "2026-11-06 07:44:14", "stage": "name", "msg": "開始", "argv": ["--n", "100000"]}
+{"t": "2026-11-06 07:44:14", "stage": "name", "msg": "gemini-3-flash-preview で 7091 グループ中 未命名 2375 グループを命名（今回の上限 100000）"}
+{"t": "2026-11-06 07:47:37", "stage": "train", "msg": "開始", "argv": ["--modal", "--model", "yolo11n.pt", "--imgsz", "640", "--epochs", "80", "--batch", "32"]}
+{"t": "2026-11-06 07:47:39", "stage": "name", "msg": "グループ #5145: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Read timed out. (read timeout=120)"}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5244: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5245: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5246: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5247: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5248: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5249: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5250: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5251: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5252: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5253: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5254: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5255: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5256: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5257: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5258: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5259: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5260: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5261: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5262: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5263: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5264: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5265: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5266: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5267: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5268: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5269: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5270: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5271: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5272: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5273: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:44", "stage": "name", "msg": "グループ #5274: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:47:56", "stage": "train", "msg": "データセット: train 609 枚 / val 57 枚, 枠 99546 個", "threshold": 0.18}
+{"t": "2026-11-06 07:48:26", "stage": "name", "msg": "グループ #5298: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Read timed out. (read timeout=120)"}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6301: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6304: エラー", "error": "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))"}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6305: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6306: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6307: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6308: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6309: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6310: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6311: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6312: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6313: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6314: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6315: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6316: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6317: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6318: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6319: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6320: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6321: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6322: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6323: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6324: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6325: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6326: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6327: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6328: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6329: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6330: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6331: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6332: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6333: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6334: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:49:40", "stage": "name", "msg": "グループ #6335: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded with url: /v1beta/models/gemini-3-flash-preview:generateContent (Caused by SSLError(SSLEOFError(8, '[SSL: "}
+{"t": "2026-11-06 07:50:50", "stage": "name", "msg": "エラー: PermissionError(13, 'Permission denied')"}
+{"t": "2026-11-06 07:55:26", "stage": "train", "msg": "ONNX を書き出し: work/train/yolo11n_640_gpu/model.onnx（推論で使用）", "run": "yolo11n_640_gpu"}
+{"t": "2026-11-06 07:55:26", "stage": "train", "msg": "完了"}
+{"t": "2026-11-06 07:55:56", "stage": "genre", "msg": "開始", "argv": []}
+{"t": "2026-11-06 07:55:56", "stage": "genre", "msg": "3917 商品中 3917 商品にジャンルを付ける", "genres": ["化粧品", "スマホ用品・雑貨", "文房具", "マスク", "グミ・キャンディ", "チョコ・ビスケット", "パン", "加工食品", "栄養・エナジードリンク", "その他", "アイス", "和洋菓子", "おつまみ・ナッツ", "ソフトドリンク", "酒", "駄菓子・食玩", "スナック菓子", "カップ麺", "紙パック飲料・乳製品", "サンドイッチ・サラダ・惣菜", "チルドデザート", "弁当・おにぎり", "冷凍食品", "ギフトカード", "日用品・衛生用品", "靴下・衣料"]}
+{"t": "2026-11-06 07:56:22", "stage": "genre", "msg": "ジャンル付け 3911/3917 商品", "counts": {"ソフトドリンク": 639, "酒": 406, "紙パック飲料・乳製品": 369, "チョコ・ビスケット": 306, "加工食品": 287, "スナック菓子": 264, "カップ麺": 215, "グミ・キャンディ": 206, "日用品・衛生用品": 186, "チルドデザート": 125, "サンドイッチ・サラダ・惣菜": 117, "栄養・エナジードリンク": 109, "おつまみ・ナッツ": 92, "和洋菓子": 91, "アイス": 82, "駄菓子・食玩": 82, "弁当・おにぎり": 81, "パン": 70, "冷凍食品": 56, "化粧品": 30, "その他": 23, "靴下・衣料": 22, "ギフトカード": 15, "マスク": 14, "スマホ用品・雑貨": 12, "文房具": 12}}
+{"t": "2026-11-06 07:56:23", "stage": "genre", "msg": "完了"}
+{"t": "2026-11-06 07:56:24", "stage": "embed", "msg": "開始", "argv": []}
+{"t": "2026-11-06 07:56:29", "stage": "embed", "msg": "学習データ 10948 枚 / 3300 商品（学習用グループ側・2枚以上の商品）"}
+{"t": "2026-11-06 08:04:48", "stage": "embed", "msg": "埋め込みモデルを書き出し、99017 枚を埋め込み"}
+{"t": "2026-11-06 08:04:48", "stage": "embed", "msg": "完了"}
+{"t": "2026-11-06 08:04:49", "stage": "classify", "msg": "開始", "argv": []}
+{"t": "2026-11-06 08:05:00", "stage": "classify", "msg": "MobileCLIP-S0（アプリと同じ）: Top-1 0.242 / Top-5 0.426（既知 1225 枚, 未知 1387 枚, 照合先 10948 枚）"}
+{"t": "2026-11-06 08:05:02", "stage": "classify", "msg": "DINOv2-small: Top-1 0.218 / Top-5 0.425（既知 1225 枚, 未知 1387 枚, 照合先 10948 枚）"}
+{"t": "2026-11-06 08:05:02", "stage": "classify", "msg": "MobileCLIP 上位10件 → DINOv2 で再順位: Top-1 0.220 / Top-5 0.429（既知 1225 枚, 未知 1387 枚, 照合先 10948 枚）"}
+{"t": "2026-11-06 08:05:04", "stage": "classify", "msg": "MobileCLIP と DINOv2 の平均: Top-1 0.233 / Top-5 0.464（既知 1225 枚, 未知 1387 枚, 照合先 10948 枚）"}
+{"t": "2026-11-06 08:05:05", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px）: Top-1 0.264 / Top-5 0.417（既知 1225 枚, 未知 1387 枚, 照合先 10948 枚）"}
+{"t": "2026-11-06 08:05:57", "stage": "classify", "msg": "MobileCLIP-S0（アプリと同じ） ＋周辺ジャンル補正 λ=0.02: Top-1 0.243（直った 10 / 悪化 8）"}
+{"t": "2026-11-06 08:06:49", "stage": "classify", "msg": "MobileCLIP-S0（アプリと同じ） ＋周辺ジャンル補正 λ=0.05: Top-1 0.238（直った 12 / 悪化 16）"}
+{"t": "2026-11-06 08:07:41", "stage": "classify", "msg": "MobileCLIP-S0（アプリと同じ） ＋周辺ジャンル補正 λ=0.1: Top-1 0.236（直った 14 / 悪化 21）"}
+{"t": "2026-11-06 08:08:28", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺ジャンル補正 λ=0.02: Top-1 0.272（直った 11 / 悪化 2）"}
+{"t": "2026-11-06 08:09:14", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺ジャンル補正 λ=0.05: Top-1 0.275（直った 15 / 悪化 2）"}
+{"t": "2026-11-06 08:10:22", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺ジャンル補正 λ=0.1: Top-1 0.281（直った 23 / 悪化 3）"}
+{"t": "2026-11-06 08:10:22", "stage": "classify", "msg": "完了"}
+{"t": "2026-11-06 08:10:24", "stage": "infer", "msg": "開始", "argv": []}
+{"t": "2026-11-06 08:10:25", "stage": "infer", "msg": "検出 yolo11n_640_gpu（640px）· 埋め込み MobileNetV3-small 128px（学習） · 照合先 13560 枚 / 3917 商品 · 周辺ジャンル補正 λ=0.05"}
+{"t": "2026-11-06 08:12:00", "stage": "infer", "msg": "評価", "images": 65, "ms_total_mean": 955, "ms_total_p90": 1455, "ms_detect_mean": 198, "ms_crop_mean": 408, "ms_embed_mean": 241, "ms_match_mean": 108, "dets_mean": 130.2, "detector": "yolo11n_640_gpu (640px)", "embedder": "MobileNetV3-small 128px（学習）", "gallery_crops": 13560, "gallery_products": 3917, "context_lambda": 0.05, "cpu": "このPCの CPU（12 スレッド）, onnxruntime", "val_precision(B)": 0.686, "val_recall(B)": 0.535, "val_mAP50(B)": 0.615, "val_mAP50-95(B)": 0.339}
+{"t": "2026-11-06 08:12:00", "stage": "infer", "msg": "完了"}
+{"t": "2026-11-06 08:12:02", "stage": "name", "msg": "開始", "argv": ["--n", "100000"]}
+{"t": "2026-11-06 08:12:03", "stage": "name", "msg": "gemini-3-flash-preview で 7091 グループ中 未命名 401 グループを命名（今回の上限 100000）"}
+{"t": "2026-11-06 08:13:19", "stage": "infer", "msg": "開始", "argv": []}
+{"t": "2026-11-06 08:13:19", "stage": "infer", "msg": "検出 yolo11n_640_gpu（640px）· 埋め込み MobileNetV3-small 128px（学習） · 照合先 13600 枚 / 3924 商品 · 周辺ジャンル補正 λ=0.05"}
+{"t": "2026-11-06 08:14:15", "stage": "name", "msg": "グループ #5298: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Read timed out. (read timeout=120)"}
+{"t": "2026-11-06 08:14:26", "stage": "name", "msg": "命名 375 グループ / 結果が悪い 25 グループ / 費用 約 $0.289", "error": null}
+{"t": "2026-11-06 08:14:27", "stage": "name", "msg": "完了"}
+{"t": "2026-11-06 08:14:32", "stage": "infer", "msg": "評価", "images": 65, "ms_total_mean": 599, "ms_total_p90": 802, "ms_detect_mean": 172, "ms_crop_mean": 92, "ms_embed_mean": 200, "ms_match_mean": 134, "dets_mean": 130.1, "detector": "yolo11n_640_gpu (640px)", "embedder": "MobileNetV3-small 128px（学習）", "gallery_crops": 13600, "gallery_products": 3924, "context_lambda": 0.05, "cpu": "このPCの CPU（12 スレッド）, onnxruntime", "val_precision(B)": 0.686, "val_recall(B)": 0.535, "val_mAP50(B)": 0.615, "val_mAP50-95(B)": 0.339}
+{"t": "2026-11-06 08:14:32", "stage": "infer", "msg": "完了"}
+{"t": "2026-11-06 08:15:35", "stage": "infer", "msg": "開始", "argv": []}
+{"t": "2026-11-06 08:15:36", "stage": "infer", "msg": "検出 yolo11n_640_gpu（640px）· 埋め込み MobileNetV3-small 128px（学習） · 照合先 14310 枚 / 4109 商品 · 周辺ジャンル補正 λ=0.05"}
+{"t": "2026-11-06 08:16:43", "stage": "infer", "msg": "評価", "images": 65, "ms_total_mean": 525, "ms_total_p90": 721, "ms_detect_mean": 180, "ms_crop_mean": 91, "ms_embed_mean": 177, "ms_match_mean": 77, "dets_mean": 130.1, "detector": "yolo11n_640_gpu (640px)", "embedder": "MobileNetV3-small 128px（学習）", "gallery_crops": 14310, "gallery_products": 4109, "context_lambda": 0.05, "cpu": "このPCの CPU（12 スレッド）, onnxruntime", "val_precision(B)": 0.686, "val_recall(B)": 0.535, "val_mAP50(B)": 0.615, "val_mAP50-95(B)": 0.339}
+{"t": "2026-11-06 08:16:43", "stage": "infer", "msg": "完了"}
+{"t": "2026-11-06 08:16:54", "stage": "infer", "msg": "開始", "argv": []}
+{"t": "2026-11-06 08:16:55", "stage": "infer", "msg": "検出 yolo11n_640_gpu（640px）· 埋め込み MobileNetV3-small 128px（学習） · 照合先 14310 枚 / 4109 商品 · 周辺ジャンル補正 λ=0.1"}
+{"t": "2026-11-06 08:18:02", "stage": "infer", "msg": "評価", "images": 65, "ms_total_mean": 530, "ms_total_p90": 778, "ms_detect_mean": 175, "ms_crop_mean": 91, "ms_embed_mean": 183, "ms_match_mean": 80, "dets_mean": 130.1, "detector": "yolo11n_640_gpu (640px)", "embedder": "MobileNetV3-small 128px（学習）", "gallery_crops": 14310, "gallery_products": 4109, "context_lambda": 0.1, "cpu": "このPCの CPU（12 スレッド）, onnxruntime", "val_precision(B)": 0.686, "val_recall(B)": 0.535, "val_mAP50(B)": 0.615, "val_mAP50-95(B)": 0.339}
+{"t": "2026-11-06 08:18:02", "stage": "infer", "msg": "完了"}
+{"t": "2026-11-06 08:34:34", "stage": "genre", "msg": "開始", "argv": []}
+{"t": "2026-11-06 08:34:34", "stage": "genre", "msg": "4109 商品中 198 商品に genre を付ける", "cats": 26}
+{"t": "2026-11-06 08:34:42", "stage": "genre", "msg": "genre 付け 4108/4109 商品", "counts": {"ソフトドリンク": 664, "酒": 448, "紙パック飲料・乳製品": 376, "チョコ・ビスケット": 332, "加工食品": 294, "スナック菓子": 281, "グミ・キャンディ": 224, "カップ麺": 219, "日用品・衛生用品": 195, "サンドイッチ・サラダ・惣菜": 127, "チルドデザート": 126, "栄養・エナジードリンク": 109, "和洋菓子": 101, "おつまみ・ナッツ": 96, "弁当・おにぎり": 86, "アイス": 82, "駄菓子・食玩": 82, "パン": 75, "冷凍食品": 56, "化粧品": 30, "その他": 28, "靴下・衣料": 22, "ギフトカード": 15, "マスク": 15, "スマホ用品・雑貨": 13, "文房具": 12}}
+{"t": "2026-11-06 08:34:42", "stage": "genre", "msg": "完了"}
+{"t": "2026-11-06 08:34:44", "stage": "genre", "msg": "開始", "argv": ["--level", "fine"]}
+{"t": "2026-11-06 08:34:44", "stage": "genre", "msg": "4109 商品中 4109 商品に fine を付ける", "cats": 52}
+{"t": "2026-11-06 08:35:12", "stage": "genre", "msg": "fine 付け 4102/4109 商品", "counts": {"ポテトチップス・スナック": 240, "レトルト・缶詰・インスタント": 228, "乳飲料・ヨーグルト飲料": 204, "チューハイ・サワー・ハイボール": 201, "チョコレート": 199, "果汁・野菜ジュース": 182, "カップ麺": 180, "コーヒー": 168, "紅茶": 151, "惣菜・サラダ": 141, "キャンディ・ガム・タブレット": 129, "炭酸飲料": 110, "グミ": 109, "洋菓子・ケーキ": 104, "麦茶・ほうじ茶・その他のお茶": 98, "ワイン・洋酒": 98, "ビスケット・クッキー": 89, "ナッツ・おつまみ・珍味": 82, "アイス": 81, "ビール類": 79, "日本酒・焼酎": 74, "チルドデザート・ヨーグルト": 67, "駄菓子・食玩": 67, "洗剤・日用雑貨": 64, "菓子パン": 64, "調味料": 63, "ティッシュ・生理用品・紙製品": 58, "和菓子": 58, "シリアル・栄養補助食品": 57, "おにぎり": 54, "水": 53, "緑茶": 53, "冷凍食品": 51, "栄養ドリンク": 44, "せんべい・米菓": 44, "スポーツ・機能性飲料": 39, "ヘアケア・ボディケア": 39, "エナジードリンク": 38, "ギフトカード・その他": 33, "弁当": 29, "スキンケア": 28, "医薬品・救急用品": 25, "衣料・靴下": 22, "サンドイッチ": 16, "マスク": 15, "豆乳": 15, "文房具": 13, "オーラルケア": 12, "電池・スマホ用品・雑貨": 12, "食パン・調理パン": 11, "袋麺": 8, "メイク化粧品": 3}}
+{"t": "2026-11-06 08:35:12", "stage": "genre", "msg": "完了"}
+{"t": "2026-11-06 08:35:47", "stage": "classify", "msg": "開始", "argv": []}
+{"t": "2026-11-06 08:36:10", "stage": "classify", "msg": "MobileCLIP-S0（アプリと同じ）: Top-1 0.251 / Top-5 0.436（既知 1311 枚, 未知 1457 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 08:36:12", "stage": "classify", "msg": "DINOv2-small: Top-1 0.223 / Top-5 0.431（既知 1311 枚, 未知 1457 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 08:36:13", "stage": "classify", "msg": "MobileCLIP 上位10件 → DINOv2 で再順位: Top-1 0.222 / Top-5 0.437（既知 1311 枚, 未知 1457 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 08:36:15", "stage": "classify", "msg": "MobileCLIP と DINOv2 の平均: Top-1 0.234 / Top-5 0.470（既知 1311 枚, 未知 1457 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 08:36:17", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px）: Top-1 0.258 / Top-5 0.414（既知 1311 枚, 未知 1457 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 08:37:17", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.0: Top-1 0.275（直った 28 / 悪化 6）"}
+{"t": "2026-11-06 08:37:17", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.05: Top-1 0.274（直った 24 / 悪化 3）"}
+{"t": "2026-11-06 08:37:17", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.1: Top-1 0.275（直った 29 / 悪化 7）"}
+{"t": "2026-11-06 08:37:17", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.05: Top-1 0.278（直った 32 / 悪化 6）"}
+{"t": "2026-11-06 08:37:17", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.05: Top-1 0.278（直った 33 / 悪化 7）"}
+{"t": "2026-11-06 08:37:17", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.1: Top-1 0.277（直った 35 / 悪化 10）"}
+{"t": "2026-11-06 08:37:17", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.1: Top-1 0.275（直った 31 / 悪化 8）"}
+{"t": "2026-11-06 08:37:17", "stage": "classify", "msg": "完了"}
+{"t": "2026-11-06 08:37:28", "stage": "infer", "msg": "開始", "argv": []}
+{"t": "2026-11-06 08:37:29", "stage": "infer", "msg": "検出 yolo11n_640_gpu（640px）· 埋め込み MobileNetV3-small 128px（学習） · 照合先 14310 枚 / 4109 商品 · 周辺カテゴリ補正 λ(ジャンル, 細分類)=(0.05, 0.05)"}
+{"t": "2026-11-06 08:38:40", "stage": "infer", "msg": "評価", "images": 65, "ms_total_mean": 535, "ms_total_p90": 749, "ms_detect_mean": 141, "ms_crop_mean": 90, "ms_embed_mean": 224, "ms_match_mean": 79, "dets_mean": 130.1, "detector": "yolo11n_640_gpu (640px)", "embedder": "MobileNetV3-small 128px（学習）", "gallery_crops": 14310, "gallery_products": 4109, "context_lambda": [0.05, 0.05], "cpu": "このPCの CPU（12 スレッド）, onnxruntime", "val_precision(B)": 0.686, "val_recall(B)": 0.535, "val_mAP50(B)": 0.615, "val_mAP50-95(B)": 0.339}
+{"t": "2026-11-06 08:38:40", "stage": "infer", "msg": "完了"}
+{"t": "2026-11-06 13:34:56", "stage": "category", "msg": "開始", "argv": []}
+{"t": "2026-11-06 13:34:56", "stage": "category", "msg": "4109 商品 / 53 細分類。4109 商品を振り分ける"}
+{"t": "2026-11-06 13:36:20", "stage": "category", "msg": "カテゴリ付け 4084/4109 商品 → 323 カテゴリ（一覧 325）", "missing": 25, "renamed": ["おにぎり", "アーモンドミルク", "ゼリー飲料", "ソフトキャンディ", "フルーツ・野菜", "ミルクティー", "柿の種", "栄養ドリンク"]}
+{"t": "2026-11-06 13:36:20", "stage": "category", "msg": "完了"}
+{"t": "2026-11-06 13:39:05", "stage": "embed", "msg": "開始", "argv": []}
+{"t": "2026-11-06 13:39:14", "stage": "embed", "msg": "学習データ 11542 枚 / 277 カテゴリ（学習用グループ側・2枚以上のカテゴリ）"}
+{"t": "2026-11-06 13:49:54", "stage": "embed", "msg": "埋め込みモデルを書き出し、99017 枚を埋め込み"}
+{"t": "2026-11-06 13:49:54", "stage": "embed", "msg": "完了"}
+{"t": "2026-11-06 13:50:02", "stage": "classify", "msg": "開始", "argv": []}
+{"t": "2026-11-06 13:50:25", "stage": "classify", "msg": "MobileCLIP-S0（アプリと同じ）: Top-1 0.452 / Top-5 0.670（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 13:50:27", "stage": "classify", "msg": "DINOv2-small: Top-1 0.462 / Top-5 0.679（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 13:50:28", "stage": "classify", "msg": "MobileCLIP 上位10件 → DINOv2 で再順位: Top-1 0.458 / Top-5 0.667（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 13:50:30", "stage": "classify", "msg": "MobileCLIP と DINOv2 の平均: Top-1 0.484 / Top-5 0.710（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 13:50:31", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px）: Top-1 0.471 / Top-5 0.619（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 13:51:54", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.0: Top-1 0.506（直った 115 / 悪化 20）"}
+{"t": "2026-11-06 13:51:54", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.05: Top-1 0.509（直った 121 / 悪化 18）"}
+{"t": "2026-11-06 13:51:54", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.1: Top-1 0.521（直った 163 / 悪化 25）"}
+{"t": "2026-11-06 13:51:54", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.05: Top-1 0.517（直った 152 / 悪化 27）"}
+{"t": "2026-11-06 13:51:54", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.05: Top-1 0.520（直った 165 / 悪化 30）"}
+{"t": "2026-11-06 13:51:54", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.1: Top-1 0.523（直った 180 / 悪化 38）"}
+{"t": "2026-11-06 13:51:54", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.1: Top-1 0.523（直った 177 / 悪化 35）"}
+{"t": "2026-11-06 13:51:54", "stage": "classify", "msg": "完了"}
+{"t": "2026-11-06 13:51:56", "stage": "infer", "msg": "開始", "argv": []}
+{"t": "2026-11-06 13:51:57", "stage": "infer", "msg": "検出 yolo11n_640_gpu（640px）· 埋め込み MobileNetV3-small 128px（学習） · 照合先 14310 枚 / 279 商品 · 周辺カテゴリ補正 λ(ジャンル, 細分類)=(0.05, 0.05)"}
+{"t": "2026-11-06 13:51:57", "stage": "infer", "msg": "エラー: FileNotFoundError(2, 'The system cannot find the path specified')"}
+{"t": "2026-11-06 13:52:29", "stage": "infer", "msg": "開始", "argv": []}
+{"t": "2026-11-06 13:52:29", "stage": "infer", "msg": "検出 yolo11n_640_gpu（640px）· 埋め込み MobileNetV3-small 128px（学習） · 照合先 14310 枚 / 279 商品 · 周辺カテゴリ補正 λ(ジャンル, 細分類)=(0.05, 0.05)"}
+{"t": "2026-11-06 13:54:02", "stage": "infer", "msg": "評価", "images": 57, "ms_total_mean": 706, "ms_total_p90": 746, "ms_detect_mean": 216, "ms_crop_mean": 151, "ms_embed_mean": 289, "ms_match_mean": 50, "dets_mean": 130.4, "detector": "yolo11n_640_gpu (640px)", "embedder": "MobileNetV3-small 128px（学習）", "gallery_crops": 14310, "gallery_products": 279, "context_lambda": [0.05, 0.05], "cpu": "このPCの CPU（12 スレッド）, onnxruntime", "val_precision(B)": 0.686, "val_recall(B)": 0.535, "val_mAP50(B)": 0.615, "val_mAP50-95(B)": 0.339}
+{"t": "2026-11-06 13:54:02", "stage": "infer", "msg": "完了"}
+{"t": "2026-11-06 14:13:57", "stage": "embed", "msg": "開始", "argv": []}
+{"t": "2026-11-06 14:14:06", "stage": "embed", "msg": "学習データ 11542 枚 / 277 カテゴリ（学習用グループ側・2枚以上のカテゴリ）"}
+{"t": "2026-11-06 14:22:38", "stage": "embed", "msg": "埋め込みモデルを書き出し、99017 枚を埋め込み"}
+{"t": "2026-11-06 14:22:38", "stage": "embed", "msg": "完了"}
+{"t": "2026-11-06 14:22:40", "stage": "classify", "msg": "開始", "argv": []}
+{"t": "2026-11-06 14:23:05", "stage": "classify", "msg": "MobileCLIP-S0（アプリと同じ）: Top-1 0.452 / Top-5 0.670（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 14:23:07", "stage": "classify", "msg": "DINOv2-small: Top-1 0.462 / Top-5 0.679（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 14:23:08", "stage": "classify", "msg": "MobileCLIP 上位10件 → DINOv2 で再順位: Top-1 0.458 / Top-5 0.667（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 14:23:10", "stage": "classify", "msg": "MobileCLIP と DINOv2 の平均: Top-1 0.484 / Top-5 0.710（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 14:23:12", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px）: Top-1 0.448 / Top-5 0.641（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 14:24:25", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.0: Top-1 0.482（直った 124 / 悪化 32）"}
+{"t": "2026-11-06 14:24:25", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.05: Top-1 0.486（直った 130 / 悪化 27）"}
+{"t": "2026-11-06 14:24:25", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.1: Top-1 0.493（直った 166 / 悪化 42）"}
+{"t": "2026-11-06 14:24:25", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.05: Top-1 0.494（直った 161 / 悪化 35）"}
+{"t": "2026-11-06 14:24:25", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.05: Top-1 0.494（直った 172 / 悪化 45）"}
+{"t": "2026-11-06 14:24:25", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.1: Top-1 0.497（直った 191 / 悪化 55）"}
+{"t": "2026-11-06 14:24:25", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.1: Top-1 0.495（直った 180 / 悪化 50）"}
+{"t": "2026-11-06 14:24:25", "stage": "classify", "msg": "完了"}
+{"t": "2026-11-06 14:24:42", "stage": "embed", "msg": "開始", "argv": []}
+{"t": "2026-11-06 14:24:48", "stage": "embed", "msg": "学習データ 11542 枚 / 277 カテゴリ（学習用グループ側・2枚以上のカテゴリ）"}
+{"t": "2026-11-06 14:32:55", "stage": "embed", "msg": "埋め込みモデルを書き出し、99017 枚を埋め込み"}
+{"t": "2026-11-06 14:32:55", "stage": "embed", "msg": "完了"}
+{"t": "2026-11-06 14:32:56", "stage": "classify", "msg": "開始", "argv": []}
+{"t": "2026-11-06 14:33:09", "stage": "classify", "msg": "MobileCLIP-S0（アプリと同じ）: Top-1 0.452 / Top-5 0.670（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 14:33:11", "stage": "classify", "msg": "DINOv2-small: Top-1 0.462 / Top-5 0.679（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 14:33:11", "stage": "classify", "msg": "MobileCLIP 上位10件 → DINOv2 で再順位: Top-1 0.458 / Top-5 0.667（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 14:33:13", "stage": "classify", "msg": "MobileCLIP と DINOv2 の平均: Top-1 0.484 / Top-5 0.710（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 14:33:15", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px）: Top-1 0.469 / Top-5 0.648（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 14:34:28", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.0: Top-1 0.498（直った 108 / 悪化 26）"}
+{"t": "2026-11-06 14:34:28", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.05: Top-1 0.505（直った 118 / 悪化 18）"}
+{"t": "2026-11-06 14:34:28", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.1: Top-1 0.509（直った 147 / 悪化 34）"}
+{"t": "2026-11-06 14:34:28", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.05: Top-1 0.506（直った 135 / 悪化 32）"}
+{"t": "2026-11-06 14:34:28", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.05: Top-1 0.507（直った 147 / 悪化 40）"}
+{"t": "2026-11-06 14:34:28", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.1: Top-1 0.508（直った 162 / 悪化 52）"}
+{"t": "2026-11-06 14:34:28", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.1: Top-1 0.510（直った 157 / 悪化 41）"}
+{"t": "2026-11-06 14:34:28", "stage": "classify", "msg": "完了"}
+{"t": "2026-11-06 14:43:25", "stage": "classify", "msg": "開始", "argv": []}
+{"t": "2026-11-06 14:43:36", "stage": "classify", "msg": "MobileCLIP-S0（アプリと同じ）: Top-1 0.452 / Top-5 0.670（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 14:43:38", "stage": "classify", "msg": "DINOv2-small: Top-1 0.462 / Top-5 0.679（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 14:43:38", "stage": "classify", "msg": "MobileCLIP 上位10件 → DINOv2 で再順位: Top-1 0.458 / Top-5 0.667（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 14:43:40", "stage": "classify", "msg": "MobileCLIP と DINOv2 の平均: Top-1 0.484 / Top-5 0.710（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 14:43:42", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px）: Top-1 0.469 / Top-5 0.648（既知 2764 枚, 未知 4 枚, 照合先 11542 枚）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.0 カテゴリλ=0.0: Top-1 0.469（直った 0 / 悪化 0）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.0 カテゴリλ=0.05: Top-1 0.518（直った 174 / 悪化 38）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.0 カテゴリλ=0.1: Top-1 0.522（直った 214 / 悪化 66）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.0 カテゴリλ=0.2: Top-1 0.527（直った 253 / 悪化 90）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.05 カテゴリλ=0.0: Top-1 0.505（直った 118 / 悪化 18）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.05 カテゴリλ=0.05: Top-1 0.527（直った 211 / 悪化 48）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.05 カテゴリλ=0.1: Top-1 0.530（直った 238 / 悪化 67）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.05 カテゴリλ=0.2: Top-1 0.528（直った 256 / 悪化 91）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.1 カテゴリλ=0.0: Top-1 0.509（直った 147 / 悪化 34）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.1 カテゴリλ=0.05: Top-1 0.531（直った 228 / 悪化 55）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.1 カテゴリλ=0.1: Top-1 0.535（直った 254 / 悪化 69）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.1 カテゴリλ=0.2: Top-1 0.526（直った 255 / 悪化 95）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.2 カテゴリλ=0.0: Top-1 0.512（直った 170 / 悪化 51）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.2 カテゴリλ=0.05: Top-1 0.531（直った 240 / 悪化 67）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.2 カテゴリλ=0.1: Top-1 0.531（直った 254 / 悪化 81）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.2 カテゴリλ=0.2: Top-1 0.526（直った 258 / 悪化 99）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.4 カテゴリλ=0.0: Top-1 0.508（直った 174 / 悪化 64）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.4 カテゴリλ=0.05: Top-1 0.527（直った 239 / 悪化 76）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.4 カテゴリλ=0.1: Top-1 0.531（直った 259 / 悪化 87）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.4 カテゴリλ=0.2: Top-1 0.524（直った 262 / 悪化 108）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.0 カテゴリλ=0.0: Top-1 0.495（直った 88 / 悪化 15）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.0 カテゴリλ=0.05: Top-1 0.520（直った 190 / 悪化 47）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.0 カテゴリλ=0.1: Top-1 0.528（直った 231 / 悪化 67）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.0 カテゴリλ=0.2: Top-1 0.527（直った 255 / 悪化 92）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.05 カテゴリλ=0.0: Top-1 0.506（直った 135 / 悪化 32）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.05 カテゴリλ=0.05: Top-1 0.529（直った 222 / 悪化 54）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.05 カテゴリλ=0.1: Top-1 0.535（直った 252 / 悪化 68）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.05 カテゴリλ=0.2: Top-1 0.527（直った 256 / 悪化 94）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.1 カテゴリλ=0.0: Top-1 0.510（直った 157 / 悪化 41）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.1 カテゴリλ=0.05: Top-1 0.532（直った 235 / 悪化 60）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.1 カテゴリλ=0.1: Top-1 0.535（直った 256 / 悪化 73）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.1 カテゴリλ=0.2: Top-1 0.527（直った 259 / 悪化 96）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.2 カテゴリλ=0.0: Top-1 0.508（直った 171 / 悪化 61）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.2 カテゴリλ=0.05: Top-1 0.529（直った 240 / 悪化 72）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.2 カテゴリλ=0.1: Top-1 0.532（直った 259 / 悪化 83）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.2 カテゴリλ=0.2: Top-1 0.527（直った 261 / 悪化 100）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.4 カテゴリλ=0.0: Top-1 0.508（直った 178 / 悪化 69）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.4 カテゴリλ=0.05: Top-1 0.526（直った 240 / 悪化 81）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.4 カテゴリλ=0.1: Top-1 0.531（直った 262 / 悪化 90）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.4 カテゴリλ=0.2: Top-1 0.525（直った 264 / 悪化 109）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.0 カテゴリλ=0.0: Top-1 0.498（直った 108 / 悪化 26）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.0 カテゴリλ=0.05: Top-1 0.526（直った 209 / 悪化 49）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.0 カテゴリλ=0.1: Top-1 0.532（直った 242 / 悪化 66）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.0 カテゴリλ=0.2: Top-1 0.527（直った 257 / 悪化 96）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.05 カテゴリλ=0.0: Top-1 0.507（直った 147 / 悪化 40）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.05 カテゴリλ=0.05: Top-1 0.530（直った 229 / 悪化 58）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.05 カテゴリλ=0.1: Top-1 0.535（直った 256 / 悪化 72）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.05 カテゴリλ=0.2: Top-1 0.528（直った 259 / 悪化 94）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.1 カテゴリλ=0.0: Top-1 0.508（直った 162 / 悪化 52）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.1 カテゴリλ=0.05: Top-1 0.530（直った 233 / 悪化 63）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.1 カテゴリλ=0.1: Top-1 0.534（直った 256 / 悪化 76）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.1 カテゴリλ=0.2: Top-1 0.528（直った 260 / 悪化 96）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.2 カテゴリλ=0.0: Top-1 0.507（直った 172 / 悪化 66）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.2 カテゴリλ=0.05: Top-1 0.528（直った 240 / 悪化 76）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.2 カテゴリλ=0.1: Top-1 0.532（直った 259 / 悪化 84）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.2 カテゴリλ=0.2: Top-1 0.527（直った 264 / 悪化 102）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.4 カテゴリλ=0.0: Top-1 0.508（直った 181 / 悪化 73）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.4 カテゴリλ=0.05: Top-1 0.525（直った 242 / 悪化 85）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.4 カテゴリλ=0.1: Top-1 0.530（直った 263 / 悪化 92）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.4 カテゴリλ=0.2: Top-1 0.524（直った 263 / 悪化 111）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.0 カテゴリλ=0.0: Top-1 0.500（直った 125 / 悪化 37）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.0 カテゴリλ=0.05: Top-1 0.525（直った 216 / 悪化 59）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.0 カテゴリλ=0.1: Top-1 0.531（直った 247 / 悪化 73）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.0 カテゴリλ=0.2: Top-1 0.527（直った 261 / 悪化 98）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.05 カテゴリλ=0.0: Top-1 0.505（直った 150 / 悪化 50）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.05 カテゴリλ=0.05: Top-1 0.528（直った 230 / 悪化 65）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.05 カテゴリλ=0.1: Top-1 0.532（直った 252 / 悪化 77）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.05 カテゴリλ=0.2: Top-1 0.527（直った 262 / 悪化 99）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.1 カテゴリλ=0.0: Top-1 0.507（直った 163 / 悪化 58）"}
+{"t": "2026-11-06 14:49:23", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.1 カテゴリλ=0.05: Top-1 0.528（直った 235 / 悪化 70）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.1 カテゴリλ=0.1: Top-1 0.533（直った 257 / 悪化 79）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.1 カテゴリλ=0.2: Top-1 0.526（直った 261 / 悪化 101）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.2 カテゴリλ=0.0: Top-1 0.507（直った 175 / 悪化 69）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.2 カテゴリλ=0.05: Top-1 0.527（直った 240 / 悪化 79）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.2 カテゴリλ=0.1: Top-1 0.530（直った 258 / 悪化 89）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.2 カテゴリλ=0.2: Top-1 0.526（直った 262 / 悪化 104）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.4 カテゴリλ=0.0: Top-1 0.507（直った 183 / 悪化 77）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.4 カテゴリλ=0.05: Top-1 0.524（直った 243 / 悪化 89）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.4 カテゴリλ=0.1: Top-1 0.529（直った 262 / 悪化 95）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.4 カテゴリλ=0.2: Top-1 0.524（直った 266 / 悪化 114）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.0 カテゴリλ=0.0: Top-1 0.497（直った 131 / 悪化 51）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.0 カテゴリλ=0.05: Top-1 0.525（直った 223 / 悪化 67）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.0 カテゴリλ=0.1: Top-1 0.530（直った 250 / 悪化 80）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.0 カテゴリλ=0.2: Top-1 0.527（直った 262 / 悪化 100）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.05 カテゴリλ=0.0: Top-1 0.505（直った 161 / 悪化 61）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.05 カテゴリλ=0.05: Top-1 0.528（直った 238 / 悪化 73）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.05 カテゴリλ=0.1: Top-1 0.532（直った 257 / 悪化 82）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.05 カテゴリλ=0.2: Top-1 0.527（直った 263 / 悪化 100）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.1 カテゴリλ=0.0: Top-1 0.507（直った 172 / 悪化 66）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.1 カテゴリλ=0.05: Top-1 0.527（直った 237 / 悪化 74）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.1 カテゴリλ=0.1: Top-1 0.533（直った 260 / 悪化 82）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.1 カテゴリλ=0.2: Top-1 0.527（直った 262 / 悪化 101）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.2 カテゴリλ=0.0: Top-1 0.507（直った 179 / 悪化 73）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.2 カテゴリλ=0.05: Top-1 0.527（直った 244 / 悪化 82）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.2 カテゴリλ=0.1: Top-1 0.530（直った 262 / 悪化 92）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.2 カテゴリλ=0.2: Top-1 0.525（直った 262 / 悪化 106）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.4 カテゴリλ=0.0: Top-1 0.505（直った 182 / 悪化 80）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.4 カテゴリλ=0.05: Top-1 0.524（直った 241 / 悪化 88）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.4 カテゴリλ=0.1: Top-1 0.529（直った 261 / 悪化 94）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.4 カテゴリλ=0.2: Top-1 0.522（直った 262 / 悪化 113）"}
+{"t": "2026-11-06 14:49:24", "stage": "classify", "msg": "完了"}
+{"t": "2026-11-06 15:05:42", "stage": "embed", "msg": "開始", "argv": []}
+{"t": "2026-11-06 15:05:53", "stage": "embed", "msg": "学習データ 9992 枚 / 274 カテゴリ（学習用グループ側・2枚以上のカテゴリ）"}
+{"t": "2026-11-06 15:14:18", "stage": "embed", "msg": "埋め込みモデルを書き出し、99017 枚を埋め込み"}
+{"t": "2026-11-06 15:14:18", "stage": "embed", "msg": "完了"}
+{"t": "2026-11-06 16:18:57", "stage": "detect", "msg": "GPU で 305 枚を処理（649 枚は処理済み）", "gpu": ["L4", "A10G", "T4", "L40S"], "model": "google/owlv2-base-patch16-ensemble"}
+{"t": "2026-11-06 16:19:30", "stage": "detect", "msg": "689/954 枚", "elapsed_s": 34}
+{"t": "2026-11-06 16:19:45", "stage": "detect", "msg": "729/954 枚", "elapsed_s": 49}
+{"t": "2026-11-06 16:20:26", "stage": "detect", "msg": "通信エラーで再送 (1/3): 残り 39 枚", "error": "ConnectionError('[Errno 11001] getaddrinfo failed')"}
+{"t": "2026-11-06 16:52:56", "stage": "detect", "msg": "GPU で 224 枚を処理（730 枚は処理済み）", "gpu": ["L4", "A10G", "T4", "L40S"], "model": "google/owlv2-base-patch16-ensemble"}
+{"t": "2026-11-06 16:53:47", "stage": "detect", "msg": "770/954 枚", "elapsed_s": 51}
+{"t": "2026-11-06 16:56:21", "stage": "detect", "msg": "810/954 枚", "elapsed_s": 206}
+{"t": "2026-11-06 16:58:30", "stage": "detect", "msg": "850/954 枚", "elapsed_s": 334}
+{"t": "2026-11-06 16:59:49", "stage": "detect", "msg": "890/954 枚", "elapsed_s": 413}
+{"t": "2026-11-06 17:00:23", "stage": "detect", "msg": "930/954 枚", "elapsed_s": 447}
+{"t": "2026-11-06 17:00:42", "stage": "detect", "msg": "954/954 枚", "elapsed_s": 466}
+{"t": "2026-11-06 17:00:42", "stage": "detect", "msg": "GPU 処理完了 224 枚 / 466 秒"}
+{"t": "2026-11-06 17:02:03", "stage": "crops", "msg": "開始", "argv": ["--modal"]}
+{"t": "2026-11-06 17:06:18", "stage": "crops", "msg": "切り抜き 131989 個（971 画像）/ ルールで除外 610 個 / 埋め込みが必要 32363 個", "threshold": 0.18, "reasons": {"小さすぎ": 377, "手動で誤検出": 2, "極端に細長い": 201, "ほぼ無地": 30}}
+{"t": "2026-11-06 17:06:24", "stage": "crops", "msg": "エラー: FileNotFoundError('local file C:\\\\Users\\\\kfuho\\\\a\\\\repos\\\\df-2026-t089\\\\app\\\\src\\\\main\\\\assets\\\\mobileclip_s0_vision.onnx does not exist')"}
+{"t": "2026-11-06 17:11:17", "stage": "crops", "msg": "開始", "argv": ["--modal"]}
+{"t": "2026-11-06 17:14:32", "stage": "crops", "msg": "切り抜き 131989 個（971 画像）/ ルールで除外 611 個 / 埋め込みが必要 32362 個", "threshold": 0.18, "reasons": {"小さすぎ": 377, "手動で誤検出": 2, "極端に細長い": 201, "ほぼ無地": 31}}
+{"t": "2026-11-06 17:19:07", "stage": "crops", "msg": "Modal で 305/305 画像を埋め込み", "providers": ["CUDAExecutionProvider"]}
+{"t": "2026-11-06 17:19:53", "stage": "crops", "msg": "埋め込み済み 131378 個"}
+{"t": "2026-11-06 17:19:53", "stage": "crops", "msg": "完了"}
+{"t": "2026-11-06 17:20:51", "stage": "judge", "msg": "開始", "argv": []}
+{"t": "2026-11-06 17:20:56", "stage": "judge", "msg": "131378 個中 32882 個を特定不能と判定", "max_bad": 0.7, "dropped_by": {"a shelf edge": 10393, "an empty store shelf": 6362, "a wall": 3552, "a person": 2790, "rows of many different products": 2400, "a refrigerator door": 2080, "a store sign": 2040, "a floor": 1287, "a price tag": 1085, "a ceiling": 607, "an advertising poster": 273, "a packaged food": 8, "a product hanging on a hook": 2, "a cosmetic product": 2, "a photo of a product package with a label": 1}}
+{"t": "2026-11-06 17:20:56", "stage": "judge", "msg": "完了"}
+{"t": "2026-11-06 17:21:12", "stage": "group", "msg": "開始", "argv": ["--modal"]}
+{"t": "2026-11-06 17:21:27", "stage": "group", "msg": "Modal GPU で 23559 個を埋め込み（305 画像）"}
+{"t": "2026-11-06 18:04:23", "stage": "group", "msg": "開始", "argv": ["--modal"]}
+{"t": "2026-11-06 18:04:27", "stage": "group", "msg": "Modal GPU で 23559 個を埋め込み（305 画像）"}
+{"t": "2026-11-06 18:07:42", "stage": "group", "msg": "通信エラーで再送 (1/3): 残り 40 画像", "error": "ConnectionError('[Errno 11001] getaddrinfo failed')"}
+{"t": "2026-11-06 18:16:49", "stage": "group", "msg": "開始", "argv": ["--modal"]}
+{"t": "2026-11-06 18:17:11", "stage": "group", "msg": "Modal GPU で 4316 個を埋め込み（65 画像）"}
+{"t": "2026-11-06 18:18:46", "stage": "group", "msg": "色の特徴を 23559 個計算"}
+{"t": "2026-11-06 18:22:38", "stage": "group", "msg": "10101 グループ（2枚以上）に 22637 個 / 1枚だけ 75859 個", "sim": 0.86, "color": 0.8, "largest": [11, 11, 10, 10, 10, 9, 9, 9, 9, 9]}
+{"t": "2026-11-06 18:22:39", "stage": "group", "msg": "完了"}
+{"t": "2026-11-06 18:23:36", "stage": "name", "msg": "開始", "argv": ["--n", "100000"]}
+{"t": "2026-11-06 18:23:37", "stage": "name", "msg": "命名済みのグループに入った 195 枚に名前を写した"}
+{"t": "2026-11-06 18:23:37", "stage": "name", "msg": "gemini-3-flash-preview で 10101 グループ中 未命名 2985 グループを命名（今回の上限 100000）"}
+{"t": "2026-11-06 18:27:49", "stage": "name", "msg": "グループ #6094: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Read timed out. (read timeout=120)"}
+{"t": "2026-11-06 18:30:37", "stage": "name", "msg": "グループ #7938: エラー", "error": "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Read timed out. (read timeout=120)"}
+{"t": "2026-11-06 18:31:48", "stage": "name", "msg": "命名 2648 グループ / 結果が悪い 335 グループ / 費用 約 $2.114", "error": null}
+{"t": "2026-11-06 18:31:49", "stage": "name", "msg": "完了"}
+{"t": "2026-11-06 18:31:51", "stage": "genre", "msg": "開始", "argv": []}
+{"t": "2026-11-06 18:31:51", "stage": "genre", "msg": "エラー: FileNotFoundError(2, 'No such file or directory')"}
+{"t": "2026-11-06 18:32:23", "stage": "name", "msg": "開始", "argv": ["--n", "100000"]}
+{"t": "2026-11-06 18:32:24", "stage": "name", "msg": "gemini-3-flash-preview で 10101 グループ中 未命名 2 グループを命名（今回の上限 100000）"}
+{"t": "2026-11-06 18:32:49", "stage": "name", "msg": "命名 2 グループ / 結果が悪い 0 グループ / 費用 約 $0.018", "error": null}
+{"t": "2026-11-06 18:32:49", "stage": "name", "msg": "完了"}
+{"t": "2026-11-06 18:32:51", "stage": "genre", "msg": "開始", "argv": []}
+{"t": "2026-11-06 18:32:51", "stage": "genre", "msg": "5102 商品中 994 商品に genre を付ける", "cats": 26}
+{"t": "2026-11-06 18:33:00", "stage": "genre", "msg": "genre 付け 5099/5102 商品", "counts": {"ソフトドリンク": 923, "紙パック飲料・乳製品": 523, "酒": 500, "チョコ・ビスケット": 419, "加工食品": 346, "スナック菓子": 291, "カップ麺": 257, "グミ・キャンディ": 231, "日用品・衛生用品": 227, "チルドデザート": 201, "サンドイッチ・サラダ・惣菜": 154, "和洋菓子": 141, "栄養・エナジードリンク": 129, "パン": 127, "おつまみ・ナッツ": 101, "弁当・おにぎり": 95, "駄菓子・食玩": 89, "アイス": 88, "冷凍食品": 58, "スマホ用品・雑貨": 36, "文房具": 35, "化粧品": 34, "その他": 34, "靴下・衣料": 22, "マスク": 20, "ギフトカード": 18}}
+{"t": "2026-11-06 18:33:00", "stage": "genre", "msg": "完了"}
+{"t": "2026-11-06 18:33:02", "stage": "genre", "msg": "開始", "argv": ["--level", "fine"]}
+{"t": "2026-11-06 18:33:02", "stage": "genre", "msg": "5102 商品中 1000 商品に fine を付ける", "cats": 52}
+{"t": "2026-11-06 18:33:11", "stage": "genre", "msg": "fine 付け 5102/5102 商品", "counts": {"乳飲料・ヨーグルト飲料": 298, "レトルト・缶詰・インスタント": 274, "コーヒー": 257, "ポテトチップス・スナック": 248, "チョコレート": 241, "果汁・野菜ジュース": 240, "チューハイ・サワー・ハイボール": 219, "カップ麺": 204, "紅茶": 180, "惣菜・サラダ": 170, "洋菓子・ケーキ": 165, "チルドデザート・ヨーグルト": 157, "炭酸飲料": 154, "キャンディ・ガム・タブレット": 136, "ビール類": 116, "麦茶・ほうじ茶・その他のお茶": 113, "ビスケット・クッキー": 110, "グミ": 109, "菓子パン": 109, "ワイン・洋酒": 98, "アイス": 87, "ナッツ・おつまみ・珍味": 85, "調味料": 79, "洗剤・日用雑貨": 79, "シリアル・栄養補助食品": 77, "日本酒・焼酎": 74, "和菓子": 74, "駄菓子・食玩": 73, "水": 72, "緑茶": 62, "ティッシュ・生理用品・紙製品": 62, "おにぎり": 61, "エナジードリンク": 53, "冷凍食品": 53, "栄養ドリンク": 45, "せんべい・米菓": 45, "電池・スマホ用品・雑貨": 44, "スポーツ・機能性飲料": 41, "ヘアケア・ボディケア": 41, "弁当": 39, "ギフトカード・その他": 37, "文房具": 35, "スキンケア": 30, "医薬品・救急用品": 26, "豆乳": 24, "衣料・靴下": 22, "マスク": 20, "食パン・調理パン": 19, "サンドイッチ": 17, "オーラルケア": 15, "袋麺": 8, "メイク化粧品": 5}}
+{"t": "2026-11-06 18:33:12", "stage": "genre", "msg": "完了"}
+{"t": "2026-11-06 18:33:13", "stage": "category", "msg": "開始", "argv": []}
+{"t": "2026-11-06 18:33:13", "stage": "category", "msg": "5102 商品 / 52 細分類。1018 商品を振り分ける"}
+{"t": "2026-11-06 18:34:19", "stage": "category", "msg": "カテゴリ付け 5102/5102 商品 → 279 カテゴリ", "missing": 0}
+{"t": "2026-11-06 18:34:19", "stage": "category", "msg": "完了"}
+{"t": "2026-11-06 18:34:21", "stage": "embed", "msg": "開始", "argv": []}
+{"t": "2026-11-06 18:34:35", "stage": "embed", "msg": "学習データ 16740 枚 / 277 カテゴリ（学習用グループ側・2枚以上のカテゴリ）"}
+{"t": "2026-11-06 18:45:27", "stage": "embed", "msg": "埋め込みモデルを書き出し、131378 枚を埋め込み"}
+{"t": "2026-11-06 18:45:27", "stage": "embed", "msg": "完了"}
+{"t": "2026-11-06 18:45:28", "stage": "classify", "msg": "開始", "argv": []}
+{"t": "2026-11-06 18:46:04", "stage": "classify", "msg": "MobileCLIP-S0（アプリと同じ）: Top-1 0.496 / Top-5 0.713（既知 4059 枚, 未知 7 枚, 照合先 16740 枚）"}
+{"t": "2026-11-06 18:46:09", "stage": "classify", "msg": "DINOv2-small: Top-1 0.506 / Top-5 0.733（既知 4059 枚, 未知 7 枚, 照合先 16740 枚）"}
+{"t": "2026-11-06 18:46:09", "stage": "classify", "msg": "MobileCLIP 上位10件 → DINOv2 で再順位: Top-1 0.512 / Top-5 0.710（既知 4059 枚, 未知 7 枚, 照合先 16740 枚）"}
+{"t": "2026-11-06 18:46:13", "stage": "classify", "msg": "MobileCLIP と DINOv2 の平均: Top-1 0.541 / Top-5 0.758（既知 4059 枚, 未知 7 枚, 照合先 16740 枚）"}
+{"t": "2026-11-06 18:46:17", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px）: Top-1 0.517 / Top-5 0.685（既知 4059 枚, 未知 7 枚, 照合先 16740 枚）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.0 カテゴリλ=0.0: Top-1 0.517（直った 0 / 悪化 0）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.0 カテゴリλ=0.05: Top-1 0.552（直った 217 / 悪化 74）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.0 カテゴリλ=0.1: Top-1 0.560（直った 290 / 悪化 113）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.0 カテゴリλ=0.2: Top-1 0.556（直った 323 / 悪化 165）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.05 カテゴリλ=0.0: Top-1 0.541（直った 136 / 悪化 39）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.05 カテゴリλ=0.05: Top-1 0.561（直った 269 / 悪化 89）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.05 カテゴリλ=0.1: Top-1 0.560（直った 304 / 悪化 128）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.05 カテゴリλ=0.2: Top-1 0.556（直った 327 / 悪化 168）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.1 カテゴリλ=0.0: Top-1 0.545（直った 179 / 悪化 64）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.1 カテゴリλ=0.05: Top-1 0.559（直った 284 / 悪化 111）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.1 カテゴリλ=0.1: Top-1 0.559（直った 311 / 悪化 137）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.1 カテゴリλ=0.2: Top-1 0.554（直った 328 / 悪化 176）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.2 カテゴリλ=0.0: Top-1 0.544（直った 203 / 悪化 90）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.2 カテゴリλ=0.05: Top-1 0.559（直った 297 / 悪化 123）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.2 カテゴリλ=0.1: Top-1 0.559（直った 321 / 悪化 151）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.2 カテゴリλ=0.2: Top-1 0.555（直った 338 / 悪化 184）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.4 カテゴリλ=0.0: Top-1 0.541（直った 220 / 悪化 123）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.4 カテゴリλ=0.05: Top-1 0.556（直った 304 / 悪化 146）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.4 カテゴリλ=0.1: Top-1 0.555（直った 320 / 悪化 163）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.4 カテゴリλ=0.2: Top-1 0.553（直った 338 / 悪化 189）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.0 カテゴリλ=0.0: Top-1 0.534（直った 102 / 悪化 30）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.0 カテゴリλ=0.05: Top-1 0.556（直った 248 / 悪化 88）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.0 カテゴリλ=0.1: Top-1 0.560（直った 298 / 悪化 122）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.0 カテゴリλ=0.2: Top-1 0.555（直った 324 / 悪化 169）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.05 カテゴリλ=0.0: Top-1 0.546（直った 173 / 悪化 53）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.05 カテゴリλ=0.05: Top-1 0.562（直った 284 / 悪化 101）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.05 カテゴリλ=0.1: Top-1 0.560（直った 311 / 悪化 135）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.05 カテゴリλ=0.2: Top-1 0.555（直った 327 / 悪化 172）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.1 カテゴリλ=0.0: Top-1 0.547（直った 202 / 悪化 78）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.1 カテゴリλ=0.05: Top-1 0.561（直った 298 / 悪化 118）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.1 カテゴリλ=0.1: Top-1 0.559（直った 315 / 悪化 141）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.1 カテゴリλ=0.2: Top-1 0.553（直った 330 / 悪化 181）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.2 カテゴリλ=0.0: Top-1 0.546（直った 219 / 悪化 100）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.2 カテゴリλ=0.05: Top-1 0.559（直った 305 / 悪化 132）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.2 カテゴリλ=0.1: Top-1 0.558（直った 322 / 悪化 155）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.2 カテゴリλ=0.2: Top-1 0.554（直った 339 / 悪化 187）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.4 カテゴリλ=0.0: Top-1 0.543（直った 233 / 悪化 127）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.4 カテゴリλ=0.05: Top-1 0.558（直った 316 / 悪化 150）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.4 カテゴリλ=0.1: Top-1 0.556（直った 326 / 悪化 166）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.4 カテゴリλ=0.2: Top-1 0.553（直った 337 / 悪化 191）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.0 カテゴリλ=0.0: Top-1 0.537（直った 127 / 悪化 45）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.0 カテゴリλ=0.05: Top-1 0.556（直った 259 / 悪化 98）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.0 カテゴリλ=0.1: Top-1 0.561（直った 306 / 悪化 124）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.0 カテゴリλ=0.2: Top-1 0.555（直った 328 / 悪化 173）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.05 カテゴリλ=0.0: Top-1 0.547（直った 188 / 悪化 65）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.05 カテゴリλ=0.05: Top-1 0.562（直った 290 / 悪化 106）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.05 カテゴリλ=0.1: Top-1 0.559（直った 312 / 悪化 138）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.05 カテゴリλ=0.2: Top-1 0.555（直った 331 / 悪化 176）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.1 カテゴリλ=0.0: Top-1 0.549（直った 214 / 悪化 84）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.1 カテゴリλ=0.05: Top-1 0.560（直った 300 / 悪化 124）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.1 カテゴリλ=0.1: Top-1 0.559（直った 318 / 悪化 147）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.1 カテゴリλ=0.2: Top-1 0.554（直った 334 / 悪化 183）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.2 カテゴリλ=0.0: Top-1 0.549（直った 232 / 悪化 102）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.2 カテゴリλ=0.05: Top-1 0.560（直った 311 / 悪化 134）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.2 カテゴリλ=0.1: Top-1 0.558（直った 326 / 悪化 157）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.2 カテゴリλ=0.2: Top-1 0.554（直った 338 / 悪化 188）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.4 カテゴリλ=0.0: Top-1 0.544（直った 242 / 悪化 130）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.4 カテゴリλ=0.05: Top-1 0.557（直った 318 / 悪化 154）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.4 カテゴリλ=0.1: Top-1 0.557（直った 331 / 悪化 167）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.4 カテゴリλ=0.2: Top-1 0.553（直った 339 / 悪化 191）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.0 カテゴリλ=0.0: Top-1 0.534（直った 140 / 悪化 68）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.0 カテゴリλ=0.05: Top-1 0.556（直った 271 / 悪化 110）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.0 カテゴリλ=0.1: Top-1 0.559（直った 309 / 悪化 135）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.0 カテゴリλ=0.2: Top-1 0.554（直った 331 / 悪化 181）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.05 カテゴリλ=0.0: Top-1 0.545（直った 197 / 悪化 80）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.05 カテゴリλ=0.05: Top-1 0.560（直った 291 / 悪化 115）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.05 カテゴリλ=0.1: Top-1 0.559（直った 314 / 悪化 144）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.05 カテゴリλ=0.2: Top-1 0.553（直った 332 / 悪化 183）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.1 カテゴリλ=0.0: Top-1 0.548（直った 220 / 悪化 94）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.1 カテゴリλ=0.05: Top-1 0.560（直った 306 / 悪化 131）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.1 カテゴリλ=0.1: Top-1 0.559（直った 321 / 悪化 149）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.1 カテゴリλ=0.2: Top-1 0.552（直った 335 / 悪化 191）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.2 カテゴリλ=0.0: Top-1 0.548（直った 236 / 悪化 110）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.2 カテゴリλ=0.05: Top-1 0.560（直った 318 / 悪化 141）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.2 カテゴリλ=0.1: Top-1 0.559（直った 333 / 悪化 163）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.2 カテゴリλ=0.2: Top-1 0.553（直った 344 / 悪化 195）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.4 カテゴリλ=0.0: Top-1 0.544（直った 247 / 悪化 136）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.4 カテゴリλ=0.05: Top-1 0.556（直った 320 / 悪化 159）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.4 カテゴリλ=0.1: Top-1 0.556（直った 334 / 悪化 173）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.2 細分類λ=0.4 カテゴリλ=0.2: Top-1 0.554（直った 347 / 悪化 195）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.0 カテゴリλ=0.0: Top-1 0.532（直った 153 / 悪化 90）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.0 カテゴリλ=0.05: Top-1 0.555（直った 282 / 悪化 128）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.0 カテゴリλ=0.1: Top-1 0.557（直った 315 / 悪化 151）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.0 カテゴリλ=0.2: Top-1 0.555（直った 340 / 悪化 186）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.05 カテゴリλ=0.0: Top-1 0.542（直った 205 / 悪化 104）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.05 カテゴリλ=0.05: Top-1 0.558（直った 301 / 悪化 132）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.05 カテゴリλ=0.1: Top-1 0.557（直った 323 / 悪化 159）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.05 カテゴリλ=0.2: Top-1 0.554（直った 339 / 悪化 189）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.1 カテゴリλ=0.0: Top-1 0.543（直った 225 / 悪化 118）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.1 カテゴリλ=0.05: Top-1 0.558（直った 312 / 悪化 146）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.1 カテゴリλ=0.1: Top-1 0.556（直った 326 / 悪化 168）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.1 カテゴリλ=0.2: Top-1 0.552（直った 341 / 悪化 199）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.2 カテゴリλ=0.0: Top-1 0.544（直った 238 / 悪化 128）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.2 カテゴリλ=0.05: Top-1 0.558（直った 322 / 悪化 156）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.2 カテゴリλ=0.1: Top-1 0.557（直った 339 / 悪化 177）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.2 カテゴリλ=0.2: Top-1 0.554（直った 350 / 悪化 200）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.4 カテゴリλ=0.0: Top-1 0.541（直った 249 / 悪化 149）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.4 カテゴリλ=0.05: Top-1 0.555（直った 325 / 悪化 169）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.4 カテゴリλ=0.1: Top-1 0.554（直った 336 / 悪化 185）"}
+{"t": "2026-11-06 18:53:04", "stage": "classify", "msg": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.4 細分類λ=0.4 カテゴリλ=0.2: Top-1 0.553（直った 350 / 悪化 202）"}
+{"t": "2026-11-06 18:53:05", "stage": "classify", "msg": "完了"}
+{"t": "2026-11-06 18:59:29", "stage": "infer", "msg": "開始", "argv": []}
+{"t": "2026-11-06 18:59:30", "stage": "infer", "msg": "検出 yolo11n_640_gpu（640px）· 埋め込み MobileNetV3-small 128px（学習） · 照合先 20806 枚 / 279 商品 · 周辺カテゴリ補正 λ(ジャンル, 細分類, カテゴリ)=(0.05, 0.05, 0.1)"}
+{"t": "2026-11-06 19:00:34", "stage": "infer", "msg": "評価", "images": 57, "ms_total_mean": 520, "ms_total_p90": 692, "ms_detect_mean": 184, "ms_crop_mean": 98, "ms_embed_mean": 197, "ms_match_mean": 40, "dets_mean": 130.4, "detector": "yolo11n_640_gpu (640px)", "embedder": "MobileNetV3-small 128px（学習）", "gallery_crops": 20806, "gallery_products": 279, "context_lambda": [0.05, 0.05, 0.1], "cpu": "このPCの CPU（12 スレッド）, onnxruntime", "val_precision(B)": 0.686, "val_recall(B)": 0.535, "val_mAP50(B)": 0.615, "val_mAP50-95(B)": 0.339}
+{"t": "2026-11-06 19:00:34", "stage": "infer", "msg": "完了"}

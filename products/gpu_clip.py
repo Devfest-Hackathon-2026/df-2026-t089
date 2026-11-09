@@ -11,7 +11,7 @@ from common import CLIP_ONNX
 
 HERE = Path(__file__).resolve().parent
 GPU = ["L4", "A10G", "T4", "L40S"]  # 先頭から空いている GPU を使う
-REMOTE_ONNX = "/app/src/main/assets/mobileclip_s0_vision.onnx"  # 向こうの common.CLIP_ONNX と同じ場所
+REMOTE_ONNX = "/products/work/models/mobileclip_s0_vision.onnx"  # 向こうの common.CLIP_ONNX と同じ場所
 
 image = (modal.Image.debian_slim(python_version="3.12")
          .pip_install("onnxruntime-gpu[cuda,cudnn]", "pillow", "numpy")

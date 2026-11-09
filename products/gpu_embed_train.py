@@ -39,7 +39,7 @@ def train(epochs: int = 30, dim: int = 128):
             super().__init__()
             m = torchvision.models.mobilenet_v3_small(weights="IMAGENET1K_V1")
             self.features, self.pool = m.features, nn.AdaptiveAvgPool2d(1)
-            self.head = nn.Sequential(nn.Linear(576, 512), nn.Hardswish(), nn.Linear(512, dim))
+            self.head = nn.Sequential(nn.Linear(576, 512), nn.Hardswish(), nn.Dropout(0.3), nn.Linear(512, dim))
             self.register_buffer("mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
             self.register_buffer("std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
 
@@ -49,13 +49,14 @@ def train(epochs: int = 30, dim: int = 128):
 
     net = Net().to(dev)
     W = nn.Parameter(torch.randn(d["n_classes"], dim, device=dev) * 0.01)  # 商品ごとの中心
-    opt = torch.optim.AdamW([*net.parameters(), W], lr=1e-3, weight_decay=1e-4)
+    # 過学習対策で重み減衰を強く（特徴抽出部だけ学習率を下げると学習不足で正解率が下がった）
+    opt = torch.optim.AdamW([*net.parameters(), W], lr=1e-3, weight_decay=0.05)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=2e-3, total_steps=epochs * (len(imgs) // 256 + 1))
     s, margin = 30.0, 0.2
     X = torch.from_numpy(np.stack(imgs)).permute(0, 3, 1, 2).contiguous()  # uint8 N×3×144×144
 
     def augment(xb):
-        """位置・大きさのずれと明るさ・コントラストだけ。色相は変えない（色違い＝別商品を見分けたいので）"""
+        """位置・大きさのずれ、明るさ・コントラスト、一部を隠す。色相は変えない（色違い＝別商品を見分けたいので）"""
         n = xb.shape[0]
         out = torch.empty(n, 3, SIZE, SIZE, device=dev)
         for i in range(n):
@@ -64,6 +65,11 @@ def train(epochs: int = 30, dim: int = 128):
             x0, y0 = np.random.randint(0, 145 - w, 2)
             out[i] = F.interpolate(xb[i:i + 1, :, y0:y0 + w, x0:x0 + w].float(), size=SIZE, mode="bilinear", align_corners=False)[0]
         out = out / 255
+        for i in range(n):  # 一部を隠す（パッケージの1か所だけで覚えないように）
+            if np.random.rand() < 0.5:
+                h, w = np.random.randint(16, 56, 2)
+                y0, x0 = np.random.randint(0, SIZE - h), np.random.randint(0, SIZE - w)
+                out[i, :, y0:y0 + h, x0:x0 + w] = torch.rand(3, 1, 1, device=dev)
         b = torch.empty(n, 1, 1, 1, device=dev).uniform_(0.8, 1.2)
         c = torch.empty(n, 1, 1, 1, device=dev).uniform_(0.8, 1.2)
         m = out.mean((1, 2, 3), keepdim=True)

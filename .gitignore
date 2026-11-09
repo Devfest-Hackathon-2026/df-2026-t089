@@ -60,8 +60,20 @@ dashboard/.cache/
 # 歩行中の判別モデル（数十 MB あるうえ、MobileCLIP の重みは Apple の研究用ライセンスなので公開リポジトリに載せない）
 app/src/main/assets/coarse/*.onnx
 
-# 商品認識の作業データ（店内写真の切り抜き・API の生の結果を含むので公開しない）
-products/work/
+# 商品認識の作業データ。写真・切り抜き（来店者が写る）と、写真から作る大きな埋め込みは公開しない。
+# アノテーション（JSON・YOLO のラベル）・学習ログ・学習済みモデルは載せる
+products/work/*
+!products/work/*.json
+!products/work/*.jsonl
+!products/work/*.csv
+!products/work/*.out
+!products/work/*.onnx
+!products/work/det/
+!products/work/train/
+!products/work/embed_runs/
+products/work/embed_runs/**/*.npz
+!products/work/yolo/
+products/work/yolo/**/*.jpg
 tools/.venv-clip/
 
 # iOS（xcodegen で作るプロジェクトと Info.plist、API キー）

@@ -9,7 +9,8 @@ ROOT = Path(__file__).resolve().parent.parent
 TRAIN_DIR = ROOT / "training_images"
 TEST_DIR = ROOT / "test_images"
 WORK = ROOT / "products" / "work"
-CLIP_ONNX = ROOT / "app/src/main/assets/mobileclip_s0_vision.onnx"
+# MobileCLIP-S0 の画像側。Apple の研究用ライセンスなので git に入れず、アプリにも同梱しない（無ければ s2_crops.Embedder が取ってくる）
+CLIP_ONNX = WORK / "models" / "mobileclip_s0_vision.onnx"
 IMG_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 WORK.mkdir(parents=True, exist_ok=True)
 
@@ -92,3 +93,39 @@ def run_stage(stage: str, fn):
         raise
     status(stage, state="done")
     log(stage, "完了")
+
+
+TAXONOMY = ROOT / "products" / "categories.json"  # 細分類 → 商品カテゴリの一覧（s3c_category.py が作る。写真を含まないのでコミットする）
+
+
+def category_of() -> dict:
+    """正規化した商品名 → 商品カテゴリ（Gemini の振り分けに、ダッシュボードで手で直したものを上書き）"""
+    return {**read_json(WORK / "category.json", {}), **read_json(WORK / "category_override.json", {})}
+
+
+def crop_labels() -> dict:
+    """学習・評価・照合先に使う切り抜き → 商品カテゴリ。命名済み（Vision の結果が悪いものを除く）でカテゴリが付いたものだけ"""
+    import unicodedata
+    cat = category_of()
+    excluded = set(read_json(WORK / "label_exclude.json", []))  # ダッシュボードの教師データ確認で外した切り抜き
+    out = {}
+    for cid, v in read_json(WORK / "names.json", {}).items():
+        if (v.get("maker") or v.get("product")) and v.get("vision") != "bad" and cid not in excluded:
+            c = cat.get(unicodedata.normalize("NFKC", v.get("maker", "") + v.get("product", "")).replace(" ", "").replace("　", "").lower())
+            if c:
+                out[cid] = c
+    return out
+
+
+def category_levels() -> tuple[dict, dict]:
+    """周辺補正用: カテゴリ → 粗いジャンル, カテゴリ → 細分類（どちらもそのカテゴリの商品の多数決。tools/export_products.py も同じ）"""
+    cat = category_of()
+
+    def vote(level: dict) -> dict:
+        votes = {}
+        for k, c in cat.items():
+            if k in level:
+                votes.setdefault(c, {}).setdefault(level[k], 0)
+                votes[c][level[k]] += 1
+        return {c: max(v, key=v.get) for c, v in votes.items()}
+    return vote(read_json(WORK / "genres.json", {})), vote(read_json(WORK / "fine.json", {}))

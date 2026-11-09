@@ -1,0 +1,534 @@
+{
+ "method": "最近傍（コサイン類似度）",
+ "split": "グループ単位で 1/5 をテスト・同じ写真の照合先は使わない",
+ "genres": 26,
+ "genre_labeled": 279,
+ "fines": 52,
+ "labeled": 14310,
+ "products": 279,
+ "per_product": {
+  ">=1": 279,
+  ">=2": 279,
+  ">=5": 262,
+  ">=10": 236,
+  ">=20": 194,
+  ">=50": 80
+ },
+ "top_products": [
+  [
+   "カップラーメン",
+   797
+  ],
+  [
+   "ポテトチップス",
+   514
+  ],
+  [
+   "緑茶",
+   349
+  ],
+  [
+   "ミネラルウォーター",
+   347
+  ],
+  [
+   "グミ",
+   285
+  ],
+  [
+   "カフェラテ・カフェオレ",
+   274
+  ],
+  [
+   "粒チョコ・箱チョコ",
+   238
+  ],
+  [
+   "プロテイン飲料",
+   221
+  ],
+  [
+   "ミルクティー",
+   214
+  ],
+  [
+   "牛乳",
+   205
+  ],
+  [
+   "コーラ",
+   188
+  ],
+  [
+   "チョコビスケット・クッキー",
+   187
+  ],
+  [
+   "ビール",
+   172
+  ],
+  [
+   "スムージー",
+   159
+  ],
+  [
+   "チルドカップコーヒー",
+   156
+  ],
+  [
+   "レモンサワー",
+   153
+  ],
+  [
+   "ヨーグルト",
+   141
+  ],
+  [
+   "栄養ドリンク",
+   138
+  ],
+  [
+   "スティック菓子",
+   135
+  ],
+  [
+   "じゃがりこ",
+   127
+  ],
+  [
+   "ビスケット・クッキーチョコ",
+   123
+  ],
+  [
+   "野菜果実ミックスジュース",
+   115
+  ],
+  [
+   "ブラックコーヒー",
+   115
+  ],
+  [
+   "ウイスキー",
+   114
+  ],
+  [
+   "オレンジジュース",
+   114
+  ],
+  [
+   "栄養機能性飲料",
+   113
+  ],
+  [
+   "スポーツドリンク",
+   112
+  ],
+  [
+   "フルーツサワー",
+   111
+  ],
+  [
+   "成型ポテトチップス",
+   110
+  ],
+  [
+   "おにぎり",
+   108
+  ]
+ ],
+ "results": [
+  {
+   "name": "MobileCLIP-S0（アプリと同じ）",
+   "top1": 0.452,
+   "top5": 0.67,
+   "known": 2764,
+   "unknown": 4,
+   "gallery": 11542,
+   "ms_per_query": 0.087,
+   "sweep": [
+    {
+     "t": 0.5,
+     "answered": 1.0,
+     "acc": 0.452,
+     "unknown_rejected": 0.0
+    },
+    {
+     "t": 0.6,
+     "answered": 0.999,
+     "acc": 0.452,
+     "unknown_rejected": 0.0
+    },
+    {
+     "t": 0.7,
+     "answered": 0.989,
+     "acc": 0.455,
+     "unknown_rejected": 0.0
+    },
+    {
+     "t": 0.75,
+     "answered": 0.959,
+     "acc": 0.466,
+     "unknown_rejected": 0.25
+    },
+    {
+     "t": 0.8,
+     "answered": 0.866,
+     "acc": 0.477,
+     "unknown_rejected": 1.0
+    },
+    {
+     "t": 0.85,
+     "answered": 0.615,
+     "acc": 0.546,
+     "unknown_rejected": 1.0
+    },
+    {
+     "t": 0.9,
+     "answered": 0.228,
+     "acc": 0.687,
+     "unknown_rejected": 1.0
+    },
+    {
+     "t": 0.95,
+     "answered": 0.013,
+     "acc": 0.757,
+     "unknown_rejected": 1.0
+    }
+   ]
+  },
+  {
+   "name": "DINOv2-small",
+   "top1": 0.462,
+   "top5": 0.679,
+   "known": 2764,
+   "unknown": 4,
+   "gallery": 11542,
+   "ms_per_query": 0.075,
+   "sweep": [
+    {
+     "t": 0.5,
+     "answered": 0.999,
+     "acc": 0.463,
+     "unknown_rejected": 0.0
+    },
+    {
+     "t": 0.6,
+     "answered": 0.988,
+     "acc": 0.467,
+     "unknown_rejected": 0.0
+    },
+    {
+     "t": 0.7,
+     "answered": 0.932,
+     "acc": 0.484,
+     "unknown_rejected": 0.25
+    },
+    {
+     "t": 0.75,
+     "answered": 0.845,
+     "acc": 0.508,
+     "unknown_rejected": 0.5
+    },
+    {
+     "t": 0.8,
+     "answered": 0.646,
+     "acc": 0.557,
+     "unknown_rejected": 1.0
+    },
+    {
+     "t": 0.85,
+     "answered": 0.343,
+     "acc": 0.65,
+     "unknown_rejected": 1.0
+    },
+    {
+     "t": 0.9,
+     "answered": 0.052,
+     "acc": 0.759,
+     "unknown_rejected": 1.0
+    },
+    {
+     "t": 0.95,
+     "answered": 0.0,
+     "acc": 1.0,
+     "unknown_rejected": 1.0
+    }
+   ]
+  },
+  {
+   "name": "MobileCLIP 上位10件 → DINOv2 で再順位",
+   "top1": 0.458,
+   "top5": 0.667,
+   "known": 2764,
+   "unknown": 4,
+   "gallery": 11542,
+   "ms_per_query": 0.087,
+   "sweep": [
+    {
+     "t": 0.5,
+     "answered": 0.991,
+     "acc": 0.46,
+     "unknown_rejected": 0.0
+    },
+    {
+     "t": 0.6,
+     "answered": 0.961,
+     "acc": 0.471,
+     "unknown_rejected": 0.0
+    },
+    {
+     "t": 0.7,
+     "answered": 0.863,
+     "acc": 0.5,
+     "unknown_rejected": 0.75
+    },
+    {
+     "t": 0.75,
+     "answered": 0.742,
+     "acc": 0.534,
+     "unknown_rejected": 1.0
+    },
+    {
+     "t": 0.8,
+     "answered": 0.534,
+     "acc": 0.596,
+     "unknown_rejected": 1.0
+    },
+    {
+     "t": 0.85,
+     "answered": 0.273,
+     "acc": 0.695,
+     "unknown_rejected": 1.0
+    },
+    {
+     "t": 0.9,
+     "answered": 0.044,
+     "acc": 0.779,
+     "unknown_rejected": 1.0
+    },
+    {
+     "t": 0.95,
+     "answered": 0.0,
+     "acc": 1.0,
+     "unknown_rejected": 1.0
+    }
+   ]
+  },
+  {
+   "name": "MobileCLIP と DINOv2 の平均",
+   "top1": 0.484,
+   "top5": 0.71,
+   "known": 2764,
+   "unknown": 4,
+   "gallery": 11542,
+   "ms_per_query": 0.162,
+   "sweep": [
+    {
+     "t": 0.5,
+     "answered": 1.0,
+     "acc": 0.484,
+     "unknown_rejected": 0.0
+    },
+    {
+     "t": 0.6,
+     "answered": 0.995,
+     "acc": 0.486,
+     "unknown_rejected": 0.0
+    },
+    {
+     "t": 0.7,
+     "answered": 0.954,
+     "acc": 0.502,
+     "unknown_rejected": 0.25
+    },
+    {
+     "t": 0.75,
+     "answered": 0.87,
+     "acc": 0.528,
+     "unknown_rejected": 0.75
+    },
+    {
+     "t": 0.8,
+     "answered": 0.68,
+     "acc": 0.579,
+     "unknown_rejected": 1.0
+    },
+    {
+     "t": 0.85,
+     "answered": 0.347,
+     "acc": 0.667,
+     "unknown_rejected": 1.0
+    },
+    {
+     "t": 0.9,
+     "answered": 0.07,
+     "acc": 0.751,
+     "unknown_rejected": 1.0
+    },
+    {
+     "t": 0.95,
+     "answered": 0.0,
+     "acc": 0.0,
+     "unknown_rejected": 1.0
+    }
+   ]
+  },
+  {
+   "name": "MobileNetV3-small（学習, 128px）",
+   "top1": 0.469,
+   "top5": 0.648,
+   "known": 2764,
+   "unknown": 4,
+   "gallery": 11542,
+   "ms_per_query": 0.057,
+   "sweep": [
+    {
+     "t": 0.5,
+     "answered": 0.998,
+     "acc": 0.469,
+     "unknown_rejected": 0.0
+    },
+    {
+     "t": 0.6,
+     "answered": 0.891,
+     "acc": 0.513,
+     "unknown_rejected": 0.25
+    },
+    {
+     "t": 0.7,
+     "answered": 0.625,
+     "acc": 0.641,
+     "unknown_rejected": 0.5
+    },
+    {
+     "t": 0.75,
+     "answered": 0.496,
+     "acc": 0.708,
+     "unknown_rejected": 1.0
+    },
+    {
+     "t": 0.8,
+     "answered": 0.376,
+     "acc": 0.772,
+     "unknown_rejected": 1.0
+    },
+    {
+     "t": 0.85,
+     "answered": 0.264,
+     "acc": 0.828,
+     "unknown_rejected": 1.0
+    },
+    {
+     "t": 0.9,
+     "answered": 0.154,
+     "acc": 0.876,
+     "unknown_rejected": 1.0
+    },
+    {
+     "t": 0.95,
+     "answered": 0.034,
+     "acc": 0.936,
+     "unknown_rejected": 1.0
+    }
+   ]
+  },
+  {
+   "name": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.0",
+   "top1": 0.498,
+   "top5": null,
+   "known": 2764,
+   "unknown": 4,
+   "gallery": 11542,
+   "ms_per_query": 0.057,
+   "fixed": 108,
+   "broken": 26,
+   "lambda_genre": 0.1,
+   "lambda_fine": 0.0,
+   "sweep": []
+  },
+  {
+   "name": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.05",
+   "top1": 0.505,
+   "top5": null,
+   "known": 2764,
+   "unknown": 4,
+   "gallery": 11542,
+   "ms_per_query": 0.057,
+   "fixed": 118,
+   "broken": 18,
+   "lambda_genre": 0.0,
+   "lambda_fine": 0.05,
+   "sweep": []
+  },
+  {
+   "name": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.0 細分類λ=0.1",
+   "top1": 0.509,
+   "top5": null,
+   "known": 2764,
+   "unknown": 4,
+   "gallery": 11542,
+   "ms_per_query": 0.057,
+   "fixed": 147,
+   "broken": 34,
+   "lambda_genre": 0.0,
+   "lambda_fine": 0.1,
+   "sweep": []
+  },
+  {
+   "name": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.05",
+   "top1": 0.506,
+   "top5": null,
+   "known": 2764,
+   "unknown": 4,
+   "gallery": 11542,
+   "ms_per_query": 0.057,
+   "fixed": 135,
+   "broken": 32,
+   "lambda_genre": 0.05,
+   "lambda_fine": 0.05,
+   "sweep": []
+  },
+  {
+   "name": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.05",
+   "top1": 0.507,
+   "top5": null,
+   "known": 2764,
+   "unknown": 4,
+   "gallery": 11542,
+   "ms_per_query": 0.057,
+   "fixed": 147,
+   "broken": 40,
+   "lambda_genre": 0.1,
+   "lambda_fine": 0.05,
+   "sweep": []
+  },
+  {
+   "name": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.1 細分類λ=0.1",
+   "top1": 0.508,
+   "top5": null,
+   "known": 2764,
+   "unknown": 4,
+   "gallery": 11542,
+   "ms_per_query": 0.057,
+   "fixed": 162,
+   "broken": 52,
+   "lambda_genre": 0.1,
+   "lambda_fine": 0.1,
+   "sweep": []
+  },
+  {
+   "name": "MobileNetV3-small（学習, 128px） ＋周辺補正 ジャンルλ=0.05 細分類λ=0.1",
+   "top1": 0.51,
+   "top5": null,
+   "known": 2764,
+   "unknown": 4,
+   "gallery": 11542,
+   "ms_per_query": 0.057,
+   "fixed": 157,
+   "broken": 41,
+   "lambda_genre": 0.05,
+   "lambda_fine": 0.1,
+   "sweep": []
+  }
+ ]
+}

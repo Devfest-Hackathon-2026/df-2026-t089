@@ -12,7 +12,7 @@ import numpy as np
 import onnxruntime as ort
 from PIL import Image
 
-from common import WORK, log, read_json, run_stage, status, write_json
+from common import WORK, crop_labels, log, read_json, run_stage, status, write_json
 
 SIZE = 128
 PAD_COLOR = (124, 116, 104)
@@ -44,30 +44,28 @@ def thumb(cid):
 
 
 def labeled():
-    """命名済み（結果が悪いものを除く）の切り抜き → 正規化した名前。③b の評価と同じ規則"""
-    from s5_classify import norm
-    names = read_json(WORK / "names.json", {})
-    return {cid: norm(v.get("maker", "") + v.get("product", "")) for cid, v in names.items()
-            if (v.get("maker") or v.get("product")) and v.get("vision") != "bad" and (WORK / "crops" / f"{cid}.jpg").exists()}
+    """カテゴリ付きの切り抜き → 商品カテゴリ（②d）。③b の評価と同じ規則"""
+    return {cid: c for cid, c in crop_labels().items() if (WORK / "crops" / f"{cid}.jpg").exists()}
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--epochs", type=int, default=30)
+    ap.add_argument("--epochs", type=int, default=15)
     a = ap.parse_args()
     import modal
     from gpu_embed_train import app, train, vol
     from s5_classify import is_test
     lab = labeled()
     of = read_json(WORK / "groups.json", {}).get("of", {})
+    # 特定不能っぽい切り抜き（p_bad>=0.2）を外すと Top-1 が 0.468→0.449 に下がったので、全部使う（products/runs/r3_no_doubtful_15ep）
     tr = [c for c in lab if not is_test(c, of)]
     cnt = {}
     for c in tr:
         cnt[lab[c]] = cnt.get(lab[c], 0) + 1
-    classes = sorted(k for k, v in cnt.items() if v >= 2)  # 1枚しかない商品は「近づける相手」がいないので外す
+    classes = sorted(k for k, v in cnt.items() if v >= 2)  # 1枚しかないカテゴリは「近づける相手」がいないので外す
     cid_of = {k: i for i, k in enumerate(classes)}
     tr = [c for c in tr if lab[c] in cid_of]
-    log("embed", f"学習データ {len(tr)} 枚 / {len(classes)} 商品（学習用グループ側・2枚以上の商品）")
+    log("embed", f"学習データ {len(tr)} 枚 / {len(classes)} カテゴリ（学習用グループ側・2枚以上のカテゴリ）")
     status("embed", phase="学習データを作成・送信")
     jpgs = []
     for c in tr:
@@ -91,7 +89,11 @@ def main():
     # ルールを通過した全切り抜きを埋め込む（命名済みは照合先、それ以外も周辺ジャンル補正の評価に使う）
     m = MNV3()
     ids = [c for c in read_json(WORK / "emb_ids.json", []) if (WORK / "crops" / f"{c}.jpg").exists()]
-    E = np.concatenate([m([square(thumb(c)) for c in ids[k:k + 256]]) for k in range(0, len(ids), 256)])
+    E = []
+    for k in range(0, len(ids), 256):
+        E.append(m([square(thumb(c)) for c in ids[k:k + 256]]))
+        status("embed", done=min(k + 256, len(ids)), total=len(ids), phase="全切り抜きを埋め込み (CPU)")
+    E = np.concatenate(E)
     np.savez(WORK / "emb_mnv3.npz", ids=np.array(ids), E=E.astype(np.float32))
     write_json(WORK / "embed.json", {"model": "MobileNetV3-small", "size": SIZE, "dim": int(E.shape[1]),
                                      "classes": len(classes), "train_crops": len(tr), "epochs": a.epochs})

@@ -1,0 +1,6 @@
+[infer] 開始 {'argv': []}
+[infer] 検出 yolo11n_640_gpu（640px）· 埋め込み MobileNetV3-small 128px（学習） · 照合先 14310 枚 / 279 商品 · 周辺カテゴリ補正 λ(ジャンル, 細分類)=(0.05, 0.05) 
+C:\Users\kfuho\a\repos\df-2026-t089\products\context.py:45: RuntimeWarning: overflow encountered in exp
+  w = np.where(ok, np.exp(TEMP * (np.where(ok, sims, 0) - np.max(np.where(ok, sims, -1e9), 1, keepdims=True))), 0)
+[infer] 評価 {'images': 57, 'ms_total_mean': 706, 'ms_total_p90': 746, 'ms_detect_mean': 216, 'ms_crop_mean': 151, 'ms_embed_mean': 289, 'ms_match_mean': 50, 'dets_mean': 130.4, 'detector': 'yolo11n_640_gpu (640px)', 'embedder': 'MobileNetV3-small 128px（学習）', 'gallery_crops': 14310, 'gallery_products': 279, 'context_lambda': (0.05, 0.05), 'cpu': 'このPCの CPU（12 スレッド）, onnxruntime', 'val_precision(B)': 0.686, 'val_recall(B)': 0.535, 'val_mAP50(B)': 0.615, 'val_mAP50-95(B)': 0.339}
+[infer] 完了 
