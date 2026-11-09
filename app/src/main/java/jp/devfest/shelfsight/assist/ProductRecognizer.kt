@@ -186,6 +186,9 @@ class ProductRecognizer(context: Context) : AutoCloseable {
         private const val EMBED_BATCH = 8
         private const val CROP_PAD = 0.04f
 
+        /** 照合先やカテゴリを作り直すと変わる値。事前計算の結果が今のモデルのものかを見分ける。 */
+        fun version(context: Context): String = context.assets.open("$DIR/gallery.json").bufferedReader().use { it.readText() }.hashCode().toString()
+
         private fun JSONObject.text(name: String): String? = if (isNull(name)) null else optString(name).ifEmpty { null }
 
         private fun normalize(v: FloatArray): FloatArray {
