@@ -122,10 +122,15 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private lateinit var testView: SpatialTestView
     private val demoHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var demoStart = 0L
+    private var demoSlot: Int? = null
+    /** テストの音源の基準（タブを開いたときの場所と向き）。 */
+    @Volatile private var demoOrigin: Listener? = null
     private val demoTick = object : Runnable {
         override fun run() {
-            mixer.play(SpatialMixer.Sound(chime, ::demoPosition))
-            demoHandler.postDelayed(this, DEMO_REPEAT_MS)
+            val slot = SpatialDemo.chimeSlot(demoSeconds())
+            if (slot != null && slot != demoSlot) mixer.play(SpatialMixer.Sound(chime, ::demoPosition))
+            demoSlot = slot
+            demoHandler.postDelayed(this, DEMO_TICK_MS)
         }
     }
     @Volatile private var deviceAt: Vec3? = null
@@ -210,7 +215,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             visibility = View.GONE
             addView(modelLabel)
         }
-        testView = SpatialTestView(this) { demoListener() to demoPosition() }.apply { visibility = View.GONE }
+        testView = SpatialTestView(this, { demoListener() to demoPosition() }, { SpatialDemo.chimeSlot(demoSeconds()) != null }).apply { visibility = View.GONE }
         val names = listOf("案内", "3D モデル", "立体音響")
         tabs = names.indices.map { i -> Button(this).apply { text = names[i]; setOnClickListener { selectTab(i) } } }
         recordButton = Button(this).apply {
@@ -392,6 +397,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val pose = camera.pose
         deviceAt = Vec3(pose.tx(), pose.ty(), pose.tz())
         devicePose = FloatArray(16).also { camera.displayOrientedPose.toMatrix(it, 0) }
+        if (showTest) testView.viewProjection = viewProjection(camera)
         val z = pose.zAxis
         val fx = -z[0]
         val fz = -z[2]
@@ -822,16 +828,29 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private fun startDemo() {
         listening.cancel()
         demoStart = SystemClock.elapsedRealtime()
+        demoSlot = null
+        demoOrigin = null
+        testView.viewProjection = null
         demoHandler.post(demoTick)
     }
 
     /** ARCore が追跡していなくても試せるよう、そのときは原点で正面を向いていることにする。 */
     private fun demoListener() = listener ?: DEMO_LISTENER
 
+    private fun demoSeconds() = (SystemClock.elapsedRealtime() - demoStart) / 1000.0
+
     private fun demoPosition(): Vec3 {
-        val center = demoListener().position
-        val o = SpatialDemo.offset((SystemClock.elapsedRealtime() - demoStart) / 1000.0)
-        return Vec3(center.x + o.x, center.y + o.y, center.z + o.z)
+        val current = listener
+        if (demoOrigin == null || (current != null && demoOrigin === DEMO_LISTENER)) demoOrigin = current ?: DEMO_LISTENER
+        return SpatialDemo.world(demoOrigin ?: DEMO_LISTENER, demoSeconds())
+    }
+
+    private fun viewProjection(camera: com.google.ar.core.Camera): FloatArray {
+        val projection = FloatArray(16)
+        val view = FloatArray(16)
+        camera.getProjectionMatrix(projection, 0, 0.1f, 100f)
+        camera.getViewMatrix(view, 0)
+        return FloatArray(16).also { android.opengl.Matrix.multiplyMM(it, 0, projection, 0, view, 0) }
     }
 
     private fun fitOrbit(v: StoreView) {
@@ -915,7 +934,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         const val CLOSE_ALERT_M = 1.5f
         const val STORE_ESTIMATE_MS = 3000L
         const val RECORD_LABEL = "● 記録"
-        const val DEMO_REPEAT_MS = 700L
+        const val DEMO_TICK_MS = 50L
         val DEMO_LISTENER = Listener(Vec3(0f, 0f, 0f), 0f, -1f)
         const val EXTRA_PLAYBACK = "jp.devfest.shelfsight.PLAYBACK_RECORDING"
         const val EXTRA_PRECOMPUTED = "jp.devfest.shelfsight.PLAYBACK_PRECOMPUTED"

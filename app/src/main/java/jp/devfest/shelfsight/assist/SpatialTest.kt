@@ -7,84 +7,132 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.view.View
 import jp.devfest.shelfsight.model.Vec3
-import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.floor
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-/** 立体音響のテストで鳴らす音源の動き。周りを回りながら、上下し、遠ざかったり近づいたりする。 */
+/** 立体音響のテストの音源。同じ場所で [CHIMES] 回鳴らし、次の場所へゆっくり移る、を繰り返す。 */
 internal object SpatialDemo {
-    private const val ORBIT_S = 8.0
-    private const val ELEVATION_S = 5.0
-    private const val DISTANCE_S = 11.0
-    private const val MAX_ELEVATION_DEG = 50.0
-    const val MIN_DISTANCE_M = 0.7
-    const val MAX_DISTANCE_M = 4.0
+    const val CHIMES = 5
+    private const val CHIME_S = 0.7
+    private const val HOLD_S = CHIMES * CHIME_S
+    private const val MOVE_S = 3.0
+    private const val CYCLE_S = HOLD_S + MOVE_S
 
-    /** 聞く人から見た音源の位置（m）。世界に固定した向きで回るので、スマホを回すと聞こえる方向も変わる。 */
+    /** 回る場所（右が正の方位 °、上が正の仰角 °、距離 m）。隣どうしは少しずつ離し、最初は正面にして画面に映す。 */
+    private val SPOTS = listOf(
+        Triple(0.0, 0.0, 2.0),
+        Triple(40.0, 25.0, 1.5),
+        Triple(100.0, -20.0, 2.5),
+        Triple(170.0, 10.0, 1.5),
+        Triple(-120.0, 35.0, 3.0),
+        Triple(-50.0, -25.0, 1.0),
+        Triple(-10.0, 40.0, 2.5),
+        Triple(20.0, -30.0, 3.5),
+    )
+    val SPOT_COUNT = SPOTS.size
+
+    /** 今鳴らす番号（鳴らす回ごとに変わる）。移動中は null。 */
+    fun chimeSlot(seconds: Double): Int? {
+        val cycle = floor(seconds / CYCLE_S)
+        val phase = seconds - cycle * CYCLE_S
+        return if (phase < HOLD_S) cycle.toInt() * CHIMES + (phase / CHIME_S).toInt() else null
+    }
+
+    /** 最初に向いていた方向を基準にした音源の位置（x が右、y が上、z が正面、m）。 */
     fun offset(seconds: Double): Vec3 {
-        val azimuth = 2 * PI * seconds / ORBIT_S
-        val elevation = Math.toRadians(MAX_ELEVATION_DEG) * sin(2 * PI * seconds / ELEVATION_S)
-        val middle = (MIN_DISTANCE_M + MAX_DISTANCE_M) / 2
-        val distance = middle + (MAX_DISTANCE_M - MIN_DISTANCE_M) / 2 * sin(2 * PI * seconds / DISTANCE_S)
+        val cycle = floor(seconds / CYCLE_S)
+        val phase = seconds - cycle * CYCLE_S
+        val from = SPOTS[cycle.toInt() % SPOTS.size]
+        val to = SPOTS[(cycle.toInt() + 1) % SPOTS.size]
+        val t = ((phase - HOLD_S) / MOVE_S).coerceIn(0.0, 1.0).let { it * it * (3 - 2 * it) }   // 動き始めと止まる前をゆっくりに
+        val turn = ((to.first - from.first + 540.0) % 360.0) - 180.0   // 近い方の回りで移る
+        val azimuth = Math.toRadians(from.first + turn * t)
+        val elevation = Math.toRadians(from.second + (to.second - from.second) * t)
+        val distance = from.third + (to.third - from.third) * t
         val horizontal = distance * cos(elevation)
-        return Vec3((horizontal * sin(azimuth)).toFloat(), (distance * sin(elevation)).toFloat(), (-horizontal * cos(azimuth)).toFloat())
+        return Vec3((horizontal * sin(azimuth)).toFloat(), (distance * sin(elevation)).toFloat(), (horizontal * cos(azimuth)).toFloat())
+    }
+
+    /** [origin] の場所と向きを基準にした世界座標。 */
+    fun world(origin: Listener, seconds: Double): Vec3 {
+        val o = offset(seconds)
+        val p = origin.position
+        return Vec3(p.x - origin.forwardZ * o.x + origin.forwardX * o.z, p.y + o.y, p.z + origin.forwardX * o.x + origin.forwardZ * o.z)
     }
 }
 
-/** テスト中の音源を、上から見た図（上が聞く人の正面）と高さの棒で見せる。 */
-internal class SpatialTestView(context: Context, private val state: () -> Pair<Listener, Vec3>) : View(context) {
+/** カメラ映像に重ねて、音源の場所に印を出す。画面の外にあるときは、その方向の端に矢印を出す。 */
+internal class SpatialTestView(context: Context, private val state: () -> Pair<Listener, Vec3>, private val sounding: () -> Boolean) : View(context) {
+    /** 世界座標 → クリップ座標の行列。ARCore が追跡していなければ null。 */
+    @Volatile var viewProjection: FloatArray? = null
     private val density = resources.displayMetrics.density
-    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF565D68.toInt(); style = Paint.Style.STROKE; strokeWidth = density }
-    private val me = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFF0EFEC.toInt() }
-    private val source = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFD23F.toInt() }
-    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 22 * resources.displayMetrics.scaledDensity; textAlign = Paint.Align.CENTER }
-    private val small = Paint(text).apply { textSize = 13 * resources.displayMetrics.scaledDensity; color = 0xFFAEB4BD.toInt() }
-    private val head = Path()
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 3 * density }
+    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 20 * resources.displayMetrics.scaledDensity; textAlign = Paint.Align.CENTER }
+    private val strip = Paint().apply { color = 0xB0000000.toInt() }
+    private val arrow = Path()
 
     init {
-        setBackgroundColor(0xFF14171C.toInt())
-        contentDescription = "立体音響のテスト。音があなたの周りを回りながら、上下し、遠ざかったり近づいたりします"
+        contentDescription = "立体音響のテスト。同じ場所から5回鳴らしたあと、ゆっくり別の場所へ移ります"
         isClickable = true   // 下の画面の「たたく」操作に渡さない
     }
 
     override fun onDraw(canvas: Canvas) {
         val (l, position) = state()
-        val cx = width / 2f
-        val cy = height * 0.42f
-        val radius = width * 0.40f
-        val perMeter = radius / SpatialDemo.MAX_DISTANCE_M.toFloat()
-        for (m in 1..4) {
-            canvas.drawCircle(cx, cy, m * perMeter, line)
-            canvas.drawText("${m}m", cx, cy - m * perMeter - 4 * density, small)
-        }
-        val s = 12 * density
-        head.reset(); head.moveTo(cx, cy - s); head.lineTo(cx + s * 0.75f, cy + s * 0.7f); head.lineTo(cx - s * 0.75f, cy + s * 0.7f); head.close()
-        canvas.drawPath(head, me)
+        val color = if (sounding()) 0xFFFFD23F.toInt() else 0xFFAEB4BD.toInt()
+        fill.color = color
+        ring.color = color
+        viewProjection?.let { drawMarker(canvas, it, position) }
 
         val az = Binaural.azimuth(l, position)
         val horizontal = Binaural.horizontalDistance(l, position)
-        val height3d = position.y - l.position.y
-        val elevation = atan2(height3d, horizontal)
-        val distance = sqrt(horizontal * horizontal + height3d * height3d)
-        // 上にあるほど大きく描く
-        val dotRadius = (11 + 7 * sin(elevation)) * density
-        canvas.drawCircle(cx + horizontal * sin(az) * perMeter, cy - horizontal * cos(az) * perMeter, dotRadius, source)
-
-        val barX = width - 22 * density
-        val barH = radius
-        canvas.drawLine(barX, cy - barH, barX, cy + barH, line)
-        canvas.drawLine(barX - 8 * density, cy, barX + 8 * density, cy, line)
-        canvas.drawCircle(barX, cy - sin(elevation) * barH, 8 * density, source)
-
+        val rise = position.y - l.position.y
         val deg = Math.toDegrees(az.toDouble()).roundToInt()
-        val side = if (deg >= 0) "右" else "左"
-        val up = Math.toDegrees(elevation.toDouble()).roundToInt()
-        canvas.drawText("$side ${abs(deg)}°   ${if (up >= 0) "上" else "下"} ${abs(up)}°   ${"%.1f".format(distance)}m", cx, cy + radius + 56 * density, text)
-        canvas.drawText("スマホを回すと、聞こえる方向も変わります", cx, cy + radius + 88 * density, small)
+        val up = Math.toDegrees(atan2(rise, horizontal).toDouble()).roundToInt()
+        val bottom = height - 40 * density
+        canvas.drawRect(0f, bottom - 44 * density, width.toFloat(), bottom, strip)
+        val where = "${if (deg >= 0) "右" else "左"} ${abs(deg)}°   ${if (up >= 0) "上" else "下"} ${abs(up)}°   ${"%.1f".format(sqrt(horizontal * horizontal + rise * rise))}m"
+        canvas.drawText(if (viewProjection == null) "位置合わせ中  $where" else where, width / 2f, bottom - 14 * density, text)
         if (isShown) postInvalidateOnAnimation()
+    }
+
+    private fun drawMarker(canvas: Canvas, m: FloatArray, p: Vec3) {
+        val w = m[3] * p.x + m[7] * p.y + m[11] * p.z + m[15]
+        val x = (m[0] * p.x + m[4] * p.y + m[8] * p.z + m[12]) / w
+        val y = (m[1] * p.x + m[5] * p.y + m[9] * p.z + m[13]) / w
+        if (w > 0f && abs(x) <= 1f && abs(y) <= 1f) {
+            val radius = (28f / w).coerceIn(9f, 40f) * density
+            val sx = (x + 1f) / 2f * width
+            val sy = (1f - y) / 2f * height
+            canvas.drawCircle(sx, sy, radius, fill)
+            canvas.drawCircle(sx, sy, radius * 1.7f, ring)
+            return
+        }
+        // 後ろにあるときは投影が反転するので、向きを戻す
+        val sign = if (w > 0f) 1f else -1f
+        val dx = x * sign * width
+        val dy = -y * sign * height
+        val inset = 44 * density
+        val halfW = width / 2f - inset
+        val halfH = height / 2f - TOP_INSET_DP * density
+        val k = min(halfW / max(abs(dx), 1f), halfH / max(abs(dy), 1f))
+        canvas.save()
+        canvas.translate(width / 2f + dx * k, height / 2f + dy * k)
+        canvas.rotate(Math.toDegrees(atan2(dy, dx).toDouble()).toFloat())
+        val s = 26 * density
+        arrow.reset(); arrow.moveTo(s, 0f); arrow.lineTo(-s * 0.6f, s * 0.7f); arrow.lineTo(-s * 0.6f, -s * 0.7f); arrow.close()
+        canvas.drawPath(arrow, fill)
+        canvas.restore()
+    }
+
+    private companion object {
+        const val TOP_INSET_DP = 110
     }
 }

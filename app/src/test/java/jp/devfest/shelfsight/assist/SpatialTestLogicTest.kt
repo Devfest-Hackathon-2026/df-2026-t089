@@ -1,5 +1,6 @@
 package jp.devfest.shelfsight.assist
 
+import jp.devfest.shelfsight.model.Vec3
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -67,12 +68,36 @@ class SpatialTestLogicTest {
         for (from in 4000 until 16000 step 2000) assertTrue("band at $from Hz: $report", (shares[from] ?: 0.0) > 0.01)
     }
 
-    @Test fun `demo source circles, rises, falls and changes distance within range`() {
-        val points = (0 until 2000).map { SpatialDemo.offset(it * 0.05) }
-        val distances = points.map { sqrt(it.x * it.x + it.y * it.y + it.z * it.z) }
-        assertTrue(distances.min() >= SpatialDemo.MIN_DISTANCE_M - 1e-3 && distances.min() < 0.8)
-        assertTrue(distances.max() <= SpatialDemo.MAX_DISTANCE_M + 1e-3 && distances.max() > 3.9)
-        assertTrue(points.any { it.y > 1f } && points.any { it.y < -1f })
+    @Test fun `demo chimes five times from one spot then moves silently`() {
+        assertEquals(setOf(0, 1, 2, 3, 4), (0 until 70).mapNotNull { SpatialDemo.chimeSlot(it * 0.05) }.toSet())
+        val first = SpatialDemo.offset(0.0)
+        assertEquals(first, SpatialDemo.offset(3.4))
+        assertEquals(null, SpatialDemo.chimeSlot(3.6))
+        val mid = SpatialDemo.offset(5.0)
+        val next = SpatialDemo.offset(6.6)
+        assertTrue(mid != first && mid != next)
+        assertEquals(next, SpatialDemo.offset(9.5))
+        assertEquals(5, SpatialDemo.chimeSlot(6.5))
+    }
+
+    @Test fun `demo moves in small steps, starts ahead and covers all directions`() {
+        assertEquals(0f, SpatialDemo.offset(0.0).x, 1e-3f)
+        assertTrue(SpatialDemo.offset(0.0).z > 0f)
+        val step = 0.02
+        val points = (0 until (6.5 * SpatialDemo.SPOT_COUNT / step).toInt()).map { SpatialDemo.offset(it * step) }
+        for ((a, b) in points.zipWithNext()) assertTrue(sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) + (a.z - b.z) * (a.z - b.z)) < 0.1f)
+        assertTrue(points.any { it.y > 0.8f } && points.any { it.y < -0.8f })
         assertTrue(points.any { it.x > 1f } && points.any { it.x < -1f } && points.any { it.z > 1f } && points.any { it.z < -1f })
+    }
+
+    @Test fun `demo offsets are relative to where the listener first faced`() {
+        // Facing +x: right is +z, so a spot ahead lands on +x from the listener.
+        val p = SpatialDemo.world(Listener(Vec3(1f, 0f, 1f), 1f, 0f), 0.0)
+        assertEquals(3f, p.x, 1e-3f)
+        assertEquals(1f, p.z, 1e-3f)
+        val l = Listener(Vec3(0f, 0f, 0f), 0f, -1f)
+        assertEquals(0f, Binaural.azimuth(l, SpatialDemo.world(l, 0.0)), 1e-3f)
+        val right = SpatialDemo.world(l, 6.6)   // the second spot is 40 degrees to the right
+        assertEquals(40.0, Math.toDegrees(Binaural.azimuth(l, right).toDouble()), 0.5)
     }
 }
