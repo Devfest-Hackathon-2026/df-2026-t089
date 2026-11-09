@@ -16,13 +16,13 @@ struct SceneEvidence {
     let shelves: Int
     /// 商品の枠（正立画像の 0..1、[left, top, right, bottom]）。
     let productBoxes: [[Float]]
-    /// 1 つだけ特に近い商品がある（NearProduct、スマホからの距離で決める）。
+    /// スマホのすぐ前に商品がある（NearProduct、画面の中央の深度だけで決める）。
     var near = false
 }
 
 /**
  * 写っているものを決める。毎回の結果はぶれるので、同じ判定が STABLE 回続いたときだけ切り替える。
- * - 1 つだけ特に近い商品がある（NearProduct の距離の判定。枠の大きさでは決めない）→ oneProduct
+ * - スマホのすぐ前に商品がある（NearProduct、画面の中央の深度だけで決める）→ oneProduct
  * - 棚が 2 つ以上 → shelves
  * - 棚が 1 つで、商品がいくつも見える → oneShelf
  */
@@ -44,8 +44,6 @@ final class SceneJudge {
     }
 
     static let stable = 2
-    /// 棚の説明で、大きすぎる枠（手前の商品や棚の区画）があれば棚とはみなさない。画面に占める割合。
-    static let largeBoxArea: Float = 0.12
     static let minProductsOnShelf = 4
 
     static func area(_ b: [Float]) -> Float { max(b[2] - b[0], 0) * max(b[3] - b[1], 0) }
@@ -57,9 +55,9 @@ final class SceneJudge {
 
     /**
      * 長押しのとき、何を調べるか。商品 1 つなら調べる範囲（正立画像の 0..1）も返す。
-     * - 1 つだけ特に近い商品がある（nearBox は NearProduct で選んだ商品の範囲）→ product
+     * - スマホのすぐ前に商品がある（nearBox は NearProduct で決めた調べる範囲）→ product
      * - 棚の広い範囲に小さな商品が並んでいる → shelf
-     * - それ以外（商品が少ない、大きめの物が写っているが近づいてはいない）→ stepBack
+     * - それ以外（商品が少ない、広がっていない）→ stepBack。枠の大きさでは決めない
      */
     static func focus(_ boxes: [[Float]], nearBox: [Float]? = nil) -> (Focus, [Float]?) {
         if let nearBox { return (.product, nearBox) }
@@ -69,8 +67,7 @@ final class SceneJudge {
             boxes.map { $0[2] }.max()!, boxes.map { $0[3] }.max()!,
         ]
         let spread = boxes.count >= shelfMinProducts && union[2] - union[0] >= shelfMinWidth && union[3] - union[1] >= shelfMinHeight
-        let noneLarge = !boxes.contains { area($0) >= largeBoxArea }
-        return (spread && noneLarge ? .shelf : .stepBack, nil)
+        return (spread ? .shelf : .stepBack, nil)
     }
 
     static func classify(_ e: SceneEvidence) -> Scene {

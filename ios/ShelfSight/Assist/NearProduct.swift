@@ -1,63 +1,99 @@
 import Foundation
 
 /**
- * いくつも見えている商品のうち、1 つだけ特にスマホに近い商品を選ぶ。決め手はスマホから商品までの距離（深度）だけで、
- * 枠の大きさは使わない（枠は、どこに商品があるかと、その場所の距離を測るためだけに使う）。
+ * スマホのすぐ前（画面の中央）に商品があるかを、深度だけで決める。商品の枠は使わない
+ * （近づくと枠が出なかったり、商品の中の絵や文字ごとにばらばらの枠になったりして、枠では決められないことが多かったため）。
  *
- * 1. 距離の分かる枠のうち、いちばん近いものが maxDistanceM 以内
- * 2. それと同じくらいの距離（差が sameTolM 以内）の枠は、重なっていれば同じ商品（近づくと商品の中の絵や文字も枠になる）、
- *    重なっていなければ、同じくらい近い別の商品があるので選ばない
- * 3. それ以外の枠は、どれも minGapM 以上遠い
- * 他に距離の分かる枠がなければ、1 だけで選ぶ。
+ * 1. 画面の中央（centerFraction 四方）の深度の中央値を、スマホから商品までの距離とする。
+ *    中央の点の minValidFraction 以上で深度が取れ、距離が maxDistanceM 以内なら、近い商品がある
+ * 2. 調べる範囲（Cloud Vision に送る切り抜き）は、中央から、距離が近い商品と同じくらい（差が sameTolM 以内）の点を
+ *    つないだ範囲。ただし棚の面は全部同じくらいの距離なので、実際の大きさで maxSizeM 四方までにする
  */
 enum NearProduct {
-    /** 選んだ商品。box は同じ商品の枠を合わせた範囲（正立画像の 0..1）、gapM は次に近い商品との距離の差（他になければ nil）。 */
+    /** 選んだ商品。box は調べる範囲（正立画像の 0..1、[left, top, right, bottom]）。 */
     struct Pick {
         let box: [Float]
         let distanceM: Float
-        let gapM: Float?
+
+        func describe() -> String { "近い商品 \(String(format: "%.2fm", distanceM))" }
+    }
+
+    /** 1 回の判定の結果。近い商品がなくても、中央の距離と深度の取れた割合は分かる（画面の表示とログ用）。 */
+    struct Reading {
+        let pick: Pick?
+        /// 画面の中央の距離（深度が足りなければ nil）。
+        let centerM: Float?
+        /// 画面の中央で深度が取れた点の割合。
+        let validFraction: Float
 
         func describe() -> String {
-            "近い商品 \(String(format: "%.2fm", distanceM))（次の商品と \(gapM.map { String(format: "%.2fm", $0) } ?? "-") 差）"
+            if let pick { return pick.describe() }
+            let center = centerM.map { String(format: "%.2fm", $0) } ?? "-"
+            return "なし（中央 \(center)、深度の取れた点 \(Int(validFraction * 100))%）"
         }
     }
 
-    static let maxDistanceM: Float = 0.8
-    static let minGapM: Float = 0.15
-    static let sameTolM: Float = 0.08
+    static let maxDistanceM: Float = 0.5
+    static let sameTolM: Float = 0.10
+    static let maxSizeM: Float = 0.30
+    static let centerFraction: Float = 0.2
+    static let minValidFraction: Float = 0.5
+    /// 画面全体を grid × grid の点で調べる。
+    static let grid = 32
 
-    /// boxes と distances（同じ順、分からなければ nil）から選ぶ。なければ nil。
-    static func pick(_ boxes: [[Float]], _ distances: [Float?]) -> Pick? {
-        precondition(boxes.count == distances.count)
-        let known = boxes.indices.filter { distances[$0] != nil }.stableSorted { distances[$0]! < distances[$1]! }
-        guard let first = known.first else { return nil }
-        let d = distances[first]!
-        if d > maxDistanceM { return nil }
-        var box = boxes[first]
-        var gap: Float?
-        for i in known.dropFirst() {
-            let di = distances[i]!
-            if di - d <= sameTolM {
-                if !overlaps(box, boxes[i]) { return nil }   // 同じくらい近い別の商品がある
-                box = union(box, boxes[i])
-            } else {
-                gap = di - d
-                break   // 近い順に見ているので、残りはもっと遠い
+    static func measure(_ g: CaptureGeometry) -> Reading {
+        guard g.depth != nil else { return Reading(pick: nil, centerM: nil, validFraction: 0) }
+        // 正立画像の上の点ごとの深度（取れなければ nil）
+        let n = grid
+        var depth = [Float?](repeating: nil, count: n * n)
+        for row in 0..<n {
+            for col in 0..<n {
+                depth[row * n + col] = Unprojector.depthAt((Float(col) + 0.5) / Float(n), (Float(row) + 0.5) / Float(n), g)
             }
         }
-        if let gap, gap < minGapM { return nil }
-        return Pick(box: box, distanceM: d, gapM: gap)
+        // 1. 画面の中央の距離
+        let lo = Int((0.5 - centerFraction / 2) * Float(n)), hi = Int((0.5 + centerFraction / 2) * Float(n))
+        var center: [Float] = []
+        for row in lo..<hi { for col in lo..<hi { if let d = depth[row * n + col] { center.append(d) } } }
+        let valid = Float(center.count) / Float((hi - lo) * (hi - lo))
+        if center.isEmpty || valid < minValidFraction { return Reading(pick: nil, centerM: nil, validFraction: valid) }
+        center.sort()
+        let d = center[center.count / 2]
+        if d > maxDistanceM { return Reading(pick: nil, centerM: d, validFraction: valid) }
+
+        // 2. 中央から、同じくらいの距離の点をつなぐ（上下左右の隣へ）
+        var seen = [Bool](repeating: false, count: n * n)
+        var stack: [Int] = []
+        for row in lo..<hi {
+            for col in lo..<hi {
+                let i = row * n + col
+                if let di = depth[i], abs(di - d) <= sameTolM { seen[i] = true; stack.append(i) }
+            }
+        }
+        var minCol = n, minRow = n, maxCol = -1, maxRow = -1
+        while let i = stack.popLast() {
+            let row = i / n, col = i % n
+            minCol = min(minCol, col); maxCol = max(maxCol, col)
+            minRow = min(minRow, row); maxRow = max(maxRow, row)
+            for (r, c) in [(row - 1, col), (row + 1, col), (row, col - 1), (row, col + 1)] where r >= 0 && r < n && c >= 0 && c < n {
+                let j = r * n + c
+                if !seen[j], let dj = depth[j], abs(dj - d) <= sameTolM { seen[j] = true; stack.append(j) }
+            }
+        }
+        var box = [Float(minCol) / Float(n), Float(minRow) / Float(n), Float(maxCol + 1) / Float(n), Float(maxRow + 1) / Float(n)]
+
+        // 実際の大きさで maxSizeM 四方まで（中央を真ん中にして切る）
+        let (hu, hv) = halfSize(maxSizeM / 2, at: d, g)
+        box = [max(box[0], 0.5 - hu), max(box[1], 0.5 - hv), min(box[2], 0.5 + hu), min(box[3], 0.5 + hv)]
+        return Reading(pick: Pick(box: box, distanceM: d), centerM: d, validFraction: valid)
     }
 
-    /// 枠ごとの距離を distanceOf で測り、pick する。距離の一覧も返す（画面の表示用）。
-    static func measure(_ boxes: [[Float]], _ distanceOf: ([Float]) -> Float?) -> (Pick?, [Float?]) {
-        let distances = boxes.map(distanceOf)
-        return (pick(boxes, distances), distances)
-    }
-
-    private static func overlaps(_ a: [Float], _ b: [Float]) -> Bool { a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3] }
-
-    private static func union(_ a: [Float], _ b: [Float]) -> [Float] {
-        [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
+    /// カメラから distanceM 離れたところの halfM が、正立画像の正規化座標でどれだけの幅・高さになるか。
+    static func halfSize(_ halfM: Float, at distanceM: Float, _ g: CaptureGeometry) -> (Float, Float) {
+        let rotated = g.uprightRotationDegrees == 90 || g.uprightRotationDegrees == 270
+        // 正立画像の横・縦の焦点距離と大きさ（センサー画像を 90 度回すと横と縦が入れ替わる）
+        let fu = rotated ? g.focalY : g.focalX, fv = rotated ? g.focalX : g.focalY
+        let wu = Float(rotated ? g.imageHeight : g.imageWidth), wv = Float(rotated ? g.imageWidth : g.imageHeight)
+        return (halfM / distanceM * fu / wu, halfM / distanceM * fv / wv)
     }
 }

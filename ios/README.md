@@ -40,7 +40,7 @@ VoiceOver が有効なときは、ダブルタップが質問、ダブルタッ�
 - 棚の種類の判別（`walking/`）、棚のラベル（`ShelfLabels`・`MapBias`・`ShelfMap`）、3D の地図（`Map3DOverlay`・`StoreMapper`・`MapRenderer`）
 - 開発用の画面（地図づくり、Store3D）
 
-深度は LiDAR のある iPhone（Pro の機種）でだけ取れます。1 つだけ特に近い商品の判定（`NearProduct`、長押しで商品を調べる ③）は深度だけで決めるので、LiDAR のない iPhone では ③ が動きません（画面の「③ 近い商品」にそう出ます）。Android 版は、ARCore が普通のカメラからも深度を出すので、ほとんどの機種で動きます。
+深度は LiDAR のある iPhone（Pro の機種）でだけ取れます。スマホのすぐ前に商品があるかの判定（`NearProduct`、長押しで商品を調べる ③）は、商品の枠を使わず画面の中央の深度だけで決めるので、LiDAR のない iPhone では ③ が動きません（画面の「③ 近い商品」にそう出ます）。Android 版は、ARCore が普通のカメラからも深度を出すので、ほとんどの機種で動きます。
 
 ## GitHub Actions から TestFlight へ
 

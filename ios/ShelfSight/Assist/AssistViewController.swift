@@ -7,7 +7,7 @@ import UIKit
  * 視覚障害のある人のための、コンビニの棚と商品の案内。胸の前にスマホを立てて持ち、イヤホンで聞く（Android 版の AssistActivity）。
  *
  * ② 棚が 1 つ写っている: 商品を認識し、LLM で何があるかを短く自然な文にして話す（場違いな商品は言わない）
- * ③ 見えている商品のうち 1 つだけ特に近い（スマホからの距離で決める、NearProduct）: 長押しで Cloud Vision API に聞き、社名と商品名を言う（1 回の接近で 1 回だけ呼ぶ）
+ * ③ スマホのすぐ前に商品がある（画面の中央の深度だけで決める、NearProduct）: 長押しで Cloud Vision API に聞き、社名と商品名を言う（1 回の接近で 1 回だけ呼ぶ）
  * ④ 人が近づいてくる: その人の方向からピコピコ鳴らす（productOnly の間は止めている）
  *
  * 棚の種類の判別（歩行中の 8 列 × 7 分類）と 3D の地図は入れていない（Android 版も止めている）。
@@ -145,7 +145,7 @@ final class Assist: NSObject, ARSessionDelegate {
         config.isAutoFocusEnabled = true
         // 商品だけを計るときは、地図と棚のラベルにしか使わない面の検出を止める
         if !Self.productOnly { config.planeDetection = [.vertical] }
-        // 深度は、1 つだけ特に近い商品の判定（NearProduct）に使うので、商品だけを計るときも使う（LiDAR のある機種だけ）
+        // 深度は、すぐ前の商品の判定（NearProduct）に使うので、商品だけを計るときも使う（LiDAR のある機種だけ）
         if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
             config.frameSemantics.insert(.sceneDepth)
         } else {
@@ -275,10 +275,11 @@ final class Assist: NSObject, ARSessionDelegate {
             let now = nowMs()
             let boxes = try recognizer.detect(image).map(\.0)
             let detectMs = nowMs() - now
-            // 1 つだけ特に近い商品（スマホからの距離で決める）
-            let (near, distances) = NearProduct.measure(boxes) { b in
-                Unprojector.medianDepthMeters(NormalizedBox(left: b[0], top: b[1], right: b[2], bottom: b[3]), f.geometry)
-            }
+            // スマホのすぐ前の商品（枠は使わず、画面の中央の深度だけで決める）
+            let reading = NearProduct.measure(f.geometry)
+            let near = reading.pick
+            // 枠ごとの距離は、画面に出すためだけに測る
+            let distances = boxDistances(boxes, f.geometry)
             judge.update(SceneEvidence(shelves: 0, productBoxes: boxes, near: near != nil))
             // 新しく近い商品が見えたら、前に調べた結果を忘れる（次の長押しで Cloud Vision を 1 回呼ぶ）
             if near != nil {
@@ -289,7 +290,7 @@ final class Assist: NSObject, ARSessionDelegate {
             debug.nearBox = near?.box
             debug.nearDistance = near?.distanceM
             if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {   // LiDAR がなければ、深度が取れないという表示のまま
-                debug.near = near?.describe() ?? "なし（距離が分かった枠 \(distances.compactMap { $0 }.count)/\(boxes.count)）"
+                debug.near = reading.describe()
             }
             let products = try recognizer.recognize(image, boxes)
             // ONNX Runtime が中に取っておいたメモリが増えていれば、裏で作り直して返させる
@@ -311,8 +312,8 @@ final class Assist: NSObject, ARSessionDelegate {
             debug.sceneAt = now
             debug.motion = String(format: "%.1fm/s %.0f°/s", speedMps, turnDps)
             let known = distances.compactMap { $0 }
-            let nearLog = "near " + (near.map { String(format: "YES %.2fm gap %@", $0.distanceM, $0.gapM.map { String(format: "%.2fm", $0) } ?? "-") } ?? "no") +
-                ", depth \(known.count)/\(boxes.count) [" + known.sorted().prefix(5).map { String(format: "%.2f", $0) }.joined(separator: ",") + "]"
+            let nearLog = "near " + reading.describe() +
+                ", box depth \(known.count)/\(boxes.count) [" + known.sorted().prefix(5).map { String(format: "%.2f", $0) }.joined(separator: ",") + "]"
             logInfo("Assist", "scene: detect \(detectMs)ms, name \(recognizeMs)ms, boxes \(boxes.count), named \(products.count), \(nearLog)")
             let camera = cameraPosition(f)
             if judge.scene != .oneShelf && leftOneShelfAt == 0 { leftOneShelfAt = now }
@@ -372,12 +373,12 @@ final class Assist: NSObject, ARSessionDelegate {
         let image = ImageUtil.scaled(f.image, longSide: Self.lookupLongSide)
         do {
             let boxes = try recognizer.detect(image).map(\.0)
-            // 商品 1 つかどうかは、枠の大きさではなく距離の判定で決める
-            let (near, distances) = NearProduct.measure(boxes) { b in
-                Unprojector.medianDepthMeters(NormalizedBox(left: b[0], top: b[1], right: b[2], bottom: b[3]), f.geometry)
-            }
+            // 商品 1 つかどうかは、枠を使わず、画面の中央の深度だけで決める
+            let reading = NearProduct.measure(f.geometry)
+            let near = reading.pick
+            let distances = boxDistances(boxes, f.geometry)
             let (focus, productBox) = SceneJudge.focus(boxes, nearBox: near?.box)
-            let nearText = near?.describe() ?? "近い商品なし（距離が分かった枠 \(distances.compactMap { $0 }.count)/\(boxes.count)）"
+            let nearText = near?.describe() ?? "近い商品\(reading.describe())"
             let distanceText = distances.map { $0.map { String(format: "%.2f", $0) } ?? "-" }.joined(separator: ",")
             logInfo("Assist", "long press: \(boxes.count) boxes, \(nearText), distances \(distanceText) -> \(focus)")
             debug.longPress = "\(focus.rawValue)（枠 \(boxes.count) 個、\(nearText)）"
@@ -402,6 +403,11 @@ final class Assist: NSObject, ARSessionDelegate {
             logInfo("Assist", "long press failed: \(error)")
             voice.say("調べられませんでした。")
         }
+    }
+
+    /// 枠ごとのスマホからの距離（分からなければ nil）。近い商品の判定には使わず、画面に出すためだけ。
+    private func boxDistances(_ boxes: [[Float]], _ g: CaptureGeometry) -> [Float?] {
+        boxes.map { Unprojector.medianDepthMeters(NormalizedBox(left: $0[0], top: $0[1], right: $0[2], bottom: $0[3]), g) }
     }
 
     /// ③ 手前の商品を Cloud Vision API で調べる。この接近ですでに調べていれば、API を呼ばずにその結果を言う。
