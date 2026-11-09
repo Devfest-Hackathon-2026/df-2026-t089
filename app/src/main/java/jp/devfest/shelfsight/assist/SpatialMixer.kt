@@ -13,6 +13,7 @@ import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.min
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * 声と効果音を、測定した頭部インパルス応答（[Hrtf]）で聞く人の両耳へ畳み込んで鳴らす。
@@ -162,9 +163,10 @@ class SpatialMixer(private val hrtf: Hrtf, private val listener: () -> Listener?
             }
             return
         }
-        val distance = Binaural.horizontalDistance(l, pos)
-        val to = hrtf.nearest(Binaural.azimuth(l, pos), atan2(pos.y - l.position.y, distance))
-        val gainTo = Binaural.distanceGain(distance) * s.gain * extraGain
+        val horizontal = Binaural.horizontalDistance(l, pos)
+        val height = pos.y - l.position.y
+        val to = hrtf.nearest(Binaural.azimuth(l, pos), atan2(height, horizontal))
+        val gainTo = Binaural.distanceGain(sqrt(horizontal * horizontal + height * height)) * s.gain * extraGain
         val from = if (s.direction < 0) to else s.direction
         val gainFrom = if (s.direction < 0) gainTo else s.lastGain
         s.direction = to
@@ -223,15 +225,35 @@ class SpatialMixer(private val hrtf: Hrtf, private val listener: () -> Listener?
             }
         }
 
-        /** 「ポン」: 棚の方向を知らせる、丸く低めの音。 */
-        fun makePon(): FloatArray {
-            val len = (RATE * 0.16f).toInt()
-            return FloatArray(len) { t ->
-                val s = t.toFloat() / RATE
-                val env = min(1f, s / 0.003f) * exp(-s / 0.05f) * min(1f, (len - t) / (RATE * 0.005f))
-                0.6f * env * (sin(2 * PI * 620 * s).toFloat() + 0.35f * sin(2 * PI * 1240 * s).toFloat())
+        /**
+         * 棚の方向と立体音響のテストで鳴らす、360 ms の 2 連チャイム。
+         * 方向の手がかりは耳介が作る 4 kHz 以上の違いに強く出るので、倍音と高域のノイズで広い帯域を鳴らす。
+         */
+        fun makeChime(): FloatArray {
+            val out = FloatArray((RATE * 0.36f).toInt())
+            val noise = java.util.Random(7)   // 毎回同じ音にする
+            var last = 0f
+            for ((startS, base) in listOf(0f to 1047f, 0.2f to 1397f)) {
+                val start = (startS * RATE).toInt()
+                val len = (0.16f * RATE).toInt().coerceAtMost(out.size - start)
+                for (t in 0 until len) {
+                    val s = t.toFloat() / RATE
+                    val attack = min(1f, s / 0.002f)
+                    val tail = min(1f, (len - t) / (RATE * 0.005f))
+                    var tone = 0f
+                    for ((ratio, amp) in CHIME_PARTIALS) tone += amp * sin(2 * PI * base * ratio * s).toFloat()
+                    val white = noise.nextFloat() * 2f - 1f
+                    val bright = white - last   // 差分で低域を落とす
+                    last = white
+                    out[start + t] = attack * tail * (exp(-s / 0.05f) * tone + 0.5f * exp(-s / 0.03f) * bright)
+                }
             }
+            val peak = out.maxOf { kotlin.math.abs(it) }
+            return FloatArray(out.size) { out[it] / peak * 0.6f }
         }
+
+        /** 周波数比と強さ。金属的に響くよう整数倍から少しずらし、4 kHz より上にも重みを置く。 */
+        private val CHIME_PARTIALS = listOf(1f to 0.45f, 2.01f to 0.3f, 4.02f to 0.3f, 6.03f to 0.3f, 8.1f to 0.28f, 10.7f to 0.25f, 13.3f to 0.2f)
 
         /** [rate] のモノラルを、ミキサーの周波数へ線形補間で変換する。 */
         fun resample(pcm: FloatArray, rate: Int): FloatArray {

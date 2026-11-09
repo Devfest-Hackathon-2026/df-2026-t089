@@ -85,7 +85,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private val background = CameraBackground()
 
     @Volatile private var listener: Listener? = null
-    private val mixer by lazy { SpatialMixer(Hrtf.load(this)) { listener } }
+    private val mixer by lazy { SpatialMixer(Hrtf.load(this)) { listener ?: if (showTest) DEMO_LISTENER else null } }
     private val voice by lazy { Voice(this, mixer) }
     private val listening by lazy { Listening(this) }
 
@@ -100,7 +100,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private val recognizer by lazy { ProductRecognizer(this) }
     private val personDetector by lazy { MediaPipePersonDetector(this) }
     private val tracker = PersonTracker()
-    private val pon = SpatialMixer.makePon()
+    private val chime = SpatialMixer.makeChime()
     private val lookup = ProductLookup(BuildConfig.CLOUD_VISION_API_KEY)
     private val narrator = Narrator(
         BuildConfig.GEMINI_API_KEY.takeIf { it.isNotEmpty() }
@@ -117,6 +117,17 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private lateinit var storeRenderer: StoreModelRenderer
     private val orbit = OrbitCamera()
     @Volatile private var showModel = false
+    /** 立体音響のテストのタブを開いている。 */
+    @Volatile private var showTest = false
+    private lateinit var testView: SpatialTestView
+    private val demoHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var demoStart = 0L
+    private val demoTick = object : Runnable {
+        override fun run() {
+            mixer.play(SpatialMixer.Sound(chime, ::demoPosition))
+            demoHandler.postDelayed(this, DEMO_REPEAT_MS)
+        }
+    }
     @Volatile private var deviceAt: Vec3? = null
     @Volatile private var devicePose: FloatArray? = null
     private lateinit var modelText: ScrollView
@@ -199,8 +210,9 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             visibility = View.GONE
             addView(modelLabel)
         }
-        val names = listOf("案内", "3D モデル")
-        tabs = names.indices.map { i -> Button(this).apply { text = names[i]; setOnClickListener { selectTab(i == 1) } } }
+        testView = SpatialTestView(this) { demoListener() to demoPosition() }.apply { visibility = View.GONE }
+        val names = listOf("案内", "3D モデル", "立体音響")
+        tabs = names.indices.map { i -> Button(this).apply { text = names[i]; setOnClickListener { selectTab(i) } } }
         recordButton = Button(this).apply {
             text = if (playback == null) RECORD_LABEL else precomputeLabel()
             setOnClickListener { if (playback == null) recordToggle = true else togglePrecompute() }
@@ -221,9 +233,10 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             addView(storeLabels, FrameLayout.LayoutParams(-1, -1))
             addView(touch, FrameLayout.LayoutParams(-1, -1))
             addView(modelText, FrameLayout.LayoutParams(-1, resources.displayMetrics.heightPixels / 3, Gravity.BOTTOM))
+            addView(testView, FrameLayout.LayoutParams(-1, -1))
             addView(tabBar, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
         })
-        selectTab(false)
+        selectTab(0)
         updateSettings()
     }
 
@@ -281,6 +294,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             return
         }
         gl.onResume()
+        if (showTest) startDemo()
         if (!greeted && playback == null) {
             greeted = true
             voice.say("準備ができました。1回たたくと棚の案内、2回たたくと商品の名前、長押しで質問ができます。")
@@ -291,6 +305,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     override fun onPause() {
         super.onPause()
         listening.cancel()
+        demoHandler.removeCallbacks(demoTick)
         gl.onPause()
         session?.pause()
         stopRecorder()   // MP4 は一時停止で ARCore が閉じる
@@ -480,7 +495,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                 voice.remember(debug.description)
                 answer.clauses.forEachIndexed { i, c ->
                     val at = answer.shelves[i].at
-                    voice.say(c, interrupt = i == 0, remember = false, before = SpatialMixer.Sound(pon, { at }))
+                    voice.say(c, interrupt = i == 0, remember = false, before = SpatialMixer.Sound(chime, { at }))
                 }
             }
             TapAnswer.Unknown -> voice.say("まだ棚が分かりません。棚の方を向いて、少し歩いてください。", interrupt = true)
@@ -790,13 +805,33 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             }
         }
 
-    private fun selectTab(model: Boolean) {
+    private fun selectTab(index: Int) {
+        val model = index == 1
         showModel = model
-        tabs.forEachIndexed { i, b -> b.alpha = if ((i == 1) == model) 1f else 0.55f }
-        debugOverlay.visibility = if (model) View.GONE else View.VISIBLE
+        showTest = index == 2
+        tabs.forEachIndexed { i, b -> b.alpha = if (i == index) 1f else 0.55f }
+        debugOverlay.visibility = if (index == 0) View.VISIBLE else View.GONE
+        testView.visibility = if (showTest) View.VISIBLE else View.GONE
+        demoHandler.removeCallbacks(demoTick)
+        if (showTest) startDemo()
         modelText.visibility = if (model) View.VISIBLE else View.GONE
         storeLabels.visibility = modelText.visibility
         if (model) storeView?.let { fitOrbit(it) }
+    }
+
+    private fun startDemo() {
+        listening.cancel()
+        demoStart = SystemClock.elapsedRealtime()
+        demoHandler.post(demoTick)
+    }
+
+    /** ARCore が追跡していなくても試せるよう、そのときは原点で正面を向いていることにする。 */
+    private fun demoListener() = listener ?: DEMO_LISTENER
+
+    private fun demoPosition(): Vec3 {
+        val center = demoListener().position
+        val o = SpatialDemo.offset((SystemClock.elapsedRealtime() - demoStart) / 1000.0)
+        return Vec3(center.x + o.x, center.y + o.y, center.z + o.z)
     }
 
     private fun fitOrbit(v: StoreView) {
@@ -880,6 +915,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         const val CLOSE_ALERT_M = 1.5f
         const val STORE_ESTIMATE_MS = 3000L
         const val RECORD_LABEL = "● 記録"
+        const val DEMO_REPEAT_MS = 700L
+        val DEMO_LISTENER = Listener(Vec3(0f, 0f, 0f), 0f, -1f)
         const val EXTRA_PLAYBACK = "jp.devfest.shelfsight.PLAYBACK_RECORDING"
         const val EXTRA_PRECOMPUTED = "jp.devfest.shelfsight.PLAYBACK_PRECOMPUTED"
         const val DEVICE_HEIGHT_M = 1.3f
