@@ -78,10 +78,11 @@
 <section id="tab-store" hidden><iframe id="store-frame" title="店モデル" style="width:100%;height:calc(100vh - 50px);border:0;display:block"></iframe></section>
 <section id="tab-select" hidden>
   <div class="tools">
+    <select id="sSrc"><option value="crops">店内の切り抜き</option><option value="db">コンビニDB の分類結果</option></select>
     <input id="sQ" type="search" placeholder="商品名で絞り込み">
     <select id="sCat"><option value="">すべてのカテゴリ</option></select>
     <select id="sShow"><option value="all">すべて</option><option value="off">未選択だけ</option><option value="on">選択済みだけ</option></select>
-    <label><input id="sRep" type="checkbox" checked> 同じ商品名は代表1件だけ</label>
+    <label id="sRepL"><input id="sRep" type="checkbox" checked> 同じ商品名は代表1件だけ</label>
     <button id="sAll">このページを全部選ぶ</button>
     <button id="sNone">このページを全部外す</button>
     <span class="count" id="sCount"></span>
@@ -224,7 +225,7 @@ $("#heads").innerHTML = `<div>1. 店内画像<small>元の写真</small></div>` 
 // ------------------------------------------------------------ タブ
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
 const SEL_PER_PAGE = 200, DB_PER_PAGE = 100, TRAIN_PER_PAGE = 100;
-let crops = null, selected = new Set(), db = null, repIds = new Set();
+let crops = null, selected = new Set(), db = null, repIds = new Set(), cropCats = [];
 const sel = { page:0 }, dbs = { page:0 }, tr = { page:0 };
 
 async function showTab(name) {
@@ -236,7 +237,7 @@ async function showTab(name) {
   location.hash = name;
   scrollTo(0, 0);
   if (name === "compare") visible.forEach(redraw);
-  if (name === "select") { await loadCrops(); renderSelect(); }
+  if (name === "select") { await loadCrops(); await setSource(); }
   if (name === "train") { await loadCrops(); await loadDb(); renderDb(); renderTrain(); }
 }
 document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
@@ -248,8 +249,17 @@ async function loadCrops() {
   const firstOfName = new Map();  // 同じ商品名（表記ゆれを除く）の最初の 1 件を代表にする
   for (const r of crops) { const k = r[1].normalize("NFKC").replace(/\s/g, "").toLowerCase(); if (!firstOfName.has(k)) firstOfName.set(k, r[0]); }
   repIds = new Set(firstOfName.values());
-  const cats = [...new Set(crops.map(r => r[2]))].sort();
-  $("#sCat").insertAdjacentHTML("beforeend", cats.map(c => `<option>${esc(c)}</option>`).join(""));
+  cropCats = [...new Set(crops.map(r => r[2]))].sort();
+}
+
+/** 教師データの選択タブに出すデータ（店内の切り抜き / コンビニDB の分類結果）を切り替える。コンビニDB は見るだけ */
+async function setSource() {
+  const isDb = $("#sSrc").value === "db";
+  for (const id of ["#sShow", "#sRepL", "#sAll", "#sNone"]) $(id).hidden = isDb;
+  if (isDb) await loadDb();
+  const options = isDb ? Object.entries(S.cats).filter(([k]) => k !== "NP").map(([k, v]) => `<option value="${k}">${k} ${esc(v)}</option>`) : cropCats.map(c => `<option>${esc(c)}</option>`);
+  $("#sCat").innerHTML = `<option value="">すべてのカテゴリ</option>` + options.join("");
+  renderSelect();
 }
 
 async function loadDb() {
@@ -281,7 +291,20 @@ function cropCard(r, cls) {
 }
 
 let selRows = [];
+function dbCard(r) {
+  return `<div class="card"><div class="ph">${r[5] ? `<img loading="lazy" src="/db/${r[0]}.webp" alt="">` : '<span class="none">画像未取得</span>'}</div>` +
+    `<div class="t" title="${esc(r[1])}">${esc(r[1])}</div><div class="c">${esc(r[3] ? S.cats[r[3]] : "対象外")}・${esc(r[2] || "ナチュラルローソン")}</div></div>`;
+}
+
 function renderSelect() {
+  if ($("#sSrc").value === "db") {
+    const text = $("#sQ").value.trim(), code = $("#sCat").value;
+    const rows = db.items.filter(r => (!text || r[1].includes(text)) && (!code || r[3] === code));
+    pager("s", sel, rows.length, SEL_PER_PAGE);
+    $("#sCount").textContent = `${rows.length.toLocaleString()} 件（全 ${db.items.length.toLocaleString()} 件、画像 ${db.images.toLocaleString()} 枚）`;
+    $("#sCards").innerHTML = rows.slice(sel.page * SEL_PER_PAGE, (sel.page + 1) * SEL_PER_PAGE).map(dbCard).join("");
+    return;
+  }
   const q = $("#sQ").value.trim(), cat = $("#sCat").value, show = $("#sShow").value, rep = $("#sRep").checked;
   const all = crops.filter(r => (!rep || repIds.has(r[0])) && (!q || r[1].includes(q)) && (!cat || r[2] === cat) && (show === "all" || selected.has(r[0]) === (show === "on")));
   pager("s", sel, all.length, SEL_PER_PAGE);
@@ -290,8 +313,9 @@ function renderSelect() {
   $("#sCards").innerHTML = selRows.map(r => cropCard(r, selected.has(r[0]) ? "on" : "")).join("");
 }
 
+$("#sSrc").onchange = () => { sel.page = 0; setSource(); };
 $("#sCards").onclick = e => {
-  const c = e.target.closest(".card"); if (!c) return;
+  const c = e.target.closest(".card.pick"); if (!c) return;
   const on = !selected.has(c.dataset.id);
   c.classList.toggle("on", on);
   setSelected([c.dataset.id], on);
@@ -306,9 +330,7 @@ function renderDb() {
   const all = db.items.filter(r => (!q || r[1].includes(q)) && (!cat || (cat === "-" ? !r[3] : r[3] === cat)) && (!chain || r[2] === chain) && (!img || r[5]));
   pager("d", dbs, all.length, DB_PER_PAGE);
   $("#dCount").textContent = `${all.length.toLocaleString()} 件（全 ${db.items.length.toLocaleString()} 件、画像 ${db.images.toLocaleString()} 枚）`;
-  $("#dCards").innerHTML = all.slice(dbs.page * DB_PER_PAGE, (dbs.page + 1) * DB_PER_PAGE).map(r =>
-    `<div class="card"><div class="ph">${r[5] ? `<img loading="lazy" src="/db/${r[0]}.webp" alt="">` : '<span class="none">画像未取得</span>'}</div>` +
-    `<div class="t" title="${esc(r[1])}">${esc(r[1])}</div><div class="c">${esc(r[3] ? S.cats[r[3]] : "対象外")}・${esc(r[2] || "ナチュラルローソン")}</div></div>`).join("");
+  $("#dCards").innerHTML = all.slice(dbs.page * DB_PER_PAGE, (dbs.page + 1) * DB_PER_PAGE).map(dbCard).join("");
 }
 
 function renderTrain() {
