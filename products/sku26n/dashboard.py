@@ -16,7 +16,7 @@ WORK = HERE.parent / "work" / "sku26n"
 THUMBS = WORK / "thumbs"
 TAXONOMY = HERE.parent / "konbinidb" / "taxonomy.json"
 THUMB_SIZE = 640
-METHODS = ["m1", "m3"]
+METHODS = ["m1"]
 
 
 def state(det: Path, pred_dir: Path) -> bytes:
