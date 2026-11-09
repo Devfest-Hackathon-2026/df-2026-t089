@@ -6,8 +6,13 @@ import jp.devfest.shelfsight.ar.GlUtil
 import jp.devfest.shelfsight.mapping.OrbitCamera
 import jp.devfest.shelfsight.model.Vec3
 
-/** 推定した店（[StoreView]）を箱の集まりとして描く。GL スレッドから使う。 */
+/** 推定した店（[StoreView]）を箱の集まりとして、認識した商品を点として描く。GL スレッドから使う。 */
 internal class StoreModelRenderer {
+    private val pointProgram = GlUtil.createProgram(POINT_VERTEX, POINT_FRAGMENT)
+    private val pointPosition = GLES20.glGetAttribLocation(pointProgram, "a_Position")
+    private val pointMvp = GLES20.glGetUniformLocation(pointProgram, "u_Mvp")
+    private val pointColor = GLES20.glGetUniformLocation(pointProgram, "u_Color")
+    private val pointBuffer = GlUtil.floatBuffer(FloatArray(ShelfMap.MAX_ITEMS * 3))
     private val program = GlUtil.createProgram(VERTEX, FRAGMENT)
     private val position = GLES20.glGetAttribLocation(program, "a_Position")
     private val shade = GLES20.glGetAttribLocation(program, "a_Shade")
@@ -18,8 +23,11 @@ internal class StoreModelRenderer {
     private val model = FloatArray(16)
     private val result = FloatArray(16)
 
-    /** @param camera 今いる場所。[floorY] はそこから見積もった床の高さ。 */
-    fun draw(view: StoreView?, orbit: OrbitCamera, width: Int, height: Int, camera: Vec3?, floorY: Float) {
+    /**
+     * @param camera 今いる場所。[floorY] はそこから見積もった床の高さ。
+     * @return 画面に重ねる文字（棚のジャンルが先、商品名は見えた回数の多い順）
+     */
+    fun draw(view: StoreView?, orbit: OrbitCamera, width: Int, height: Int, camera: Vec3?, floorY: Float, items: List<MapItem>): List<ScreenLabel> {
         GLES20.glClearColor(0.08f, 0.09f, 0.11f, 1f)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
@@ -53,6 +61,54 @@ internal class StoreModelRenderer {
         if (camera != null) marker(camera, floorY)
         GLES20.glDisableVertexAttribArray(position)
         GLES20.glDisableVertexAttribArray(shade)
+        drawPoints(items)
+        return labels(view, items, e, floorY, width, height)
+    }
+
+    private fun drawPoints(items: List<MapItem>) {
+        val n = minOf(items.size, ShelfMap.MAX_ITEMS)
+        if (n == 0) return
+        pointBuffer.clear()
+        for (i in 0 until n) items[i].position.let { pointBuffer.put(it.x).put(it.y).put(it.z) }
+        pointBuffer.position(0)
+        GLES20.glUseProgram(pointProgram)
+        GLES20.glDisable(GLES20.GL_DEPTH_TEST)   // 商品は棚の箱の中に入るので、奥行きを見ると隠れて見えない
+        GLES20.glUniformMatrix4fv(pointMvp, 1, false, viewProjection, 0)
+        GLES20.glUniform3fv(pointColor, 1, POINT, 0)
+        GLES20.glEnableVertexAttribArray(pointPosition)
+        GLES20.glVertexAttribPointer(pointPosition, 3, GLES20.GL_FLOAT, false, 0, pointBuffer)
+        GLES20.glDrawArrays(GLES20.GL_POINTS, 0, n)
+        GLES20.glDisableVertexAttribArray(pointPosition)
+        GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+    }
+
+    private fun labels(view: StoreView?, items: List<MapItem>, eye: Vec3, floorY: Float, width: Int, height: Int): List<ScreenLabel> {
+        val out = ArrayList<ScreenLabel>()
+        if (view?.room != null) {
+            val cs = Math.cos(view.yaw); val sn = Math.sin(view.yaw)
+            for (s in StoreLabels.shelves(view)) {
+                val x = (s.u * cs - s.v * sn).toFloat()
+                val z = (s.u * sn + s.v * cs).toFloat()
+                screen(x, floorY + s.top.toFloat() + SHELF_LABEL_LIFT_M, z, width, height)?.let { out += ScreenLabel(it[0], it[1], s.text, true) }
+            }
+        }
+        // 近づいた点だけ名前を出す
+        for (item in items.filter { it.position.distanceTo(eye) < NAME_RANGE_M }.sortedByDescending { it.seen }) {
+            val p = item.position
+            screen(p.x, p.y, p.z, width, height)?.let { out += ScreenLabel(it[0], it[1] - POINT_SIZE / 2, item.name, false) }
+        }
+        return out
+    }
+
+    /** 世界座標の点の画面上の位置（ピクセル）。視点の後ろや画面の外なら null。 */
+    private fun screen(x: Float, y: Float, z: Float, width: Int, height: Int): FloatArray? {
+        val m = viewProjection
+        val w = m[3] * x + m[7] * y + m[11] * z + m[15]
+        if (w <= 0f) return null
+        val sx = (m[0] * x + m[4] * y + m[8] * z + m[12]) / w
+        val sy = (m[1] * x + m[5] * y + m[9] * z + m[13]) / w
+        if (sx !in -1f..1f || sy !in -1f..1f) return null
+        return floatArrayOf((sx + 1f) / 2f * width, (1f - sy) / 2f * height)
     }
 
     private fun box(yaw: Double, u0: Double, v0: Double, u1: Double, v1: Double, y: Float, height: Float, col: FloatArray) {
@@ -88,6 +144,10 @@ internal class StoreModelRenderer {
         )
         val FLOOR = rgb(0x2d333c)
         val ME = rgb(0xf0efec)
+        val POINT = rgb(0xffd23f)
+        const val POINT_SIZE = 12f
+        const val NAME_RANGE_M = 3f
+        const val SHELF_LABEL_LIFT_M = 0.1f
 
         /** 単位立方体の三角形（x, y, z, 明るさ）。上の面を明るく、横の面は向きで明るさを変えて形を見せる。 */
         val CUBE: FloatArray = run {
@@ -121,6 +181,23 @@ internal class StoreModelRenderer {
             varying float v_Shade;
             void main() {
                 gl_FragColor = vec4(u_Color * v_Shade, 1.0);
+            }
+        """
+        const val POINT_VERTEX = """
+            uniform mat4 u_Mvp;
+            attribute vec3 a_Position;
+            void main() {
+                gl_Position = u_Mvp * vec4(a_Position, 1.0);
+                gl_PointSize = 12.0;
+            }
+        """
+        const val POINT_FRAGMENT = """
+            precision mediump float;
+            uniform vec3 u_Color;
+            void main() {
+                vec2 d = gl_PointCoord - vec2(0.5);
+                if (dot(d, d) > 0.25) discard;
+                gl_FragColor = vec4(u_Color, 1.0);
             }
         """
     }
