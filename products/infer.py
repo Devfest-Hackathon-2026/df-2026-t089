@@ -75,8 +75,10 @@ class ProductRecognizer:
         out = self.det.run(None, {self.det_in: (x.transpose(2, 0, 1)[None] / 255).astype(np.float32)})[0][0]
         cx, cy, bw, bh, sc = out[:5]
         m = sc >= self.conf
+        if not np.any(m):
+            return np.empty((0, 4), dtype=np.float32), np.empty(0, dtype=np.float32)
         b = np.stack([cx[m] - bw[m] / 2, cy[m] - bh[m] / 2, bw[m], bh[m]], 1)
-        k = np.array(cv2.dnn.NMSBoxes(b.tolist(), sc[m].tolist(), self.conf, self.iou)).reshape(-1)
+        k = np.asarray(cv2.dnn.NMSBoxes(b.tolist(), sc[m].tolist(), self.conf, self.iou), dtype=np.intp).reshape(-1)
         b, sc = b[k], sc[m][k]
         return np.stack([b[:, 0] / nw, b[:, 1] / nh, (b[:, 0] + b[:, 2]) / nw, (b[:, 1] + b[:, 3]) / nh], 1).clip(0, 1), sc
 

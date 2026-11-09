@@ -473,7 +473,14 @@ def replay(name, detector="app", hz=1.0, recognize=None):
         st = {"i": si, "n": k["n"], "t": round((k["t"] - t0) / 1e9, 2), "image": k["image"], "state": k["state"], "has_depth": bool(k.get("depth"))}
         cam = (g["m"][12], g["m"][13], g["m"][14])
         st["cam"] = [round(v, 3) for v in cam]
+        # 画像認識は位置追跡に依存しない。追跡が止まった記録でも検出器の実験はできる。
+        t1 = time.perf_counter()
+        dets = recognize(np.asarray(Image.open(d / k["image"]).convert("RGB")))
+        stats["ms"] += (time.perf_counter() - t1) * 1000
         if k["state"] != "TRACKING":
+            st["dets"] = [[*[round(float(v), 4) for v in det["box"]], round(float(det["score"]), 3), det["name"], round(float(det["sim"]), 3), None, False] for det in dets]
+            stats["boxes"] += len(dets)
+            stats["named"] += sum(bool(det["name"]) for det in dets)
             steps.append(st)
             continue
         stats["tracked"] += 1
@@ -491,9 +498,6 @@ def replay(name, detector="app", hz=1.0, recognize=None):
             elif p["type"] == "HORIZONTAL_UPWARD_FACING" and -0.6 <= m[13] - cam[1] <= -0.1 and p["ex"] * p["ez"] >= 0.1:
                 x, z = p["ex"] / 2, p["ez"] / 2
                 counters += [world_of(m, a, b) for a, b in ((0, 0), (x, z), (-x, z), (x, -z), (-x, -z))]
-        t1 = time.perf_counter()
-        dets = recognize(np.asarray(Image.open(d / k["image"]).convert("RGB")))
-        stats["ms"] += (time.perf_counter() - t1) * 1000
         now_ms = (k["t"] - t0) / 1e6
         model.add_camera(cam[0], cam[2])
         out = []
@@ -535,9 +539,9 @@ def replay(name, detector="app", hz=1.0, recognize=None):
     sec = (chosen[-1]["t"] - t0) / 1e9
     tracked = stats["tracked"]
     summary = {"seconds": round(sec, 1), "steps": len(steps), "tracked_ratio": round(tracked / max(stats["frames"], 1), 3),
-               "boxes_per_step": round(stats["boxes"] / max(tracked, 1), 1), "named_per_step": round(stats["named"] / max(tracked, 1), 1),
+               "boxes_per_step": round(stats["boxes"] / max(stats["frames"], 1), 1), "named_per_step": round(stats["named"] / max(stats["frames"], 1), 1),
                "depth_ratio": round(stats["with_depth"] / max(stats["boxes"], 1), 3), "placed_per_step": round(stats["placed"] / max(tracked, 1), 1),
-               "ms_per_step": round(stats["ms"] / max(tracked, 1)), "items": len(shelf.items), "fixtures": len(view["fixtures"]),
+               "ms_per_step": round(stats["ms"] / max(stats["frames"], 1)), "items": len(shelf.items), "fixtures": len(view["fixtures"]),
                "planes": len(planes), "keyframes": len(keyframes), "poses": len(jsonl(d / "poses.jsonl"))}
     timed = [{**e, "at": round((e["t"] - t0) / 1e9, 2)} for e in events]
     result = {"name": name, "detector": detector, "hz": hz, "meta": read_json(d / "meta.json", {}), "summary": summary, "steps": steps, "events": timed,

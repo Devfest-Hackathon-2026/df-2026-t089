@@ -33,10 +33,11 @@ with tempfile.TemporaryDirectory() as t:
         return [{"box": b, "score": 0.9, "name": "緑茶" if k % 2 == 0 else None, "genre": "ソフトドリンク" if k % 2 == 0 else None, "fine": "緑茶" if k % 2 == 0 else None, "sim": 0.85} for k, b in enumerate(boxes)]
 
     res = r.replay("20261109_120000", "app", 1.0, fake)
-    assert len(calls) == 11, calls                      # 追跡が止まっている 1 枚は認識しない
+    assert len(calls) == 12, calls                      # 追跡が止まっても画像認識は試せる
     s = res["summary"]
-    assert s["steps"] == 12 and s["tracked_ratio"] == round(11 / 12, 3) and s["boxes_per_step"] == 18 and s["depth_ratio"] == 1.0, s
+    assert s["steps"] == 12 and s["tracked_ratio"] == round(11 / 12, 3) and s["boxes_per_step"] == 18 and s["depth_ratio"] == round(11 / 12, 3), s
     assert s["items"] >= 1 and s["named_per_step"] == 9, s
+    assert len(res["steps"][0]["dets"]) == 18 and "tap" not in res["steps"][0]
     last = res["steps"][-1]
     assert abs(last["cam"][2] - 3.3) < 1e-6 and last["fwd"] == [1.0, 0.0], last   # 向きが取れている
     # 深度 1.5 m 先の商品は、カメラの +x 側に置かれる

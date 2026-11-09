@@ -77,10 +77,14 @@ class SessionRecorder(private val context: Context, root: File) : SensorEventLis
             Log.e(TAG, "ARCore recording failed", e)
         }
         val c = session.cameraConfig
+        val config = session.config
         File(dir, "meta.json").writeText(
             JSONObject().put("name", name).put("start_ms", startMs).put("model", Build.MODEL).put("sdk", Build.VERSION.SDK_INT)
                 .put("mp4", hasMp4).put("camera_id", c.cameraId).put("image", JSONArray(listOf(c.imageSize.width, c.imageSize.height)))
                 .put("texture", JSONArray(listOf(c.textureSize.width, c.textureSize.height))).put("fps", JSONArray(listOf(c.fpsRange.lower, c.fpsRange.upper)))
+                .put("plane_finding_mode", config.planeFindingMode.name).put("depth_mode", config.depthMode.name)
+                .put("light_estimation_mode", config.lightEstimationMode.name).put("focus_mode", config.focusMode.name)
+                .put("update_mode", config.updateMode.name)
                 .put("sensor_rotation", sensorRotation).put("keyframe_ms", KEYFRAME_MS).put("long_side", LONG_SIDE).toString(1),
         )
         for (s in SENSOR_TYPES.mapNotNull { sensorManager.getDefaultSensor(it) }) sensorManager.registerListener(this, s, SensorManager.SENSOR_DELAY_GAME)

@@ -131,7 +131,8 @@ function paintCam() {
     if (name) { const w = g.measureText(name).width + 6; g.fillStyle = "#0b3d1c"; g.fillRect(x0 * c.width, y0 * c.height, w, 26); g.fillStyle = "#fff"; g.fillText(name, x0 * c.width + 3, y0 * c.height + 2); }
   }
   const named = dets.filter(d => d[5]).length, depth = dets.filter(d => d[7] != null).length;
-  $("camnote").textContent = dets.length ? `枠 ${dets.length} 個（緑 = 名前付き ${named}、白 = 名前なし）· 深度あり ${depth}` : "認識なし";
+  $("camnote").textContent = (s.state !== "TRACKING" ? "追跡停止中：画像認識のみ実行。位置・店モデル・案内は計算できません。 " : "") +
+    (dets.length ? `枠 ${dets.length} 個（緑 = 名前付き ${named}、白 = 名前なし）· 深度あり ${depth}` : "認識なし");
 }
 
 function planDraw() {
