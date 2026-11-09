@@ -183,6 +183,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         recordButton = Button(this).apply { text = RECORD_LABEL; setOnClickListener { recordToggle = true } }
         val tabBar = LinearLayout(this).apply {
             (tabs + recordButton).forEach { addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
+            // ステータスバーの下に潜るとタップがシステムに取られる
+            setPadding(0, resources.getIdentifier("status_bar_height", "dimen", "android").let { if (it > 0) resources.getDimensionPixelSize(it) else 0 }, 0, 0)
         }
         setContentView(FrameLayout(this).apply {
             addView(gl)
