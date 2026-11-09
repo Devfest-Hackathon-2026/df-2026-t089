@@ -3,7 +3,7 @@
   python products/sku26n/dashboard.py [--port 8771]   -> http://127.0.0.1:8771
 各手法の結果は products/work/sku26n/pred_<手法>.json: {"images": {画像名: [[x0, y0, x1, y1, 信頼度, カテゴリ番号], ...]}}（座標は 0..1）
 """
-import argparse, json, os, re, subprocess, sys, threading
+import argparse, json, os, re, subprocess, sys, threading, unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -19,8 +19,10 @@ CROPS = HERE.parent / "work" / "crops"
 NAMES = HERE.parent / "work" / "names.json"
 SELECTED = WORK / "selected_crops.json"
 SELECTED_DB = WORK / "selected_db.json"
+VERIFY = WORK / "verify_all.json"
 TAXONOMY = HERE.parent / "konbinidb" / "taxonomy.json"
-METHODS = ["gemini", "m1"]
+METHODS = ["m1", "clip", "gemini"]
+AUG = DB_IMAGES.parent / "train_aug"  # コンビニDB を店内の切り抜きに似せた学習データ（konbinidb/make_train.py）
 
 
 def state(det: Path, pred_dir: Path) -> bytes:
@@ -29,7 +31,7 @@ def state(det: Path, pred_dir: Path) -> bytes:
     d["methods"] = {m: json.loads((pred_dir / f"pred_{m}.json").read_text(encoding="utf-8"))["images"]
                     for m in METHODS if (pred_dir / f"pred_{m}.json").exists()}
     d["cats"] = {k: v[0] for g in json.loads(TAXONOMY.read_text(encoding="utf-8")).values() for k, v in g.items()}
-    d["cats"]["NP"] = "商品でない"
+    d["cats"].update({"NP": "商品でない", "UNS": "断定できない", "MLT": "主役を絞れない"})
     return json.dumps(d, ensure_ascii=False).encode()
 
 
@@ -52,6 +54,20 @@ def named_crops() -> list:
 
 def read_selected() -> set:
     return set(json.loads(SELECTED.read_text(encoding="utf-8"))) if SELECTED.exists() else set()
+
+
+def verification_view() -> dict:
+    """商品名ごとの代表切り抜きに対する Gemini 判定。合格時のカテゴリは新しい分類体系の番号。"""
+    crops = named_crops()
+    reps = {}
+    for r in crops:
+        reps.setdefault(re.sub(r"\s", "", unicodedata.normalize("NFKC", r[1])).lower(), r[0])
+    rep_ids = set(reps.values())
+    rows = json.loads(VERIFY.read_text(encoding="utf-8"))["rows"] if VERIFY.exists() else []
+    judged = {r["id"]: [r["status"], r.get("pass") is True, r.get("cat") if r.get("pass") else None]
+              for r in rows if r["id"] in rep_ids}
+    return {"rows": judged, "representatives": len(reps), "judged": len(judged),
+            "passed": sum(r[1] for r in judged.values()), "complete": set(judged) == rep_ids}
 
 
 def read_selected_db() -> set:
@@ -93,6 +109,25 @@ def konbinidb_view() -> dict:
     selectable = {r[0] for r in rows if r[3] and r[5]}
     return {"items": rows, "images": len(have), "labeled": sum(bool(r[3]) for r in rows),
             "candidates": len(selectable), "selected": sorted(read_selected_db() & selectable)}
+
+
+def aug_manifest() -> dict:
+    f = AUG / "manifest.json"
+    return json.loads(f.read_text(encoding="utf-8")) if f.exists() else {"rows": [], "skipped": 0, "variants": 0}
+
+
+def aug_crop(item_id: str) -> bytes | None:
+    """sku110k-2 の枠で切り抜いたコンビニDB の画像（学習データの確認用。保存せず、その場で作る）"""
+    import io
+    from PIL import Image
+    row = next((r for r in aug_manifest()["rows"] if r["id"] == item_id), None)
+    if row is None:
+        return None
+    im = Image.open(DB_IMAGES / f"{item_id}.webp").convert("RGB")
+    b = row["box"]
+    out = io.BytesIO()
+    im.crop((int(b[0] * im.width), int(b[1] * im.height), int(b[2] * im.width), int(b[3] * im.height))).save(out, "JPEG", quality=85)
+    return out.getvalue()
 
 
 _replay_job = None
@@ -139,23 +174,42 @@ def replay_get(path):
         s = json.loads((replay.RECORDINGS / "status.json").read_text(encoding="utf-8")) if (replay.RECORDINGS / "status.json").exists() else {}
         s["busy"] = bool(_replay_job and _replay_job.poll() is None)
         return json.dumps(s, ensure_ascii=False).encode(), "application/json"
+    m = re.fullmatch(r"/api/replay/events/(\d{8}_\d{6})", path)
+    if m and (replay.RECORDINGS / m[1]).is_dir():
+        d = replay.RECORDINGS / m[1]
+        keyframes = replay.jsonl(d / "keyframes.jsonl")
+        meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+        first = keyframes[0] if keyframes else {}
+        offset = max(0, (first.get("wall_ms", 0) - meta.get("start_ms", 0)) / 1000) if first else 0
+        events = [{**e, "at": round((e["t"] - first["t"]) / 1e9, 2) if first else round((e["wall_ms"] - meta["start_ms"]) / 1000, 2)}
+                  for e in replay.jsonl(d / "events.jsonl")]
+        audio_start = meta.get("audio_start_ms")
+        app_audio_start = meta.get("app_audio_start_ms")
+        wall = first.get("wall_ms")
+        return json.dumps({"events": events, "video_offset": offset,
+                           "audio_offset": max(0, (wall - audio_start) / 1000) if wall and audio_start else 0,
+                           "app_audio_offset": max(0, (wall - app_audio_start) / 1000) if wall and app_audio_start else 0}, ensure_ascii=False).encode(), "application/json"
     m = re.fullmatch(r"/api/replay/data/(\d{8}_\d{6})/([\w-]+)", path)
     if m and m[2] in replay.DETECTORS and (replay.RECORDINGS / m[1] / f"replay_{m[2]}.json").exists():
         return (replay.RECORDINGS / m[1] / f"replay_{m[2]}.json").read_bytes(), "application/json"
     m = re.fullmatch(r"/api/replay/file/(\d{8}_\d{6})/(frames/\d{5}\.jpg)", path)
     if m and (replay.RECORDINGS / m[1] / m[2]).exists():
         return (replay.RECORDINGS / m[1] / m[2]).read_bytes(), "image/jpeg"
-    m = re.fullmatch(r"/api/replay/audio/(\d{8}_\d{6})\.wav", path)
+    m = re.fullmatch(r"/api/replay/preview/(\d{8}_\d{6})\.mp4", path)
+    if m and (replay.RECORDINGS / m[1] / "preview30.mp4").exists():
+        return (replay.RECORDINGS / m[1] / "preview30.mp4").read_bytes(), "video/mp4"
+    m = re.fullmatch(r"/api/replay/(audio|app_audio)/(\d{8}_\d{6})\.wav", path)
     if m:
         import io
         import wave
-        pcm = replay.RECORDINGS / m[1] / "audio.pcm"
+        app_audio = m[1] == "app_audio"
+        pcm = replay.RECORDINGS / m[2] / ("app_audio.pcm" if app_audio else "audio.pcm")
         if pcm.exists():
             out = io.BytesIO()
             with wave.open(out, "wb") as wav:
-                wav.setnchannels(1)
+                wav.setnchannels(2 if app_audio else 1)
                 wav.setsampwidth(2)
-                wav.setframerate(16000)
+                wav.setframerate(44100 if app_audio else 16000)
                 wav.writeframes(pcm.read_bytes())
             return out.getvalue(), "audio/wav"
     m = re.fullmatch(r"/api/replay/depth/(\d{8}_\d{6})/(\d+)\.png", path)
@@ -195,7 +249,8 @@ def handler(det: Path, pred_dir: Path):
             elif path == "/api/state":
                 self.send(state(det, pred_dir), "application/json")
             elif path == "/api/crops":
-                self.send(json.dumps({"crops": named_crops(), "selected": sorted(read_selected())}, ensure_ascii=False).encode(), "application/json")
+                self.send(json.dumps({"crops": named_crops(), "selected": sorted(read_selected()),
+                                      "verification": verification_view()}, ensure_ascii=False).encode(), "application/json")
             elif path == "/api/konbinidb":
                 self.send(json.dumps(konbinidb_view(), ensure_ascii=False).encode(), "application/json")
             elif path == "/replay":
@@ -211,6 +266,15 @@ def handler(det: Path, pred_dir: Path):
                 self.send((CROPS / path[6:]).read_bytes(), "image/jpeg", cache=True)
             elif re.fullmatch(r"/db/\d+\.webp", path) and (DB_IMAGES / path[4:]).exists():
                 self.send((DB_IMAGES / path[4:]).read_bytes(), "image/webp", cache=True)
+            elif re.fullmatch(r"/api/top5/(m1|clip)/[^/]+\.jpg", path) and path.rsplit("/", 1)[1] in names and (WORK / "top5" / path[10:]).exists():
+                self.send((WORK / "top5" / path[10:]).read_bytes(), "application/json", cache=True)
+            elif path == "/api/train_aug":
+                self.send(json.dumps(aug_manifest(), ensure_ascii=False).encode(), "application/json")
+            elif re.fullmatch(r"/aug/\d+_[0-9]\.jpg", path) and (AUG / path[5:]).exists():
+                self.send((AUG / path[5:]).read_bytes(), "image/jpeg", cache=True)
+            elif re.fullmatch(r"/aug_crop/\d+\.jpg", path):
+                body = aug_crop(path[10:-4])
+                self.send(body, "image/jpeg", cache=True) if body else self.send_error(404)
             else:
                 self.send_error(404)
 
