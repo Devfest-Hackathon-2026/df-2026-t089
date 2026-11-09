@@ -60,6 +60,7 @@
     <button data-tab="compare">比較</button>
     <button data-tab="select">教師データの選択</button>
     <button data-tab="train">教師データ</button>
+    <button data-tab="store">店モデル</button>
   </nav>
   <div id="compareHead">
   <div class="bar">
@@ -74,6 +75,7 @@
 </header>
 <section id="tab-compare"><main class="grid" id="grid"></main></section>
 
+<section id="tab-store" hidden><iframe id="store-frame" title="店モデル" style="width:100%;height:calc(100vh - 50px);border:0;display:block"></iframe></section>
 <section id="tab-select" hidden>
   <div class="tools">
     <input id="sQ" type="search" placeholder="商品名で絞り込み">
@@ -227,7 +229,8 @@ const sel = { page:0 }, dbs = { page:0 }, tr = { page:0 };
 
 async function showTab(name) {
   document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === name));
-  for (const t of ["compare", "select", "train"]) $("#tab-" + t).hidden = t !== name;
+  for (const t of ["compare", "select", "train", "store"]) $("#tab-" + t).hidden = t !== name;
+  if (name === "store" && !$("#store-frame").src) $("#store-frame").src = "/store";  // 開いたときに初めて読む（1 回歩かせるので）
   $("#compareHead").hidden = name !== "compare";
   document.documentElement.style.setProperty("--h", $("#top").offsetHeight + "px");
   location.hash = name;
@@ -333,7 +336,7 @@ for (const [p, state, render] of [["s", sel, renderSelect], ["d", dbs, renderDb]
 }
 
 (function waitForState() {  // カテゴリ名（S.cats）が読めてからタブを開く
-  if (S) showTab(["select", "train"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "compare");
+  if (S) showTab(["select", "train", "store"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "compare");
   else setTimeout(waitForState, 50);
 })();
 </script>

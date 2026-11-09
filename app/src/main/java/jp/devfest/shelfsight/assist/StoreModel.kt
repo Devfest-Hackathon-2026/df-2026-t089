@@ -273,7 +273,7 @@ class StoreModel {
         private const val CASE_DEPTH = 0.8
         private val WIDTHS = listOf(0.9, 1.2)
         private val HEIGHT = mapOf("island" to 1.8, "wall" to 1.8, "case" to 2.0, "end" to 1.5, "register" to 1.0)
-        private val CHILLED = setOf("ソフトドリンク", "栄養・エナジードリンク", "紙パック飲料・乳製品", "酒", "冷凍食品", "アイス", "弁当・おにぎり", "サンドイッチ・サラダ・惣菜", "チルドデザート")
+        private val CHILLED = setOf("ソフトドリンク", "栄養・エナジードリンク", "紙パック飲料・乳製品", "酒", "冷凍食品", "アイス", "弁当・おにぎり", "サンドイッチ・サラダ・惣菜", "チルドデザート", "飲料", "パン・米飯・軽食", "冷蔵・冷凍食品・デザート")
 
         private fun floorI(v: Double) = floor(v).toInt()
         private fun overlap(a0: Double, a1: Double, b0: Double, b1: Double) = min(a1, b1) - max(a0, b0)

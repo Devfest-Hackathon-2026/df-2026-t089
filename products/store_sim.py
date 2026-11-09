@@ -4,11 +4,15 @@
   python products/store_sim.py --fixture   # アプリのテスト用データを作り直す（store_model.py を直したとき）
 
 再現しているもの（数字の根拠）
-  ・1 秒に 1 枚、胸の高さ 1.3 m、縦持ち、地図に置くのは大きい順に 20 個まで、奥行き 0.2〜3.5 m（AssistActivity / ProductRecognizer / ShelfMap の定数）
-  ・カテゴリの読み違いと「名前を付けない」は実測（work/store_calib.json: 学習に使っていない切り抜きの実際の予測）。商品ごとの偏りも残る
-  ・検出は写る大きさの関数。実機の記録 records/20261106_190954（225 枚、名前付き 2.5 個/枚、距離の中央値 1.06 m、0.23 m/s）に合うよう recall 0.75, px50 40 にした
+  ・認識環境は sku110k-2 の切り出し＋120 カテゴリの分類（products/sku26n と konbinidb/taxonomy.json）
+  ・1 秒に 1 枚、胸の高さ 1.3 m、縦持ち、名前を付けるのは大きい順に 20 個まで、奥行き 0.2〜3.5 m（AssistActivity / ProductRecognizer / ShelfMap の定数）
+  ・画角は実機の records.jsonl の intrinsics、歩く速さはその録画（225 枚、0.23 m/s）
+  ・検出は写る大きさの関数で、work/sku26n/det.json（720x1280 の 971 枚）の枠の大きさの分布に合わせた（recall 0.9, px50 30）。
+    棚の前の 1 枚の枠数は 25 個で実測の 50 個より少ない（棚を遠くから見た枚数が違う）ので、形の推定には控えめな条件
+  ・「商品でない」の割合は pred_gemini.json の実測（3 枚だけ）
 仮定（実測がないもの。ダッシュボードで変えられる）
-  ・深度の誤差と欠け、ARCore の位置のずれ。人による隠れは入れていない（画角は実機の値）
+  ・分類の正解率。pred_m1.json ができたら Gemini との一致率に自動で置き換わる。それまでは今の埋め込みの top-1 を仮に使う
+  ・深度の誤差と欠け、ARCore の位置のずれ。人による隠れは入れていない
 """
 import argparse, json, math, random, sys
 from math import atan2, cos, hypot, pi, radians, sin
@@ -16,31 +20,51 @@ from math import atan2, cos, hypot, pi, radians, sin
 from common import ROOT, WORK, read_json, write_json
 from store_model import CASE_DEPTH, END_DEPTH, GONDOLA_DEPTH, ISLAND_DEPTH, StoreModel, text
 
-DEFAULTS = {"seed": 1, "mode": "scan", "recall": 0.75, "px50": 40.0, "geo": "all", "drift": 1.0, "depth": 1.0, "recog": "real", "speed": 0.25, "snap": 6}
+DEFAULTS = {"seed": 1, "mode": "scan", "recall": 0.9, "px50": 30.0, "acc": None, "geo": "all", "drift": 1.0, "depth": 1.0, "recog": "real", "speed": 0.25, "snap": 6}
 F_PX = 943.0         # 実機の records.jsonl の intrinsics（fx 1415 / 1920x1080）を長辺 1280 px に換算
 HFOV, VFOV = radians(41.8), radians(68.3)   # 同じく実機の値（縦持ち）
 FACE_W, ROW_H = 0.09, 0.3
 ROWS = (0.35, 0.65, 0.95, 1.25, 1.55)
 MAX_NAMED, MAX_RANGE = 20, 3.5
-ZONES = {"island": ["カップ麺", "加工食品", "スナック菓子", "チョコ・ビスケット", "グミ・キャンディ", "和洋菓子", "駄菓子・食玩", "おつまみ・ナッツ", "パン"],
-         "drinks": ["ソフトドリンク", "栄養・エナジードリンク", "紙パック飲料・乳製品", "酒"],
-         "chilled": ["弁当・おにぎり", "サンドイッチ・サラダ・惣菜", "チルドデザート", "冷凍食品", "アイス"],
-         "goods": ["日用品・衛生用品", "化粧品", "文房具", "マスク", "スマホ用品・雑貨", "靴下・衣料", "その他"]}
+ZONES = {"island": ["お菓子・スナック", "即席食品・常温食品"], "drinks": ["飲料"],
+         "chilled": ["パン・米飯・軽食", "冷蔵・冷凍食品・デザート"], "goods": ["日用品・その他"]}
+# taxonomy の「追加」は寄せ集めなので、売り場の近い大分類に入れる
+EXTRA = {"ビール類": "飲料", "チューハイ・サワー・ハイボール": "飲料", "日本酒・焼酎・ワイン・洋酒": "飲料", "ココア・ラテ系飲料": "飲料",
+         "ホットスナック": "パン・米飯・軽食", "おでん": "パン・米飯・軽食", "中華まん": "パン・米飯・軽食", "お好み焼き・たこ焼き": "パン・米飯・軽食", "スープ・汁物": "即席食品・常温食品",
+         "漬物・キムチ": "冷蔵・冷凍食品・デザート", "卵・豆腐・納豆": "冷蔵・冷凍食品・デザート", "ハム・ソーセージ・サラダチキン": "冷蔵・冷凍食品・デザート", "チーズ・バター": "冷蔵・冷凍食品・デザート", "冷凍食材・氷": "冷蔵・冷凍食品・デザート",
+         "調味料・ふりかけ・ジャム": "即席食品・常温食品", "レトルト惣菜・即席鍋": "即席食品・常温食品",
+         "肌着・靴下": "日用品・その他", "台所・掃除・洗濯用品": "日用品・その他", "理美容・ボディケア": "日用品・その他", "ペット用品": "日用品・その他"}
+PROXY_ACC = 0.52     # 仮の正解率: 今の埋め込みの top-1（実物の 120 分類の結果が出るまで）
+SKU = WORK / "sku26n"
 
 
 def calib():
-    c = read_json(WORK / "store_calib.json")
-    if not c:
-        raise ValueError("work/store_calib.json がありません（python products/store_calib.py）")
-    return c
+    """認識環境の実測を集める"""
+    tax = read_json(ROOT / "products" / "konbinidb" / "taxonomy.json")
+    if not tax:
+        raise ValueError("konbinidb/taxonomy.json がありません")
+    genre = {v[0]: EXTRA.get(v[0], g) for g, cs in tax.items() for v in cs.values()}
+    name = {k: v[0] for cs in tax.values() for k, v in cs.items()}
+    gemini = read_json(SKU / "pred_gemini.json", {"images": {}})["images"]
+    boxes = [b for v in gemini.values() for b in v]
+    np_rate = sum(b[5] == "NP" for b in boxes) / max(len(boxes), 1)
+    acc, same, source, n = PROXY_ACC, 0.7, "仮（今の埋め込みの top-1）", 0
+    m1 = read_json(SKU / "pred_m1.json")
+    if m1:
+        pairs = [(g[5], m[5]) for im, gs in gemini.items() for g in gs for m in m1["images"].get(im, []) if g[:4] == m[:4] and g[5] in name and m[5] in name]
+        if pairs:
+            wrong = [(a, b) for a, b in pairs if a != b]
+            n, acc = len(pairs), 1 - len(wrong) / len(pairs)
+            same = sum(genre[name[a]] == genre[name[b]] for a, b in wrong) / max(len(wrong), 1)
+            source = f"M1 と Gemini の一致（{n} 枠）"
+    return {"genre": genre, "np": np_rate, "np_n": len(boxes), "acc": acc, "same": same, "source": source}
 
 
 def pools(cal):
-    """ジャンル → そのジャンルのカテゴリ（テストの切り抜きが 3 枚以上あるもの）"""
+    """大分類 → カテゴリ"""
     out = {}
-    for cat, groups in sorted(cal["cats"].items()):
-        if sum(map(len, groups.values())) >= 3 and cat in cal["genre"]:
-            out.setdefault(cal["genre"][cat], []).append(cat)
+    for cat, g in cal["genre"].items():
+        out.setdefault(g, []).append(cat)
     return out
 
 
@@ -51,6 +75,14 @@ def make_store(seed, cal):
     pool = pools(cal)
     every = [c for cs in pool.values() for c in cs]
     fixtures = []
+    confusers = {}
+
+    def confuser(cat):
+        """カテゴリごとに決まった間違い先。実際の誤認識は「カップ麺をカップうどんに」のように偏る（商品ごとに散らすと多数決で消えて甘く出る）"""
+        if cat not in confusers:
+            kin = [c for c in pool[cal["genre"][cat]] if c != cat]
+            confusers[cat] = rng.choice(kin if kin and rng.random() < cal["same"] else [c for c in every if c != cat])
+        return confusers[cat]
 
     def cats_for(zone, n):
         names = [g for g in ZONES[zone] if g in pool] or list(pool)
@@ -97,12 +129,12 @@ def make_store(seed, cal):
                     t = f["a"] + m * f["w"] + FACE_W / 2
                     while t < f["a"] + (m + 1) * f["w"]:
                         cat = main if rng.random() < 0.75 else rng.choice(pool.get(cal["genre"][main]) or every)
-                        group = rng.choice(sorted(cal["cats"][cat]))
+                        wrong = confuser(cat) if rng.random() < 0.8 else rng.choice([c for c in every if c != cat])
                         for _ in range(rng.randint(2, 4)):
                             if t < f["a"] + (m + 1) * f["w"]:
                                 cross = f["c"] + s * f["d"] / 2
                                 p = (cross, t) if f["axis"] == 0 else (t, cross)
-                                products.append({"f": fi, "sign": s, "m": m, "p": p, "y": y, "cat": cat, "group": group})
+                                products.append({"f": fi, "sign": s, "m": m, "p": p, "y": y, "cat": cat, "wrong": wrong})
                                 t += FACE_W
     return {"W": W, "D": D, "fixtures": fixtures, "products": products, "rows": rows, "v0": v0, "v1": v1}
 
@@ -171,6 +203,8 @@ def simulate(cfg, cal=None, route=None):
     """1 回歩いて、一定間隔の推定と評価を返す"""
     cal = cal or calib()
     cfg = {**DEFAULTS, **cfg}
+    if cfg["acc"] is None:
+        cfg["acc"] = cal["acc"]
     rng = random.Random(cfg["seed"] * 7919 + 11)
     store = make_store(cfg["seed"], cal)
     rects = [rect_of(f) for f in store["fixtures"]]
@@ -186,11 +220,10 @@ def simulate(cfg, cal=None, route=None):
     model = StoreModel()
     du = dv = de = 0.0   # ARCore の位置と向きのずれ
     genre = cal["genre"]
-    by_group = lambda cat, group: cal["cats"][cat][group]
     frames, snaps = [], []
     seen = {}
     named = right = 0
-    dists = []
+    dists, box_px, per_frame = [], [], []
     for t, (u, v, heading) in enumerate(steps):
         du += rng.gauss(0, 0.006 * cfg["drift"])
         dv += rng.gauss(0, 0.006 * cfg["drift"])
@@ -218,12 +251,17 @@ def simulate(cfg, cal=None, route=None):
             if not blocked(u, v, p["p"][0], p["p"][1], rects, p["f"]):
                 visible.append((px * ROW_H * F_PX / depth, p, dx, dz, depth, ang))
         visible.sort(key=lambda x: -x[0])
+        per_frame.append(len(visible))
+        box_px += [v[0] / (ROW_H * F_PX / v[4]) for v in visible]
         placed = 0
         for k, (_, p, dx, dz, depth, ang) in enumerate(visible):
             seen[(p["f"], p["sign"], p["m"])] = seen.get((p["f"], p["sign"], p["m"]), 0) + 1
             cat = ""   # 名前を付けるのは大きい順に 20 個まで。それ以外と「名前を付けない」は位置だけ使う
             if k < MAX_NAMED:
-                cat = rng.choice(by_group(p["cat"], p["group"])) if cfg["recog"] == "real" else p["cat"]
+                if cfg["recog"] == "perfect":
+                    cat = p["cat"]
+                elif rng.random() >= cal["np"]:   # 「商品でない」は名前なし
+                    cat = p["cat"] if rng.random() < cfg["acc"] else p["wrong"]
                 if cat:
                     named += 1
                     dists.append(depth)
@@ -253,7 +291,7 @@ def simulate(cfg, cal=None, route=None):
             snaps.append({"t": t, "model": light(est, w0, ou, ov), "metrics": evaluate(est, store, seen, w0, ou, ov)})
     final = snaps[-1]
     return {"cfg": cfg, "store": {k: store[k] for k in ("W", "D", "fixtures")}, "route": route, "frames": frames, "snaps": snaps,
-            "text": text(model.estimate()), "cells": cells_in_store(model, w0, ou, ov), "named_acc": round(right / max(named, 1), 3), "named_per_frame": round(named / len(steps), 2), "named_dist": round(sorted(dists)[len(dists) // 2], 2) if dists else None, "metrics": final["metrics"]}
+            "text": text(model.estimate()), "cells": cells_in_store(model, w0, ou, ov), "named_acc": round(right / max(named, 1), 3), "named_per_frame": round(named / len(steps), 2), "boxes_on_shelf": round(sum(n for n in per_frame if n >= 10) / max(sum(n >= 10 for n in per_frame), 1), 1), "box_px": sorted(box_px), "named_dist": round(sorted(dists)[len(dists) // 2], 2) if dists else None, "metrics": final["metrics"]}
 
 
 def in_store(x, z, w0, ou, ov):
@@ -381,7 +419,9 @@ def store_genre():
 
 CONDITIONS = [("実際の認識・棚を見回して歩く", {}),
               ("実際の認識・前を向いたまま", {"mode": "forward"}),
-              ("認識が完璧（カテゴリの誤りなし）", {"recog": "perfect"}),
+              ("分類が完璧", {"recog": "perfect"}),
+              ("分類の正解率 70%", {"acc": 0.7}),
+              ("分類の正解率 30%", {"acc": 0.3}),
               ("ARCore のずれ 3 倍", {"drift": 3.0}),
               ("深度の誤差 2 倍", {"depth": 2.0}),
               ("検出が弱い（遠くの商品が見えない）", {"px50": 60.0}),
@@ -399,7 +439,7 @@ def batch(n):
         out.append({"name": name, "n": n, **{k: round(sum(m[k] for m in ms) / n, 3) for k in keys}, "f1_min": min(m["f1"] for m in ms),
                     "by_kind": {k: round(sum(m["by_kind"].get(k, [0, 0])[0] for m in ms) / max(sum(m["by_kind"].get(k, [0, 0])[1] for m in ms), 1), 3) for k in ("island", "wall", "case", "end", "register")}})
         print(out[-1], flush=True)
-    write_json(WORK / "store_sim_batch.json", {"rows": out, "seeds": n, "crops": cal["crops"], "named": cal["named"], "acc_named": cal["acc_named"]})
+    write_json(WORK / "store_sim_batch.json", {"rows": out, "seeds": n, "acc": round(cal["acc"], 3), "source": cal["source"], "np": round(cal["np"], 3), "np_n": cal["np_n"]})
 
 
 def fixture():
