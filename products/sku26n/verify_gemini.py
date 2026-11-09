@@ -58,6 +58,11 @@ def post(body: dict) -> tuple[dict, dict]:
     return json.JSONDecoder().raw_decode(txt[txt.find("{"):])[0], d.get("usageMetadata", {})
 
 
+def known(text) -> bool:
+    """社名・商品名が本当に答えられているか（読めないときに "unsure" などと書かれることがある）"""
+    return bool(text) and str(text).strip().lower() not in ("unsure", "multiple", "unknown", "不明", "なし", "n/a", "-")
+
+
 def source_crop(cid: str) -> Image.Image:
     """元の写真から、切り抜きの枠で切り直す"""
     stem, i = cid.rsplit("_", 1)
@@ -78,7 +83,7 @@ def judge(rows: list) -> tuple[list[dict], dict]:
         a = got.get("results", {}).get(str(i)) or {}
         status = a.get("status") if a.get("status") in ("ok", "multiple", "unsure") else "unsure"
         cat = str(a.get("cat", "")).zfill(3)
-        if status == "ok" and not (a.get("maker") and a.get("product") and cat in TAX):
+        if status == "ok" and not (known(a.get("maker")) and known(a.get("product")) and cat in TAX):
             status = "unsure"  # 3 つ揃わないものは断定できていない
         ok = status == "ok"
         out.append({"id": r[0], "label": r[1], "old_cat": r[2], "status": status, "maker": a.get("maker") if ok else None,
