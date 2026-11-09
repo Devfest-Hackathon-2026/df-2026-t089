@@ -28,12 +28,12 @@ status は次のどれか 1 つ:
 - "unsure": カテゴリを断定できない（ぼやけている、暗い、白飛びしている、一部しか写っていない、文字が読めない）。少しでも迷ったら "unsure" にする。
 - "not_product": 値札、POP、棚、人など商品でないもの。
 
-"ok" のときだけ cat に下のカテゴリ番号を入れる。
+"ok" のときだけ cat に下のカテゴリ番号、maker に社名（例: サントリー）、product に商品名（例: 綾鷹ほうじ茶）を入れる。社名や商品名が読めないときは、その項目を空文字にする（カテゴリが確定できれば "ok" のまま）。推測で埋めない。
 
 カテゴリ一覧:
 {CATALOG}
 
-JSON だけを返す: {{"results": {{"番号": {{"status": "ok", "cat": "カテゴリ番号"}}, ...}}}}"""
+JSON だけを返す: {{"results": {{"番号": {{"status": "ok", "cat": "カテゴリ番号", "maker": "社名", "product": "商品名"}}, ...}}}}"""
 
 
 def crop(im, b):
@@ -74,7 +74,8 @@ def label_image(item, conf):
             cat = str(a.get("cat", "")).zfill(3)
             if status == "ok" and cat not in TAX:
                 status = "unsure"
-            rows.append({"image": name, "box": i, "xyxy": b[:4], "det_conf": b[4], "status": status, "cat": cat if status == "ok" else None})
+            rows.append({"image": name, "box": i, "xyxy": b[:4], "det_conf": b[4], "status": status, "cat": cat if status == "ok" else None,
+                         "maker": (a.get("maker") or "") if status == "ok" else "", "product": (a.get("product") or "") if status == "ok" else ""})
     return rows, usage
 
 
