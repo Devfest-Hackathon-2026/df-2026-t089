@@ -168,8 +168,8 @@ class DebugOverlay(context: Context, private val d: AssistDebug) : View(context)
     private companion object {
         const val REFRESH_MS = 100L
         const val STALE_MS = 3000L
-        /** 全枠を MobileCLIP で認識すると 1 周に数秒かかるので、次の結果が出るまで枠を残す。 */
-        const val SCENE_MS = 15000L
+        /** 全枠を MobileCLIP で認識すると、枠が多い棚では 1 周 20 秒ほどかかるので、次の結果が出るまで枠を残す。 */
+        const val SCENE_MS = 40000L
         const val PRODUCTS_MS = 8000L
         const val GRAY = 0xFF9E9E9E.toInt()
         const val BLUE = 0xFF448AFF.toInt()
