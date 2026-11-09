@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>商品認識の比較</title>
+<style>
+  :root { --bg:#14161a; --panel:#1d2026; --line:#333842; --text:#e8eaee; --muted:#9aa1ad; --box:#39ff6a; --tag:#0b3d1c; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui,"Segoe UI","Yu Gothic UI",sans-serif; }
+  header { position:sticky; top:0; z-index:5; background:var(--panel); border-bottom:1px solid var(--line); }
+  .bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px 24px; padding:10px 16px; }
+  h1 { font-size:16px; margin:0; }
+  label { display:flex; align-items:center; gap:8px; color:var(--muted); }
+  output, #stats, #page { font-variant-numeric:tabular-nums; color:var(--text); }
+  button { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:3px 12px; font:inherit; cursor:pointer; }
+  button:disabled { opacity:.4; cursor:default; }
+  .pager { display:flex; align-items:center; gap:8px; }
+  .heads, .grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; padding:0 8px; }
+  .heads > div { padding:6px 4px; font-weight:600; font-size:13px; border-top:1px solid var(--line); }
+  .heads small { display:block; color:var(--muted); font-weight:400; font-size:11px; }
+  .grid { padding-top:8px; padding-bottom:16px; row-gap:12px; }
+  figure { position:relative; margin:0; background:var(--panel); }
+  figure .pic { position:relative; line-height:0; }
+  figure img { display:block; width:100%; height:auto; }
+  figure canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  figcaption { padding:2px 6px; color:var(--muted); font-size:11px; display:flex; justify-content:space-between; gap:6px; white-space:nowrap; overflow:hidden; }
+  .boxed { cursor:zoom-in; }
+  .empty { display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:12px; border:1px dashed var(--line); min-height:120px; }
+  #notice { padding:10px 16px; background:#4a3a12; color:#ffe6a6; }
+  #zoom { position:fixed; inset:0; z-index:10; background:rgba(0,0,0,.92); display:none; align-items:center; justify-content:center; cursor:zoom-out; }
+  #zoom.on { display:flex; }
+  #zoom > div { position:relative; line-height:0; }
+  #zoom img { display:block; max-width:100vw; max-height:100vh; }
+  #zoom canvas { position:absolute; inset:0; width:100%; height:100%; }
+  #ztitle { position:fixed; top:8px; left:12px; z-index:11; color:#fff; background:rgba(0,0,0,.6); padding:2px 10px; border-radius:4px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>商品認識の比較</h1>
+    <span id="stats">読み込み中…</span>
+    <label for="conf">信頼度の下限 <input id="conf" type="range" min="0.05" max="0.9" step="0.05" value="0.25"><output id="confv">0.25</output></label>
+    <div class="pager"><button id="prev">前へ</button><span id="page"></span><button id="next">次へ</button></div>
+  </div>
+  <div id="notice" hidden></div>
+  <div class="heads" id="heads"></div>
+</header>
+<main class="grid" id="grid"></main>
+<div id="zoom"><div><img alt=""><canvas></canvas></div></div>
+<div id="ztitle" hidden></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const PER_PAGE = 50;
+const conf = $("#conf"), grid = $("#grid"), zoom = $("#zoom");
+const COLS = [
+  { key:"det", title:"2. 切り出し", sub:"sku110k-2" },
+  { key:"m1", title:"3-1. YOLO26n-cls", sub:"DB で学習 → 切り抜きを分類" },
+  { key:"m3", title:"3-3. YOLO26n（疑似）", sub:"3-1 のラベルで店内画像を学習" },
+];
+let S, page = 0;
+
+const boxesOf = (col, im) => col.key === "det" ? im.boxes : (S.methods[col.key]?.[im.name] || []);
+const kept = (col, im) => boxesOf(col, im).filter(b => b[4] >= +conf.value);
+
+function draw(canvas, img, col, im, labels) {
+  const dpr = devicePixelRatio || 1, w = img.clientWidth, h = img.clientHeight;
+  if (!w || !h) return;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const c = canvas.getContext("2d");
+  c.scale(dpr, dpr);
+  const css = getComputedStyle(document.documentElement);
+  c.strokeStyle = css.getPropertyValue("--box"); c.lineWidth = 1.25;
+  c.font = `${labels ? 13 : 9}px system-ui,"Yu Gothic UI",sans-serif`; c.textBaseline = "top";
+  const pad = labels ? 16 : 11;
+  for (const [x0, y0, x1, y1, , cat] of kept(col, im)) {
+    const x = x0 * w, y = y0 * h, bw = (x1 - x0) * w, bh = (y1 - y0) * h;
+    c.strokeRect(x, y, bw, bh);
+    if (!cat) continue;
+    const name = S.cats[cat] || "該当なし", tw = c.measureText(name).width + 4;
+    if (!labels && tw > bw) continue;  // 一覧では枠に収まる名前だけ。全部は拡大で見る
+    c.fillStyle = css.getPropertyValue("--tag"); c.fillRect(x, y, tw, pad);
+    c.fillStyle = "#fff"; c.fillText(name, x + 2, y + 1);
+  }
+}
+
+const visible = new Set();
+const io = new IntersectionObserver(es => {
+  for (const e of es) { if (e.isIntersecting) { visible.add(e.target); redraw(e.target); } else visible.delete(e.target); }
+}, { rootMargin:"800px 0px" });
+
+function redraw(fig) {
+  const img = fig.querySelector("img"), col = COLS[fig.dataset.c], im = S.images[fig.dataset.i], cv = fig.querySelector("canvas");
+  fig.querySelector(".n").textContent = `${kept(col, im).length} 個`;
+  if (img.complete && img.naturalWidth) draw(cv, img, col, im);
+  else img.onload = () => draw(cv, img, col, im);
+}
+
+function cell(html, column, row) {
+  const f = document.createElement("figure");
+  f.innerHTML = html; f.style.gridColumn = column; f.style.gridRow = row;
+  return f;
+}
+
+function render() {
+  io.disconnect(); visible.clear(); grid.textContent = "";
+  const last = Math.max(0, Math.ceil(S.images.length / PER_PAGE) - 1);
+  page = Math.min(page, last);
+  $("#page").textContent = `${page + 1} / ${last + 1}`;
+  $("#prev").disabled = page === 0; $("#next").disabled = page === last;
+  const frag = document.createDocumentFragment();
+  S.images.slice(page * PER_PAGE, (page + 1) * PER_PAGE).forEach((im, r) => {
+    const i = page * PER_PAGE + r, row = r + 1, src = `/thumb/${encodeURIComponent(im.name)}`;
+    const ratio = im.w && im.h ? `style="aspect-ratio:${im.w}/${im.h}"` : "";
+    frag.append(cell(`<div class="pic"><img loading="lazy" src="${src}" alt="" ${ratio}></div><figcaption><span>${im.name}</span></figcaption>`, 1, row));
+    COLS.forEach((col, c) => {
+      const column = c + 2;
+      if (col.key !== "det" && !S.methods[col.key]) {
+        const e = cell("未実施", column, row); e.className = "empty"; frag.append(e); return;
+      }
+      const f = cell(`<div class="pic"><img loading="lazy" src="${src}" alt="" ${ratio}><canvas></canvas></div><figcaption><span></span><span class="n"></span></figcaption>`, column, row);
+      f.className = "boxed"; f.dataset.i = i; f.dataset.c = c;
+      f.onclick = () => openZoom(col, im);
+      io.observe(f); frag.append(f);
+    });
+  });
+  grid.append(frag);
+  scrollTo(0, 0);
+}
+
+function openZoom(col, im) {
+  const img = zoom.querySelector("img"), cv = zoom.querySelector("canvas"), t = $("#ztitle");
+  img.onload = () => draw(cv, img, col, im, true);
+  img.src = `/view/${encodeURIComponent(im.name)}`;
+  if (img.complete && img.naturalWidth) draw(cv, img, col, im, true);
+  t.textContent = `${col.title}  ${im.name}`; t.hidden = false;
+  zoom.classList.add("on");
+}
+const closeZoom = () => { zoom.classList.remove("on"); $("#ztitle").hidden = true; };
+zoom.onclick = closeZoom;
+addEventListener("keydown", e => { if (e.key === "Escape") closeZoom(); });
+
+function stats() {
+  const n = S.images.reduce((s, im) => s + kept(COLS[0], im).length, 0);
+  $("#stats").textContent = `${S.images.length.toLocaleString()} 枚 / 枠 ${n.toLocaleString()} 個（1枚あたり ${(n / Math.max(S.images.length, 1)).toFixed(1)} 個）`;
+}
+
+conf.oninput = () => { $("#confv").textContent = (+conf.value).toFixed(2); stats(); visible.forEach(redraw); };
+addEventListener("resize", () => visible.forEach(redraw));
+$("#prev").onclick = () => { page--; render(); };
+$("#next").onclick = () => { page++; render(); };
+
+$("#heads").innerHTML = `<div>1. 店内画像<small>元の写真</small></div>` + COLS.map(c => `<div>${c.title}<small>${c.sub}</small></div>`).join("");
+
+(async () => {
+  S = await (await fetch("/api/state")).json();
+  if (!S.weights) { const n = $("#notice"); n.hidden = false; n.textContent = "まだ切り出しを実行していません。products/sku26n/detect.py を実行すると緑の枠が表示されます。"; }
+  stats(); render();
+})();
+</script>
+</body>
+</html>
