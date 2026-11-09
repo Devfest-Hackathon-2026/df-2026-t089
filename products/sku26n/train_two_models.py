@@ -76,8 +76,9 @@ def main():
     ap.add_argument("--imgsz", type=int, default=224)
     ap.add_argument("--batch", type=int, default=128)
     ap.add_argument("--prepare-only", action="store_true")
+    ap.add_argument("--skip-prepare", action="store_true", help="作成済みの two_models_train.zip をそのまま使う")
     a = ap.parse_args()
-    archive, view = prepare()
+    archive, view = (OUT / "two_models_train.zip", OUT / "cls_view.zip") if a.skip_prepare else prepare()
     if a.prepare_only:
         return
     from gpu_two_models import app, train_both, volume
