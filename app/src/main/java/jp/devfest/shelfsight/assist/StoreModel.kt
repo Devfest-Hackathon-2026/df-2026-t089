@@ -78,7 +78,7 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
             genre[category] = genreName
         }
         obs++
-        rays.addLast(doubleArrayOf(camX, camZ, x, z))
+        if (d <= ShelfMap.MAX_DEPTH_M) rays.addLast(doubleArrayOf(camX, camZ, x, z))   // これより遠い深度は信頼できない
         if (rays.size > MAX_RAYS) rays.removeFirst()
     }
 

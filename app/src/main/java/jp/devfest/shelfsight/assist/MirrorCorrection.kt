@@ -17,7 +17,7 @@ internal object MirrorCorrection {
     private const val VIEWPOINT_M = 0.35
     private val SECTOR_RAD = Math.toRadians(10.0)
     private const val MIN_RAYS = 6
-    private const val STD_LIMIT_M = 2.0   // 奥行きの標準偏差がこれ未満なら、棚の帯や通路越しの見え方として補正しない
+    private const val STD_LIMIT_M = 0.7   // 録画 021259 の 170 方位のうち、ばらつきの大きい上位 2 つ（0.80 m, 0.71 m）だけが入る値
     private const val NEAR_QUANTILE = 0.15
     private const val MIN_DEPTH_M = 0.2
 

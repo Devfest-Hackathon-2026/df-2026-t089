@@ -36,7 +36,7 @@ class MirrorCorrectionTest {
     @Test fun `different viewpoints are judged separately and cell means thin the points`() {
         val tight = (0 until 10).map { doubleArrayOf(0.0, 0.0, 2.0, 0.01 * it) }
         val elsewhere = (0 until 10).map { doubleArrayOf(5.0, 5.0, 8.0 + it * 2.0 * (if (it % 2 == 0) 1 else 0), 5.0) }
-        val mild = (0 until 10).map { ray(0.3, 1.0 + it * 0.3) }   // standard deviation below 2 m stays as measured
+        val mild = (0 until 10).map { ray(0.3, 1.0 + it * 0.15) }   // a deviation below the limit stays as measured
         assertEquals(0, MirrorCorrection.correct(mild).moved.size)
         assertEquals(0, MirrorCorrection.correct(tight).moved.size)
         assertTrue(MirrorCorrection.correct(elsewhere).moved.isNotEmpty())
