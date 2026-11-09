@@ -3,7 +3,7 @@
   python products/sku26n/dashboard.py [--port 8771]   -> http://127.0.0.1:8771
 各手法の結果は products/work/sku26n/pred_<手法>.json: {"images": {画像名: [[x0, y0, x1, y1, 信頼度, カテゴリ番号], ...]}}（座標は 0..1）
 """
-import argparse, json, math, os, re, subprocess, sys, threading
+import argparse, json, os, re, subprocess, sys, threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -93,34 +93,6 @@ def konbinidb_view() -> dict:
     selectable = {r[0] for r in rows if r[3] and r[5]}
     return {"items": rows, "images": len(have), "labeled": sum(bool(r[3]) for r in rows),
             "candidates": len(selectable), "selected": sorted(read_selected_db() & selectable)}
-
-
-def store_sim_view(q):
-    """店モデルのタブ: ブラウザからの条件を確かめて 1 回歩かせる"""
-    import store_sim
-    cfg = {}
-    for k, lo, hi, kind in (("seed", 1, 9999, int), ("speed", 0.1, 1.5, float), ("drift", 0, 10, float), ("depth", 0, 5, float), ("px50", 10, 120, float), ("acc", 0, 1, float)):
-        if k in q:
-            v = kind(q[k][0])
-            if not (math.isfinite(v) and lo <= v <= hi):
-                raise ValueError(f"bad {k}")
-            cfg[k] = v
-    for k, ok in (("mode", ("scan", "forward")), ("recog", ("real", "perfect"))):
-        if k in q:
-            if q[k][0] not in ok:
-                raise ValueError(f"bad {k}")
-            cfg[k] = q[k][0]
-    for k in ("use_themes", "themed"):
-        if k in q:
-            if q[k][0] not in ("0", "1"):
-                raise ValueError(f"bad {k}")
-            cfg[k] = q[k][0] == "1"
-    route = None
-    if "route" in q:
-        route = [tuple(float(x) for x in p.split(",")) for p in q["route"][0].split(";")]
-        if not 2 <= len(route) <= 200 or not all(len(p) == 2 and all(math.isfinite(x) for x in p) for p in route):
-            raise ValueError("bad route")
-    return store_sim.simulate(cfg, route=route)
 
 
 _replay_job = None
@@ -233,18 +205,6 @@ def handler(det: Path, pred_dir: Path):
             elif path.startswith("/api/replay/"):
                 r = replay_get(path)
                 self.send(*r) if r else self.send_error(404)
-            elif path == "/store":
-                self.send((HERE.parent / "store.html").read_bytes(), "text/html; charset=utf-8")
-            elif path == "/store_tab.js":
-                self.send((HERE.parent / "store_tab.js").read_bytes(), "text/javascript; charset=utf-8")
-            elif path == "/api/store_sim_batch":
-                f = WORK.parent / "store_sim_batch.json"
-                self.send(f.read_bytes() if f.exists() else b"{}", "application/json")
-            elif path == "/api/store_sim":
-                try:
-                    self.send(json.dumps(store_sim_view(parse_qs(urlparse(self.path).query)), ensure_ascii=False).encode(), "application/json")
-                except ValueError as e:
-                    self.send_error(400, str(e))
             elif path.startswith("/view/") and path[6:] in names:  # 一覧にある名前だけ返す
                 self.send((VIEW / path[6:]).read_bytes(), "image/jpeg", cache=True)
             elif path.startswith("/crop/") and path.endswith(".jpg") and (named_crops() and path[6:-4] in _crop_ids):
