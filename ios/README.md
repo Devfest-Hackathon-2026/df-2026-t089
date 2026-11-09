@@ -13,7 +13,7 @@ Android 版（`app/`）の買い物の案内（`assist`）を、同じ構成で 
 
 | 操作 | すること |
 |---|---|
-| 長押し | 「調べています」と言い、手前の商品 1 つなら社名と商品名、棚の広い範囲なら並んでいる商品の説明、その間なら「一歩下がって」と頼む |
+| 長押し | 「調べています」と言い、手前の商品 1 つなら商品名と種類（カテゴリ）、棚の広い範囲なら並んでいる商品の説明、その間なら「一歩下がって」と頼む |
 | 2 回たたく | 質問する（「何がある？」「これは何？」「止めて」「もう一度」などはその操作、それ以外は LLM が今のカメラの画像を見て答える） |
 
 VoiceOver が有効なときは、ダブルタップが質問、ダブルタップ長押しか「調べる」のアクションが長押しです。
@@ -32,6 +32,8 @@ VoiceOver が有効なときは、ダブルタップが質問、ダブルタッ�
 | `cloud/GeminiClient.kt` | `Cloud/GeminiClient.swift` | URLSession |
 | `ocr/CloudVisionOcr.kt`（応答の読み方） | `OCR/ProductReading.swift` | ML Kit の予備はなし |
 | `ar/FrameCapture.kt`・`Unprojector.kt` | `AR/*.swift` | 座標の決まりは同じ（カメラ座標は +X が右、+Y が上、-Z が前） |
+
+手前の商品 1 つ（③）は、Cloud Vision で印字の文字だけを読み、その文字から種類を決めます（`Assist/ProductCategory.swift`）。端末の辞書（`Assist/category_rules.json`）で決めきれないときだけ、読み取った文字を Gemini に渡して決めます（画像は送りません）。商品名、種類の順に言い、お酒の手がかりがあるときは「お酒」と必ず言います。Android 版にはまだありません。調べるたびに、送った画像・応答・答えを `Documents/lookup/` に残します（「ファイル」アプリか USB でつないだ PC から取り出せる）。
 
 モデルと照合先は Android 版と同じファイル（`app/src/main/assets/products/` と `coarse/categories.json`）を、ビルドのときにそのままアプリに入れます。
 

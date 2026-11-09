@@ -1,10 +1,16 @@
 import Foundation
 
-/// OCR が読み取った 1 行。大きさと位置は画像の高さを 1 とした割合。
+/// OCR が読み取った 1 行。height・top・bottom は画像の高さ、left・right は画像の幅を 1 とした割合。
 struct OcrLine {
     let text: String
     let height: Float
     let top: Float
+    var bottom: Float = 0
+    var left: Float = 0
+    var right: Float = 0
+
+    var cx: Float { (left + right) / 2 }
+    var cy: Float { (top + bottom) / 2 }
 }
 
 /// 商品を読み取った結果。
@@ -17,7 +23,7 @@ struct ProductResult {
 
 /// Vision API の応答（fullTextAnnotation）を行に直す。
 enum CloudVisionParser {
-    static func lines(_ json: String, imageHeight: Int) throws -> [OcrLine] {
+    static func lines(_ json: String, imageWidth: Int, imageHeight: Int) throws -> [OcrLine] {
         guard let response = JSON.objects(JSON.object(json), "responses").first else {
             throw CloudError(failure: .badResponse, detail: "Unexpected Cloud Vision response")
         }
@@ -28,20 +34,27 @@ enum CloudVisionParser {
         let pages = JSON.objects(annotation, "pages")
         if pages.isEmpty { return [] }
         let h = Float(max(imageHeight, 1))
+        let w = Float(max(imageWidth, 1))
         var out: [OcrLine] = []
         var text = ""
         var heights: [Int] = []
-        var top = Int.max
+        var top = Int.max, bottom = 0, left = Int.max, right = 0
 
         func endLine() {
             if !text.trimmingCharacters(in: .whitespaces).isEmpty && !heights.isEmpty {
                 // 行全体の枠は、箱が少し傾くだけで高くなるので、1 文字ずつの高さの中央値を使う
                 let median = heights.sorted()[heights.count / 2]
-                out.append(OcrLine(text: text.trimmingCharacters(in: .whitespaces), height: Float(median) / h, top: Float(top) / h))
+                out.append(OcrLine(
+                    text: text.trimmingCharacters(in: .whitespaces), height: Float(median) / h, top: Float(top) / h,
+                    bottom: Float(bottom) / h, left: Float(left) / w, right: Float(right) / w
+                ))
             }
             text = ""
             heights = []
             top = Int.max
+            bottom = 0
+            left = Int.max
+            right = 0
         }
 
         for page in pages {
@@ -50,10 +63,16 @@ enum CloudVisionParser {
                     for word in JSON.objects(paragraph, "words") {
                         for symbol in JSON.objects(word, "symbols") {
                             text += JSON.string(symbol, "text")
-                            let ys = vertices(symbol).map(\.1)
+                            let vs = vertices(symbol)
+                            let ys = vs.map(\.1), xs = vs.map(\.0)
                             if let lo = ys.min(), let hi = ys.max() {
                                 heights.append(hi - lo)
                                 top = min(top, lo)
+                                bottom = max(bottom, hi)
+                            }
+                            if let lo = xs.min(), let hi = xs.max() {
+                                left = min(left, lo)
+                                right = max(right, hi)
                             }
                             let property = symbol["property"] as? [String: Any]
                             let brk = JSON.string(property?["detectedBreak"] as? [String: Any], "type")

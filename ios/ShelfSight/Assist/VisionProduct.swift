@@ -1,142 +1,74 @@
 import CoreGraphics
 import Foundation
 
-/// 調べた商品。社名が分からないときは空。
+/// 調べた商品。分かれば商品名を先に言い、推定したカテゴリを続ける。社名は言わない。
 struct ProductAnswer {
-    let maker: String
+    /// 商品名（分からなければ空）。
     let product: String
+    /// categories の中の 1 つ（分からなければ nil）。
+    let category: String?
+    /// 声で言う種類（炭酸水、ビール、グミなど）。
+    let kind: String?
+    /// false なら「〜のようです」と控えめに言う。
+    let sure: Bool
+    let alcohol: Bool
+    /// カテゴリはお酒でないが、お酒の手がかり（「ビール」の文字、年齢確認の掲示など）もあった。
+    let maybeAlcohol: Bool
+    /// 決めたところ（「端末」「Gemini」など。画面とログ用）。
+    let source: String
+    /// 端末で数えた手がかり（画面とログ用）。
+    let detail: String
 
+    /// 例:「黒ラベル。お酒、ビールです。」「ウィルキンソン。炭酸水です。」「グミのようです。」
     func spoken() -> String {
-        if !maker.isEmpty && !product.isEmpty { return "\(maker)の、\(product)です。" }
-        if !product.isEmpty { return "\(product)です。" }
-        return "\(maker)の商品です。"
+        var s = ""
+        if !product.isEmpty { s += "\(product)。" }
+        if let kind {
+            let k = alcohol ? "お酒、\(kind)" : kind
+            s += sure ? "\(k)です。" : "\(k)のようです。"
+        } else {
+            s += "種類は分かりませんでした。"
+        }
+        if maybeAlcohol { s += "お酒かもしれません。" }
+        return s
+    }
+
+    func describe() -> String {
+        "種類「\(kind ?? "-")」\(sure ? "" : "（推測）") 商品「\(product)」\(alcohol ? " お酒" : "")\(maybeAlcohol ? " お酒かも" : "")（\(source)、\(detail)）"
     }
 }
 
-/**
- * Cloud Vision API の応答（WEB_DETECTION・LOGO_DETECTION・TEXT_DETECTION を 1 回で頼んだもの）から、社名と商品名を決める。
- * Web 検索（逆画像検索）の判定は products/s3_name.py の judge を移したもの。Web で分からなければ、ロゴと印刷の文字で決める。
- */
+/// Cloud Vision API に、印字の文字（DOCUMENT_TEXT_DETECTION）だけを頼む。
+/// Web 検索（逆画像検索）とロゴは使わない（手に持った商品の写真ではネットの画像と一致せず、ビールを「Sparkling Water」と答えたこともあった）。
 enum VisionProductParser {
     static func request(_ jpegBase64: String) -> Data {
-        let features: [[String: Any]] = [
-            ["type": "WEB_DETECTION", "maxResults": 10],
-            ["type": "LOGO_DETECTION", "maxResults": 3],
-            ["type": "DOCUMENT_TEXT_DETECTION"],
-        ]
-        let imageContext: [String: Any] = [
-            "languageHints": ["ja"],
-            "webDetectionParams": ["includeGeoResults": false],
-        ]
         let request: [String: Any] = [
             "image": ["content": jpegBase64],
-            "features": features,
-            "imageContext": imageContext,
+            "features": [["type": "DOCUMENT_TEXT_DETECTION"]],
+            "imageContext": ["languageHints": ["ja"]],
         ]
         return JSON.serialize(["requests": [request]])
     }
-
-    /// 分からなければ nil。imageHeight は送った画像の高さ（文字の大きさを比べるため）。
-    static func parse(_ json: String, imageHeight: Int) throws -> ProductAnswer? {
-        guard let r = JSON.objects(JSON.object(json), "responses").first else {
-            throw CloudError(failure: .badResponse, detail: "Unexpected Cloud Vision response")
-        }
-        if let error = r["error"] as? [String: Any] {
-            throw CloudError(failure: .badResponse, detail: "Cloud Vision error: \(JSON.string(error, "message"))")
-        }
-        let web = r["webDetection"] as? [String: Any]
-        let best = JSON.objects(web, "bestGuessLabels").map { JSON.string($0, "label") }
-            .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
-        let entities = JSON.objects(web, "webEntities")
-            .filter { !JSON.string($0, "description").trimmingCharacters(in: .whitespaces).isEmpty }
-            .map { (JSON.string($0, "description"), JSON.double($0, "score") ?? 0) }
-        let pages = JSON.objects(web, "pagesWithMatchingImages").map { JSON.string($0, "pageTitle") }
-        let matches = JSON.objects(web, "fullMatchingImages").count + JSON.objects(web, "partialMatchingImages").count
-        let specific = entities.filter { !generic.contains($0.0.lowercased()) && $0.1 >= 0.5 }.map(\.0)
-        let webName = (!best.isEmpty && !generic.contains(best.lowercased())) ? best : (specific.first ?? "")
-        let webGood = !webName.isEmpty && (matches > 0 || !pages.isEmpty || !specific.isEmpty)
-
-        let logos = JSON.objects(r, "logoAnnotations").map { JSON.string($0, "description") }
-        let text = ([best] + entities.map(\.0) + pages + logos).joined(separator: " ").lowercased()
-        let maker = makerIn(best.lowercased()) ?? makerIn(text) ?? logos.first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
-
-        let printed = (try? CloudVisionParser.lines(json, imageHeight: imageHeight)).map { ProductReading.from($0) }
-        let product: String
-        if webGood {
-            product = withoutMaker(webName, maker)
-        } else if let p = printed, p.readable {
-            product = withoutMaker(p.name, maker)
-        } else {
-            product = ""
-        }
-        if product.isEmpty && maker.isEmpty { return nil }
-        return ProductAnswer(maker: maker, product: product)
-    }
-
-    static func makerIn(_ text: String) -> String? {
-        makers.first { _, aliases in aliases.contains { text.contains($0) } }?.0
-    }
-
-    /// 商品名から社名の部分を取り除く。
-    static func withoutMaker(_ name: String, _ maker: String) -> String {
-        var out = name
-        let aliases = (makers.first { $0.0 == maker }?.1 ?? []) + [maker]
-        for a in aliases where !a.isEmpty { out = out.replacingOccurrences(of: a, with: "", options: .caseInsensitive) }
-        out = out.trimmingCharacters(in: CharacterSet(charactersIn: " -・　"))
-        return out.isEmpty ? name.trimmingCharacters(in: .whitespaces) : out
-    }
-
-    /// 商品名として意味のない一般語（best guess がこれだけなら Web の結果は使わない）。
-    private static let generic: Set<String> = [
-        "product", "products", "packaging and labeling", "packaging", "label", "brand", "bottle", "plastic bottle",
-        "glass bottle", "convenience store", "store", "shelf", "retail", "supermarket", "cosmetics", "snack", "food",
-        "drink", "box", "carton", "font", "logo", "advertising", "plastic", "paper", "personal care", "skin care",
-        "beauty", "health", "liquid", "water", "juice", "tea", "beer", "sock", "socks", "textile", "material property",
-        "rectangle", "japan", "japanese", "graphics", "design", "pattern", "illustration", "art", "image", "photograph",
-        "medicine", "pharmaceutical drug", "household supply", "hygiene", "lipstick", "toothbrush", "cosmetic",
-        "makeup", "comb", "hair care", "electric blue", "magenta", "pink", "red", "white", "black", "transparency",
-        "convenience food", "flavor", "ingredient", "fast food", "candy", "confectionery", "pharmacy", "drugstore",
-    ]
-
-    /// 社名の辞書（表記ゆれ → 正式名）。products/s3_name.py と同じ。上から順に探す。
-    static let makers: [(String, [String])] = [
-        ("花王", ["花王", "kao"]), ("ライオン", ["ライオン", "lion corporation"]), ("資生堂", ["資生堂", "shiseido"]),
-        ("P&G", ["p&g", "procter", "ピーアンドジー"]), ("ユニリーバ", ["ユニリーバ", "unilever"]),
-        ("ユニ・チャーム", ["ユニ・チャーム", "ユニチャーム", "unicharm"]), ("小林製薬", ["小林製薬", "kobayashi"]),
-        ("ロート製薬", ["ロート製薬", "rohto"]), ("大正製薬", ["大正製薬", "taisho"]),
-        ("サントリー", ["サントリー", "suntory"]), ("アサヒ", ["アサヒ", "asahi"]), ("キリン", ["キリン", "kirin"]),
-        ("サッポロ", ["サッポロ", "sapporo"]), ("伊藤園", ["伊藤園", "ito en"]),
-        ("コカ・コーラ", ["コカ・コーラ", "coca-cola", "coca cola"]), ("ダイドー", ["ダイドー", "dydo"]),
-        ("明治", ["明治", "meiji"]), ("森永", ["森永", "morinaga"]), ("ロッテ", ["ロッテ", "lotte"]),
-        ("グリコ", ["グリコ", "glico"]), ("カルビー", ["カルビー", "calbee"]), ("湖池屋", ["湖池屋", "koikeya"]),
-        ("日清", ["日清", "nissin"]), ("東洋水産", ["東洋水産", "マルちゃん", "maruchan"]),
-        ("ブルボン", ["ブルボン", "bourbon"]), ("不二家", ["不二家", "fujiya"]),
-        ("ハウス食品", ["ハウス食品", "house foods"]), ("味の素", ["味の素", "ajinomoto"]),
-        ("キッコーマン", ["キッコーマン", "kikkoman"]), ("ヤクルト", ["ヤクルト", "yakult"]),
-        ("雪印メグミルク", ["雪印", "megmilk"]), ("ファミリーマート", ["ファミリーマート", "familymart"]),
-        ("セブン-イレブン", ["セブン-イレブン", "セブンイレブン", "7-eleven", "seven-eleven"]), ("ローソン", ["ローソン", "lawson"]),
-        ("ジレット", ["gillette", "ジレット"]),
-        ("ジョンソン・エンド・ジョンソン", ["johnson & johnson", "ジョンソン・エンド・ジョンソン", "band-aid"]),
-        ("アース製薬", ["アース製薬", "earth corporation"]), ("エステー", ["エステー", "st corporation"]),
-        ("コーセー", ["コーセー", "kose"]), ("マンダム", ["マンダム", "mandom"]), ("ピジョン", ["ピジョン", "pigeon"]),
-        ("レッドブル", ["red bull", "レッドブル"]), ("モンスター", ["monster energy", "モンスターエナジー"]),
-        ("ネスレ", ["ネスレ", "nestle", "nestlé"]), ("有楽製菓", ["有楽製菓", "yuraku", "ブラックサンダー"]),
-    ]
 }
 
 /**
- * 手前の商品 1 つを Cloud Vision API で調べ、社名と商品名を返す。1 回の要求で Web 検索・ロゴ・文字を頼む。
+ * 手前の商品 1 つを Cloud Vision API で読み、カテゴリと商品名を返す（カテゴリは CategoryJudge が決める）。
  * 商品に近づいている間（NearProduct で 1 つだけ特に近い商品が見え続けている間）は、結果を覚えておき API を呼び直さない。
  * 新しい商品に近づき直したら newApproach で忘れる。これで、長押しを何度しても 1 回の接近につき 1 回しか課金されない。
+ * 調べるたびに、送った画像・応答・答えを Documents/lookup に残す（LookupLog）。
  */
 final class ProductLookup {
     private static let url = "https://vision.googleapis.com/v1/images:annotate"
     private static let jpegQuality: CGFloat = 0.9
 
     private let apiKey: String
+    private let judge: CategoryJudge
     @Locked private var cached: Result<ProductAnswer?, Error>? = nil
 
-    init(apiKey: String) { self.apiKey = apiKey }
+    init(apiKey: String, judge: CategoryJudge) {
+        self.apiKey = apiKey
+        self.judge = judge
+    }
 
     var configured: Bool { !apiKey.isEmpty }
 
@@ -150,21 +82,85 @@ final class ProductLookup {
         if let c = cached { return c }
         let r = Result<ProductAnswer?, Error> {
             guard configured else { throw CloudError(failure: .auth, detail: "Cloud Vision API key is not set") }
+            let t0 = nowMs()
             let jpeg = ImageUtil.jpeg(image, quality: Self.jpegQuality)
             let body = VisionProductParser.request(jpeg.base64EncodedString())
             let res: HttpResult
             do {
                 res = try Http.post(Self.url, headers: ["x-goog-api-key": apiKey, "Content-Type": "application/json"], body: body)
             } catch {
+                LookupLog.save(jpeg: jpeg, response: nil, fields: [("result", "network error: \(error)"), ("ms", "\(nowMs() - t0)")])
                 throw CloudError(failure: .network, detail: "Cloud Vision unreachable: \(error)")
             }
+            let visionMs = nowMs() - t0
             guard (200...299).contains(res.code) else {
+                LookupLog.save(jpeg: jpeg, response: res.body, fields: [("result", "HTTP \(res.code)"), ("ms", "\(visionMs)")])
                 throw CloudError(failure: .badResponse, detail: "Cloud Vision HTTP \(res.code): \(res.body.prefix(300))")
             }
-            return try VisionProductParser.parse(res.body, imageHeight: image.height)
+            let lines: [OcrLine]
+            do {
+                lines = try CloudVisionParser.lines(res.body, imageWidth: image.width, imageHeight: image.height)
+            } catch {
+                LookupLog.save(jpeg: jpeg, response: res.body, fields: [("result", "parse error: \(error)"), ("ms", "\(visionMs)")])
+                throw error
+            }
+            let reading = ProductReading.from(lines)
+            let outcome = judge.judge(lines, ocrName: reading.readable ? reading.name : "")
+            let a = outcome.answer
+            logInfo("Assist", "lookup: \(a?.describe() ?? "分からない"), vision \(visionMs)ms, gemini \(outcome.geminiMs.map { "\($0)ms" } ?? "-")")
+            LookupLog.save(jpeg: jpeg, response: res.body, fields: [
+                ("result", a == nil ? "nil" : "ok"),
+                ("spoken", a?.spoken() ?? "（分からない）"),
+                ("category", a?.category ?? ""),
+                ("kind", a?.kind ?? ""),
+                ("product", a?.product ?? ""),
+                ("sure", a.map { "\($0.sure)" } ?? ""),
+                ("alcohol", a.map { "\($0.alcohol)" } ?? ""),
+                ("maybe_alcohol", a.map { "\($0.maybeAlcohol)" } ?? ""),
+                ("source", a?.source ?? ""),
+                ("ocr_name", reading.name),
+                ("local", outcome.local.describe()),
+                ("hits", outcome.local.hits.joined(separator: " ")),
+                ("gemini_ms", outcome.geminiMs.map { "\($0)" } ?? ""),
+                ("gemini_error", outcome.geminiError ?? ""),
+                ("vision_ms", "\(visionMs)"),
+                ("ms", "\(nowMs() - t0)"),
+                ("image", "\(image.width)x\(image.height)"),
+                ("jpeg_bytes", "\(jpeg.count)"),
+            ])
+            return a
         }
-        // 通信の失敗は覚えない（もう一度長押しすれば調べ直せる）
-        if case .success = r { cached = r }
+        // 分かったときだけ覚える。通信の失敗や「分からない」は覚えない（もう一度長押しすれば、撮り直して調べ直せる）
+        if case .success(let a) = r, a != nil { cached = r }
         return r
+    }
+}
+
+/**
+ * 調べた記録を Documents/lookup に残す（失敗したときも）。<時刻>.jpg（送った画像）、<時刻>.json（Cloud Vision の応答。通信できなかったときはない）、
+ * <時刻>.answer.txt（答え・言った文・点数の内訳・かかった時間）。
+ * 「ファイル」アプリの「このiPhone内 > ShelfSight > lookup」か、USB でつないだ PC から取り出して、判定の改善に使う。
+ */
+enum LookupLog {
+    private static let queue = DispatchQueue(label: "lookup-log", qos: .utility)
+
+    static func save(jpeg: Data, response: String?, fields: [(String, String)]) {
+        queue.async {
+            guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+            let dir = docs.appendingPathComponent("lookup", isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                let f = DateFormatter()
+                f.locale = Locale(identifier: "en_US_POSIX")
+                f.dateFormat = "yyyyMMdd_HHmmss_SSS"
+                let stem = f.string(from: Date())
+                try jpeg.write(to: dir.appendingPathComponent("\(stem).jpg"))
+                if let response { try Data(response.utf8).write(to: dir.appendingPathComponent("\(stem).json")) }
+                let text = fields.map { "\($0.0)=\($0.1.replacingOccurrences(of: "\n", with: " "))" }.joined(separator: "\n") + "\n"
+                try Data(text.utf8).write(to: dir.appendingPathComponent("\(stem).answer.txt"))
+            } catch {
+                logInfo("Assist", "lookup log failed: \(error)")
+            }
+        }
     }
 }

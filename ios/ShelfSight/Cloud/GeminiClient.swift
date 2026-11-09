@@ -59,9 +59,9 @@ enum Http {
     }
 }
 
-/// 画像と指示を渡して、スキーマに沿った JSON 文字列を受け取る。
+/// 指示（と画像）を渡して、スキーマに沿った JSON 文字列を受け取る。jpeg が nil なら文字だけで頼む。
 protocol CloudVisionClient {
-    func generate(_ task: CloudTask, _ jpeg: Data) throws -> String
+    func generate(_ task: CloudTask, _ jpeg: Data?) throws -> String
 }
 
 /**
@@ -82,7 +82,7 @@ final class GeminiClient: CloudVisionClient {
         self.models = models
     }
 
-    func generate(_ task: CloudTask, _ jpeg: Data) throws -> String {
+    func generate(_ task: CloudTask, _ jpeg: Data?) throws -> String {
         let headers = ["x-goog-api-key": apiKey, "Content-Type": "application/json", "Api-Revision": Self.apiRevision]
         var attempt = 0
         while true {
@@ -101,17 +101,17 @@ final class GeminiClient: CloudVisionClient {
         }
     }
 
-    private func requestBody(_ task: CloudTask, _ jpeg: Data, _ model: String) -> Data {
+    private func requestBody(_ task: CloudTask, _ jpeg: Data?, _ model: String) -> Data {
         let schema: Any = (try? JSONSerialization.jsonObject(with: Data(task.schemaJson.utf8))) ?? [String: Any]()
-        let input: [[String: String]] = [
-            ["type": "text", "text": task.prompt],
-            [
+        var input: [[String: String]] = [["type": "text", "text": task.prompt]]
+        if let jpeg {
+            input.append([
                 "type": "image",
                 "data": jpeg.base64EncodedString(),
                 "mime_type": "image/jpeg",
                 "resolution": task.imageResolution,
-            ],
-        ]
+            ])
+        }
         let format: [String: Any] = ["type": "text", "mime_type": "application/json", "schema": schema]
         let body: [String: Any] = [
             "model": model,

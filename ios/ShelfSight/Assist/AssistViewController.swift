@@ -7,7 +7,8 @@ import UIKit
  * 視覚障害のある人のための、コンビニの棚と商品の案内。胸の前にスマホを立てて持ち、イヤホンで聞く（Android 版の AssistActivity）。
  *
  * ② 棚が 1 つ写っている: 商品を認識し、LLM で何があるかを短く自然な文にして話す（場違いな商品は言わない）
- * ③ スマホのすぐ前に商品がある（画面の中央の深度だけで決める、NearProduct）: 長押しで Cloud Vision API に聞き、社名と商品名を言う（1 回の接近で 1 回だけ呼ぶ）
+ * ③ スマホのすぐ前に商品がある（画面の中央の深度だけで決める、NearProduct）: 長押しで Cloud Vision API で文字を読み（1 回の接近で 1 回だけ呼ぶ）、
+ *    その文字からカテゴリを決めて（端末の辞書で決めきれなければ Gemini、CategoryJudge）、商品名、カテゴリの順に言う
  * ④ 人が近づいてくる: その人の方向からピコピコ鳴らす（productOnly の間は止めている）
  *
  * 棚の種類の判別（歩行中の 8 列 × 7 分類）と 3D の地図は入れていない（Android 版も止めている）。
@@ -81,16 +82,11 @@ final class Assist: NSObject, ARSessionDelegate {
     private let recognizer = RecognizerPool()
     private let personDetector: PersonDetector = VisionPersonDetector()
     private let tracker = PersonTracker()
-    private let lookup = ProductLookup(apiKey: Secrets.value("CLOUD_VISION_API_KEY", fallback: "GCP_API_KEY"))
-    private let narrator: Narrator = {
-        let key = Secrets.value("GEMINI_API_KEY")
-        if key.isEmpty { return Narrator(client: nil) }
-        // 話す文を作るだけなので、速い lite のモデルから試す（flash は 6〜9 秒、lite は 2 秒ほど）
-        let models = Secrets.value("GEMINI_MODELS", default: "gemini-3.8-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite")
-            .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-            .stableSorted { $0.contains("lite") && !$1.contains("lite") }
-        return Narrator(client: models.isEmpty ? nil : GeminiClient(apiKey: key, models: models))
-    }()
+    private let lookup = ProductLookup(
+        apiKey: Secrets.value("CLOUD_VISION_API_KEY", fallback: "GCP_API_KEY"),
+        judge: CategoryJudge(rules: .fromBundle(), client: Assist.geminiClient())
+    )
+    private let narrator = Narrator(client: Assist.geminiClient())
     private let judge = SceneJudge()
     private let recorder = Once<Recorder> { Recorder() }
     /// 商品のジャンル（26 種類）→ 7 つのまとまり。場違いな商品を外すのに使う（categories.json）。
@@ -410,7 +406,7 @@ final class Assist: NSObject, ARSessionDelegate {
         boxes.map { Unprojector.medianDepthMeters(NormalizedBox(left: $0[0], top: $0[1], right: $0[2], bottom: $0[3]), g) }
     }
 
-    /// ③ 手前の商品を Cloud Vision API で調べる。この接近ですでに調べていれば、API を呼ばずにその結果を言う。
+    /// ③ 手前の商品を Cloud Vision API で読み、カテゴリと商品名を言う。この接近ですでに調べていれば、API を呼ばずにその結果を言う。
     private func lookupProduct(_ image: RGBAImage, _ box: [Float]) {
         if let cached = lookup.cachedResult {
             debug.lookup = "（この接近で調べた結果を使う）"
@@ -427,7 +423,7 @@ final class Assist: NSObject, ARSessionDelegate {
         let ms = nowMs() - t0
         switch result {
         case .success(let a):
-            debug.lookup = (a.map { "社名「\($0.maker)」商品「\($0.product)」" } ?? "分からない") + "（Cloud Vision \(ms)ms）"
+            debug.lookup = (a?.describe() ?? "分からない") + "（全体 \(ms)ms）"
         case .failure(let e):
             logInfo("Assist", "lookup failed: \(e)")
             debug.lookup = "失敗: \(e)（Cloud Vision \(ms)ms）"
@@ -547,6 +543,16 @@ final class Assist: NSObject, ARSessionDelegate {
     }
 
     // ------------------------------------------------------------ 補助
+
+    /// Gemini（キーがなければ nil）。話す文を作る・カテゴリを決めるだけなので、速い lite のモデルから試す（flash は 6〜9 秒、lite は 2 秒ほど）。
+    private static func geminiClient() -> GeminiClient? {
+        let key = Secrets.value("GEMINI_API_KEY")
+        if key.isEmpty { return nil }
+        let models = Secrets.value("GEMINI_MODELS", default: "gemini-3.8-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite")
+            .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            .stableSorted { $0.contains("lite") && !$1.contains("lite") }
+        return models.isEmpty ? nil : GeminiClient(apiKey: key, models: models)
+    }
 
     /// 壁（ARKit の縦の平面）の数（記録用）。
     private func wallCount(_ frame: ARFrame) -> Int {
