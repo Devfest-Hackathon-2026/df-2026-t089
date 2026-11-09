@@ -396,7 +396,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val camera = frame.camera
         // 3D モデルを見ている間も、下の認識と地図づくりは止めない
         if (showModel) {
-            storeLabels.labels = storeRenderer.draw(storeView, orbit, viewW, viewH, devicePose, (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, shelfMap.snapshot(), people, topView, storeLayers, savedView)
+            storeLabels.labels = storeRenderer.draw(storeView, orbit, viewW, viewH, devicePose, (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, shelfMap.snapshot(), people, topView, storeLayers, savedView, shelfMap.pendingPoints())
             storeLabels.postInvalidate()
         } else if (showTest) storeRenderer.drawDemo(testOrbit, viewW, viewH, demoListener(), demoPosition(), SpatialDemo.chimeSlot(demoSeconds()) != null)
         else background.draw(frame)
@@ -737,6 +737,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         for ((b, confidence) in boxes) {
             val at = locate(b[0], b[1], b[2], b[3], f, walls) ?: continue
             if (shelfMap.touch(at.position, at.widthM, at.heightM, now, camera)) continue
+            shelfMap.addPending(at.position)
             cropQueue.add(CropQueue.Entry(recognizer.cropOf(image, b), b, at.position, camera, at.widthM, at.heightM, SceneJudge.area(b), now, confidence)).forEach { it.recycle() }
         }
     }
@@ -749,10 +750,12 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                 if (e == null) { Thread.sleep(IDENTIFY_IDLE_MS); continue }
                 try {
                     val p = recognizer.judge(e.crop, e.box)
-                    if (p == null) { cropQueue.reject(e); continue }
-                    shelfMap.add(p.name, p.genre, p.fine, e.position, e.widthM, e.heightM, e.time, e.camera)
-                    sceneGeometry?.let { debug.mapView = shelfMap.visible(it) }  // 分かったものから順にオレンジにする
-                    sceneWorker.execute { storeModel.addProduct(e.camera.x.toDouble(), e.camera.z.toDouble(), e.position.x.toDouble(), e.position.z.toDouble(), p.name, p.genre ?: "") }
+                    if (p == null) cropQueue.reject(e) else {
+                        shelfMap.add(p.name, p.genre, p.fine, e.position, e.widthM, e.heightM, e.time, e.camera)
+                        sceneGeometry?.let { debug.mapView = shelfMap.visible(it) }  // 分かったものから順にオレンジにする
+                    }
+                    // 分からなかった点も、棚の形の手がかりとしてカテゴリなしで渡す
+                    sceneWorker.execute { storeModel.addProduct(e.camera.x.toDouble(), e.camera.z.toDouble(), e.position.x.toDouble(), e.position.z.toDouble(), p?.name ?: "", p?.genre ?: "") }
                 } catch (err: InterruptedException) {
                     throw err
                 } catch (err: Exception) {

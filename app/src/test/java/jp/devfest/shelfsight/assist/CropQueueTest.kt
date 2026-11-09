@@ -54,6 +54,17 @@ class CropQueueTest {
         assertEquals(1, q.size)
     }
 
+    @Test fun `a pending point disappears once that spot is classified`() {
+        val map = ShelfMap()
+        map.addPending(Vec3(1f, 0f, 0f))
+        map.addPending(Vec3(1.05f, 0f, 0f))
+        map.addPending(Vec3(3f, 0f, 0f))
+        assertEquals(2, map.pendingPoints().size)
+        assertEquals(0, map.size)
+        map.add("tea", null, null, Vec3(1f, 0f, 0f), 0.1f, 0.1f, 1L)
+        assertEquals(listOf(Vec3(3f, 0f, 0f)), map.pendingPoints())
+    }
+
     @Test fun `a judged spot is touched instead of judged again`() {
         val map = ShelfMap()
         assertEquals(false, map.touch(Vec3(1f, 0f, 0f), 0.1f, 0.1f, 1L, null))

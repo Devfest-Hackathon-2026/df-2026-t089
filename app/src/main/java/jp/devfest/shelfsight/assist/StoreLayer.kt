@@ -12,7 +12,7 @@ internal enum class StoreLayer(val label: String, val color: Int, val topViewOnl
     SHELF("棚", 0xc8ccd2),
     GLASS("ガラス棚", 0x4fd1c5),
     FLOOR("床", 0x565d68),
-    POINT("商品の点", 0xffd23f),
+    POINT("商品の点", 0xff9800),
     SIGHT("視線", 0x63e6ff),
     CATEGORY("商品カテゴリ", 0xffffff),
     GENRE("棚のジャンル", 0x1b6fd0),

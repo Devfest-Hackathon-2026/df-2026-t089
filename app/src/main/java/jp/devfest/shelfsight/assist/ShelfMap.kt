@@ -23,8 +23,20 @@ class MapItem(
  */
 class ShelfMap {
     private val items = ArrayList<MapItem>()
+    /** 見つけたが、まだ分類できていない点。案内には使わず、地図に暗く描くだけ。 */
+    private val pending = ArrayList<Vec3>()
 
     @get:Synchronized val size: Int get() = items.size
+
+    @Synchronized
+    fun addPending(position: Vec3) {
+        if (pending.any { it.distanceTo(position) < SAME_SPOT_M }) return
+        pending += position
+        if (pending.size > MAX_ITEMS) pending.removeAt(0)
+    }
+
+    @Synchronized
+    fun pendingPoints(): List<Vec3> = pending.toList()
 
     @Synchronized
     fun snapshot(): List<MapItem> = items.map {
@@ -35,6 +47,7 @@ class ShelfMap {
     @Synchronized
     fun add(name: String, genre: String?, fine: String?, position: Vec3, widthM: Float, heightM: Float, now: Long,
         cameraAt: Vec3? = null) {
+        pending.removeAll { it.distanceTo(position) < SAME_SPOT_M }
         val same = items.filter { it.name == name && it.position.distanceTo(position) < MERGE_M }.minByOrNull { it.position.distanceTo(position) }
         if (same == null) {
             items += MapItem(name, genre, fine, position, widthM, heightM, 1, now, cameraAt)

@@ -36,7 +36,7 @@ internal class StoreModelRenderer {
      * @return 画面に重ねる文字（棚のジャンルが先、商品名は見えた回数の多い順）
      */
     fun draw(view: StoreView?, orbit: OrbitCamera, width: Int, height: Int, phone: FloatArray?, floorY: Float, items: List<MapItem>, people: List<PersonMarker>, topView: Boolean = false,
-        layers: Set<StoreLayer> = StoreLayer.values().toSet(), saved: StoreView? = null): List<ScreenLabel> {
+        layers: Set<StoreLayer> = StoreLayer.values().toSet(), saved: StoreView? = null, pending: List<Vec3> = emptyList()): List<ScreenLabel> {
         val e = begin(orbit, width, height, 50f, topView)
         useLines(boxLines)
         if (view?.room != null) {
@@ -70,6 +70,7 @@ internal class StoreModelRenderer {
         if (topView && correcting) drawMirrorLines(view, floorY)
         if (topView && StoreLayer.RANSAC in layers) drawRansac(view, floorY)
         GLES20.glDisableVertexAttribArray(position)
+        if (StoreLayer.POINT in layers) drawPending(pending)
         drawPoints(items, restored, StoreLayer.POINT in layers)
         if (topView && correcting) drawMirrorPoints(view, floorY)
         return (if (StoreLayer.PERSON in layers) personLabels(people, phone, floorY, width, height) else emptyList()) +
@@ -162,6 +163,16 @@ internal class StoreModelRenderer {
     private fun useLines(lines: java.nio.FloatBuffer) {
         lines.position(0)
         GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 0, lines)
+    }
+
+    /** まだ分類できていない点を暗く描く。分類できると [drawPoints] の明るい色に変わる。 */
+    private fun drawPending(points: List<Vec3>) {
+        val shown = points.take(ShelfMap.MAX_ITEMS)
+        if (shown.isEmpty()) return
+        pointBuffer.clear()
+        for (p in shown) pointBuffer.put(p.x).put(p.y).put(p.z)
+        pointBuffer.position(0)
+        drawPointBuffer(shown.size, PENDING_POINT, POINT_SIZE)
     }
 
     /** ガラス越しの元の点は薄いオレンジ、ガラス面へ戻した点はふつうの色で描く。 */
@@ -347,6 +358,7 @@ internal class StoreModelRenderer {
         val ME = rgb(StoreLayer.PHONE.color)
         val ARROW = rgb(0xff7a45)
         val POINT = rgb(StoreLayer.POINT.color)
+        val PENDING_POINT = rgb(0x6e4a12)
         val RAW_POINT = rgb(0xffd9a8)
         val RESTORE_LINE = rgb(StoreLayer.MIRROR.color)
         val GLASS = rgb(StoreLayer.GLASS.color)
