@@ -36,7 +36,8 @@ final class ProductRecognizer {
     private let detThreshold: Float
     private let nmsIou: Float
     private let matchSim: Float
-    private let lambdas: (Double, Double)
+    /// (ジャンル, 細分類, カテゴリそのもの)。古い gallery.json は 2 つだけなので、足りない分は 0。
+    private let lambdas: (Double, Double, Double)
     private let pad: (UInt8, UInt8, UInt8)
     private let products: [Product]
     private let gallery: [Float]
@@ -65,7 +66,7 @@ final class ProductRecognizer {
         nmsIou = Float(JSON.double(meta, "nms_iou") ?? 0.5)
         matchSim = Float(JSON.double(meta, "match_sim") ?? 0.5)
         let l = (meta["context_lambda"] as? [NSNumber])?.map(\.doubleValue) ?? [0.05, 0.05]
-        lambdas = (l.count > 0 ? l[0] : 0.05, l.count > 1 ? l[1] : 0.05)
+        lambdas = (l.count > 0 ? l[0] : 0.05, l.count > 1 ? l[1] : 0.05, l.count > 2 ? l[2] : 0)
         let p = (meta["pad_color"] as? [NSNumber])?.map(\.uint8Value) ?? [124, 116, 104]
         pad = (p[0], p[1], p[2])
         let list = JSON.objects(meta, "products").map {
@@ -150,6 +151,7 @@ final class ProductRecognizer {
         let picked = ContextAdjust.adjust(centers, raw, [
             ContextAdjust.Level(categoryOf: { keyed[$0]?.genre }, lambda: lambdas.0),
             ContextAdjust.Level(categoryOf: { keyed[$0]?.fine }, lambda: lambdas.1),
+            ContextAdjust.Level(categoryOf: { $0 }, lambda: lambdas.2),   // キーがカテゴリそのもの（Android 版と同じ）
         ])
         return big.indices.compactMap { i in
             let p = picked[i]
