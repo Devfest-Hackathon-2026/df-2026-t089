@@ -5,7 +5,7 @@
 出力: products/work/sku26n/verify.json
 """
 import argparse, json, random, re, sys, unicodedata
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import requests
@@ -109,21 +109,43 @@ def add_match(rows: list[dict]) -> dict:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--limit", type=int, default=200)
+    ap.add_argument("--limit", type=int, default=200, help="無作為に N 個。0 は全件")
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--out", type=Path, default=OUT)
+    ap.add_argument("--skip", type=Path, help="この判定結果にある切り抜きは対象から外す")
     a = ap.parse_args()
     first: dict[str, list] = {}
     for r in named_crops():
         first.setdefault(re.sub(r"\s", "", unicodedata.normalize("NFKC", r[1])).lower(), r)
     reps = list(first.values())
-    rows = random.Random(0).sample(reps, min(a.limit, len(reps)))
+    if a.skip:
+        seen = {r["id"] for r in json.loads(a.skip.read_text(encoding="utf-8"))["rows"]}
+        reps = [r for r in reps if r[0] not in seen]
+    rows = random.Random(a.seed).sample(reps, min(a.limit, len(reps))) if a.limit else reps
+    cache = a.out.with_suffix(".judged.jsonl")  # 判定できた分を残し、止まっても続きから
+    out = [json.loads(x) for x in cache.open(encoding="utf-8")] if cache.exists() else []
+    judged_ids = {r["id"] for r in out}
+    rows = [r for r in rows if r[0] not in judged_ids]
     batches = [rows[i:i + PER_REQUEST] for i in range(0, len(rows), PER_REQUEST)]
-    with ThreadPoolExecutor(4) as ex:
-        results = list(ex.map(judge, batches))
-    out = [x for batch, _ in results for x in batch]
-    usages = [u for _, u in results] + [add_match(out)]
+    usages = []
+    with ThreadPoolExecutor(4) as ex, cache.open("a", encoding="utf-8") as f:
+        futures = [ex.submit(judge, b) for b in batches]
+        for n, future in enumerate(as_completed(futures), 1):
+            try:
+                judged, usage = future.result()
+            except Exception as e:  # 1 回分の失敗で全体を止めない。再実行すると続きから判定する
+                print(f"失敗: {e!r}", flush=True)
+                continue
+            out += judged
+            usages.append(usage)
+            f.writelines(json.dumps(x, ensure_ascii=False) + "\n" for x in judged)
+            f.flush()
+            if n % 50 == 0 or n == len(batches):
+                print(f"{n}/{len(batches)}", flush=True)
+    usages.append(add_match(out))
     for r in out:
         r["pass"] = r["status"] == "ok" and r.get("same") is True
-    OUT.write_text(json.dumps({"rows": out}, ensure_ascii=False), encoding="utf-8")
+    a.out.write_text(json.dumps({"rows": out}, ensure_ascii=False), encoding="utf-8")
     t_in = sum(u.get("promptTokenCount", 0) for u in usages)
     t_out = sum(u.get("candidatesTokenCount", 0) + u.get("thoughtsTokenCount", 0) for u in usages)
     print(f"reps {len(reps)}, judged {len(out)}, pass {sum(r['pass'] for r in out)}, in {t_in}, out {t_out}, ${t_in / 1e6 * 0.5 + t_out / 1e6 * 3:.3f}")
