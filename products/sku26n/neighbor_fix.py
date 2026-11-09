@@ -17,6 +17,12 @@ TOP5 = OUT / "top5_clip_gem.json"
 RADIUS = 3.0  # 自分の枠の長辺の何倍までを「周り」とするか
 
 
+def geometry(d):
+    """枠の中心（ピクセル）、長辺、周りとして使える枠かどうか"""
+    b = np.array(d["boxes"], float).reshape(-1, 5) * [d["w"], d["h"], d["w"], d["h"], 1]
+    return np.c_[(b[:, 0] + b[:, 2]) / 2, (b[:, 1] + b[:, 3]) / 2], np.maximum(b[:, 2] - b[:, 0], b[:, 3] - b[:, 1]), b[:, 4] >= .25
+
+
 def choose(top5, xy, long_side, ref, k, mode, margin, min_p):
     """各枠で使う順位（0=top1, 1=top2, 2=top3）を返す"""
     out = [0] * len(top5)
@@ -71,12 +77,7 @@ def main():
     val = sorted(json.loads((OUT / "bc_manifest.json").read_text(encoding="utf-8"))["validation_images"])
     tune, test = val[::2], val[1::2]
 
-    def geometry(name):
-        d = det[name]
-        b = np.array(d["boxes"], float).reshape(-1, 5) * [d["w"], d["h"], d["w"], d["h"], 1]
-        return np.c_[(b[:, 0] + b[:, 2]) / 2, (b[:, 1] + b[:, 3]) / 2], np.maximum(b[:, 2] - b[:, 0], b[:, 3] - b[:, 1]), b[:, 4] >= .25
-
-    geo = {n: geometry(n) for n in det}
+    geo = {n: geometry(d) for n, d in det.items()}
     run = lambda name, p: choose(top5[name], *geo[name], *p)
 
     def report(params, photos):
