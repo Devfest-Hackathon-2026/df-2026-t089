@@ -12,7 +12,7 @@ HERE = Path(__file__).resolve().parent
 VIEW = HERE.parent / "work" / "view"
 WORK = HERE.parent / "work" / "sku26n"
 TAXONOMY = HERE.parent / "konbinidb" / "taxonomy.json"
-METHODS = ["m1"]
+METHODS = ["gemini", "m1"]
 
 
 def state(det: Path, pred_dir: Path) -> bytes:
@@ -21,6 +21,7 @@ def state(det: Path, pred_dir: Path) -> bytes:
     d["methods"] = {m: json.loads((pred_dir / f"pred_{m}.json").read_text(encoding="utf-8"))["images"]
                     for m in METHODS if (pred_dir / f"pred_{m}.json").exists()}
     d["cats"] = {k: v[0] for g in json.loads(TAXONOMY.read_text(encoding="utf-8")).values() for k, v in g.items()}
+    d["cats"]["NP"] = "商品でない"
     return json.dumps(d, ensure_ascii=False).encode()
 
 

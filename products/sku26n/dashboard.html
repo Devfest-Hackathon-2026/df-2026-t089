@@ -16,7 +16,7 @@
   button { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:3px 12px; font:inherit; cursor:pointer; }
   button:disabled { opacity:.4; cursor:default; }
   .pager { display:flex; align-items:center; gap:8px; }
-  .heads, .grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; padding:0 8px; }
+  .heads, .grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; padding:0 8px; }
   .heads > div { padding:6px 4px; font-weight:600; font-size:13px; border-top:1px solid var(--line); }
   .heads small { display:block; color:var(--muted); font-weight:400; font-size:11px; }
   .grid { padding-top:8px; padding-bottom:16px; row-gap:12px; }
@@ -57,6 +57,7 @@ const PER_PAGE = 50;
 const conf = $("#conf"), grid = $("#grid"), zoom = $("#zoom");
 const COLS = [
   { key:"det", title:"2. 切り出し", sub:"sku110k-2" },
+  { key:"gemini", title:"Gemini", sub:"元写真の切り抜きを分類" },
   { key:"m1", title:"3-1. YOLO26n-cls", sub:"DB で学習 → 切り抜きを分類" },];
 let S, page = 0;
 
