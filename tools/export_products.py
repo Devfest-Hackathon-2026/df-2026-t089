@@ -3,7 +3,7 @@
   python tools/export_products.py --work <products/work のパス>
 
 書き出すもの（app/src/main/assets/products/）
-  detector.onnx   YOLO（商品らしいものの枠）。detector.json が指すモデル
+  detector.onnx   YOLO（商品らしいものの枠）。work/sku26n/weights/sku110k-2.onnx
   embed.onnx      切り抜きの埋め込み（MobileNetV3-small 128px、出力は正規化済み 128 次元）
   gallery.bin     照合先の埋め込み。float16、商品ごとに並べてある（n × 128）
   gallery.json    商品カテゴリの一覧（カテゴリ名・ジャンル・細分類・照合先の開始位置）と前処理の値
@@ -36,8 +36,8 @@ def main():
     w = a.work
     OUT.mkdir(parents=True, exist_ok=True)
 
-    det = read(w / "detector.json")
-    shutil.copyfile(w / det.get("onnx", "detector.onnx"), OUT / "detector.onnx")
+    # アプリの検出器は sku110k-2 固定（detector.json は PC 側の切り抜き作り用のまま）
+    shutil.copyfile(w / "sku26n/weights/sku110k-2.onnx", OUT / "detector.onnx")
     shutil.copyfile(w / "embed_mnv3.onnx", OUT / "embed.onnx")
     cfg = read(w / "config.json")
 
@@ -70,8 +70,8 @@ def main():
                 for k, s in zip(keys.tolist(), starts.tolist())]
 
     G.tofile(OUT / "gallery.bin")
-    meta = {"source": det.get("run", ""), "detector_size": det["imgsz"], "embed_size": 128, "pad_color": [124, 116, 104],
-            "dim": int(G.shape[1]), "count": int(G.shape[0]), "det_threshold": 0.25, "nms_iou": 0.5,
+    meta = {"source": "sku110k-2", "detector_size": 640, "embed_size": 128, "pad_color": [124, 116, 104],
+            "dim": int(G.shape[1]), "count": int(G.shape[0]), "det_threshold": 0.15, "nms_iou": 0.5,
             "min_crop": [cfg.get("min_crop_w", 20), cfg.get("min_crop_h", 20)], "match_sim": 0.8,
             "context_lambda": [0.05, 0.05, 0.1], "products": products}
     (OUT / "gallery.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
