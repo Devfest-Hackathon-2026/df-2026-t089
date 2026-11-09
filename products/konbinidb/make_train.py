@@ -60,7 +60,7 @@ def detect(model, image: np.ndarray) -> tuple[list[float], float] | None:
     small_w, small_h = max(1, round(w * scale)), max(1, round(h * scale))
     canvas = np.full((DETECT_SIZE, DETECT_SIZE, 3), PAD_COLOR, np.uint8)
     top, left = (DETECT_SIZE - small_h) // 2, (DETECT_SIZE - small_w) // 2
-    canvas[top:top + small_h, left:left + small_w] = cv2.resize(image, (small_w, small_h), interpolation=cv2.INTER_AREA)
+    canvas[top:top + small_h, left:left + small_w] = cv2.resize(image, (small_w, small_h), interpolation=cv2.INTER_LINEAR)  # INTER_AREA だと検出率が下がった（54/60 → 49/60）
     result = model.predict(canvas, imgsz=DETECT_SIZE, conf=MIN_CONF, max_det=30, device="cpu", verbose=False)[0]
     found = []
     for (x0, y0, x1, y1), conf in zip(result.boxes.xyxy.tolist(), result.boxes.conf.tolist()):
