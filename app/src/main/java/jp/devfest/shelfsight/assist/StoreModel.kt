@@ -741,7 +741,7 @@ class StoreModel(private val themes: List<Theme> = emptyList()) {
         register(cs, sn)?.let { reg -> if (fixtures.none { overlaps(reg, it) }) fixtures += reg }
         val sorted = fixtures.sortedWith(compareBy({ it.kind }, { it.axis }, { it.c }, { it.a }))
         val mirror = MirrorCorrection.correct(rays.toList())
-        return StoreView(yaw, roomOf(sorted, frameTrail), sorted, MultiLineRansac.fit(MirrorCorrection.cellMeans(mirror.points)), mirror.moved)
+        return StoreView(yaw, roomOf(sorted, frameTrail), sorted, MultiLineRansac.fit(MirrorCorrection.cellMeans(mirror.points), yaw), mirror.moved)
     }
 
     companion object {

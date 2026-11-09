@@ -2,15 +2,17 @@ package jp.devfest.shelfsight.assist
 
 import java.util.Random
 import kotlin.math.abs
-import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
-/** 局所 RANSAC。各点の周囲だけを見て 1 m 未満の短い線分を当て、内点を取り除いて次の点へ進む。向きは軸に揃えない。 */
+/**
+ * 局所 RANSAC。各点の周囲だけを見て 1 m 未満の短い線分を当て、内点を取り除いて次の点へ進む。
+ * 店の棚は互いに平行か垂直なので、線の向きは店の 2 つの軸だけを試す。
+ */
 internal object MultiLineRansac {
     const val MAX_LINES = 256
-    private const val ITERATIONS = 60
+    private const val ITERATIONS = 30
     private const val RADIUS_M = 0.5   // 直径が線分の上限の 1 m になる
     private const val INLIER_M = 0.1
     private const val MIN_INLIERS = 6
@@ -19,9 +21,14 @@ internal object MultiLineRansac {
     private const val MIN_LENGTH_M = 0.25
     private const val MAX_LENGTH_M = 1.0
 
-    /** @return 線分 (x0, z0, x1, z1) の一覧。[points] は (x, z)。 */
-    fun fit(points: List<DoubleArray>, seed: Long = 1L): List<DoubleArray> {
+    /**
+     * @param points (x, z)
+     * @param yaw 世界 → 店の座標の回転（ラジアン）。線は店の u 軸か v 軸に平行になる。
+     * @return 線分 (x0, z0, x1, z1) の一覧
+     */
+    fun fit(points: List<DoubleArray>, yaw: Double, seed: Long = 1L): List<DoubleArray> {
         val rng = Random(seed)
+        val axes = listOf(cos(yaw) to sin(yaw), -sin(yaw) to cos(yaw))
         val out = ArrayList<DoubleArray>()
         val used = HashSet<DoubleArray>()
         for (center in points.shuffled(rng)) {
@@ -30,19 +37,17 @@ internal object MultiLineRansac {
             val local = points.filter { it !in used && hypot(it[0] - center[0], it[1] - center[1]) <= RADIUS_M }
             if (local.size < MIN_INLIERS) continue
             var best = emptyList<DoubleArray>()
+            var bestAxis = axes[0]
             repeat(ITERATIONS) {
                 val a = local[rng.nextInt(local.size)]
-                val b = local[rng.nextInt(local.size)]
-                val length = hypot(b[0] - a[0], b[1] - a[1])
-                if (length < 0.1) return@repeat
-                val dx = (b[0] - a[0]) / length
-                val dz = (b[1] - a[1]) / length
-                val inliers = local.filter { abs((it[0] - a[0]) * -dz + (it[1] - a[1]) * dx) <= INLIER_M }
-                val run = longestRun(inliers, a, dx, dz)
-                if (run.size > best.size) best = run
+                for (axis in axes) {
+                    val inliers = local.filter { abs((it[0] - a[0]) * -axis.second + (it[1] - a[1]) * axis.first) <= INLIER_M }
+                    val run = longestRun(inliers, a, axis.first, axis.second)
+                    if (run.size > best.size) { best = run; bestAxis = axis }
+                }
             }
             if (best.size < MIN_INLIERS || best.size < local.size * MIN_INLIER_SHARE) continue
-            segment(best)?.let { out += it }
+            segment(best, bestAxis.first, bestAxis.second)?.let { out += it }
             used += best
         }
         return out
@@ -63,16 +68,10 @@ internal object MultiLineRansac {
         return best
     }
 
-    /** 内点に主成分で直線を当て直し、両端の線分にする。長さが範囲の外なら null。 */
-    private fun segment(points: List<DoubleArray>): DoubleArray? {
+    /** 内点の重心を通り軸に平行な線分にする。長さが範囲の外なら null。 */
+    private fun segment(points: List<DoubleArray>, dx: Double, dz: Double): DoubleArray? {
         val mx = points.sumOf { it[0] } / points.size
         val mz = points.sumOf { it[1] } / points.size
-        val sxx = points.sumOf { (it[0] - mx) * (it[0] - mx) }
-        val szz = points.sumOf { (it[1] - mz) * (it[1] - mz) }
-        val sxz = points.sumOf { (it[0] - mx) * (it[1] - mz) }
-        val angle = 0.5 * atan2(2 * sxz, sxx - szz)
-        val dx = cos(angle)
-        val dz = sin(angle)
         val t = points.map { (it[0] - mx) * dx + (it[1] - mz) * dz }
         val lo = t.min()
         val hi = t.max()
