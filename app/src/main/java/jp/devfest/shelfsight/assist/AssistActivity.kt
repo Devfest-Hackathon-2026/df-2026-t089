@@ -321,7 +321,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                 lookupWorker.execute { target(f) }
             }
         }
-        if (now - lastPerson >= PERSON_INTERVAL_MS && personBusy.compareAndSet(false, true)) {
+        if (PEOPLE_ENABLED && now - lastPerson >= PERSON_INTERVAL_MS && personBusy.compareAndSet(false, true)) {
             val f = FrameCapture.capture(frame, camera, rotation, depthEnabled = true)
             if (f == null) personBusy.set(false) else {
                 lastPerson = now
@@ -707,6 +707,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private companion object {
         const val TAG = "Assist"
         const val SCENE_INTERVAL_MS = 1000L
+        /** 人と手の認識（接近音も含む）。false の間は検出器を読み込まない。 */
+        const val PEOPLE_ENABLED = false
         const val PERSON_INTERVAL_MS = 200L
         const val SCENE_LONG_SIDE = 1280
         const val PERSON_LONG_SIDE = 640
