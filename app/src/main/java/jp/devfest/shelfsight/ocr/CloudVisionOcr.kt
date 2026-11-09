@@ -57,9 +57,12 @@ internal class CloudVisionOcr(
     }
 }
 
-/** Vision API の応答を、ML Kit と同じ形の行に直す。商品名の選び方（[ProductReading]）をそのまま使えるようにする。 */
+/**
+ * Vision API の応答を、ML Kit と同じ形の行に直す。商品名の選び方（[ProductReading]）をそのまま使えるようにする。
+ * [imageWidth] を渡すと行の横の位置も入れる（カテゴリの判定で、切り抜きの端の文字を軽くするため）。
+ */
 internal object CloudVisionParser {
-    fun lines(json: String, imageHeight: Int): List<OcrLine> {
+    fun lines(json: String, imageHeight: Int, imageWidth: Int = 0): List<OcrLine> {
         val response = try {
             JSONObject(json).getJSONArray("responses").getJSONObject(0)
         } catch (e: JSONException) {
@@ -71,24 +74,42 @@ internal object CloudVisionParser {
         val text = StringBuilder()
         val heights = mutableListOf<Int>()
         var top = Int.MAX_VALUE
+        var bottom = 0
+        var left = Int.MAX_VALUE
+        var right = 0
+        val h = imageHeight.toFloat()
 
         fun endLine() {
             if (text.isNotBlank() && heights.isNotEmpty()) {
                 // 行全体の枠は、箱が少し傾くだけで高くなるので、ML Kit と同じく 1 文字ずつの高さの中央値を使う。
                 val median = heights.sorted()[heights.size / 2]
-                out.add(OcrLine(text.toString().trim(), median / imageHeight.toFloat(), top / imageHeight.toFloat()))
+                val known = imageWidth > 0 && left <= right
+                out.add(
+                    OcrLine(
+                        text.toString().trim(), median / h, top / h, bottom / h,
+                        if (known) left / imageWidth.toFloat() else 0.5f, if (known) right / imageWidth.toFloat() else 0.5f,
+                    ),
+                )
             }
             text.clear()
             heights.clear()
             top = Int.MAX_VALUE
+            bottom = 0
+            left = Int.MAX_VALUE
+            right = 0
         }
 
         for (symbol in symbols(pages)) {
             text.append(symbol.optString("text"))
-            val ys = vertices(symbol).map { it.second }
-            if (ys.isNotEmpty()) {
+            val vs = vertices(symbol)
+            if (vs.isNotEmpty()) {
+                val ys = vs.map { it.second }
+                val xs = vs.map { it.first }
                 heights.add(ys.max() - ys.min())
                 top = minOf(top, ys.min())
+                bottom = maxOf(bottom, ys.max())
+                left = minOf(left, xs.min())
+                right = maxOf(right, xs.max())
             }
             when (symbol.optJSONObject("property")?.optJSONObject("detectedBreak")?.optString("type")) {
                 "SPACE", "SURE_SPACE" -> text.append(' ')

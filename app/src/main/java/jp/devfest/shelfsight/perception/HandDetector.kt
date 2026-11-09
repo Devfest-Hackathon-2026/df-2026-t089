@@ -14,8 +14,18 @@ internal interface HandDetector : AutoCloseable {
     fun detect(image: Bitmap, timestampMillis: Long): List<HandLandmarks>
 }
 
-/** MediaPipe Hand Landmarker による実装。モデルはアプリに同梱し、端末内で実行する。 */
-internal class MediaPipeHandDetector(context: Context) : HandDetector {
+/**
+ * MediaPipe Hand Landmarker による実装。モデルはアプリに同梱し、端末内で実行する。
+ * 手のひらの検出 → 21 点の 2 段で、一度見つけた手は次のフレームから手のひらの検出なしで追いかける（VIDEO モード）。
+ *
+ * @param minDetection 手のひらの検出の下限。横から物を持った手は手のひらが見えず、低く出る
+ * @param minKeep 追いかけを続ける下限（21 点のモデルが「手がある」とする確からしさ）。物で指が隠れると下がる
+ */
+internal class MediaPipeHandDetector(
+    context: Context,
+    private val minDetection: Float = MIN_DETECTION_CONFIDENCE,
+    private val minKeep: Float = MIN_KEEP_CONFIDENCE,
+) : HandDetector {
     private val appContext = context.applicationContext
     private var landmarker: HandLandmarker? = null
 
@@ -27,9 +37,9 @@ internal class MediaPipeHandDetector(context: Context) : HandDetector {
             // VIDEO は前のフレームの手を追跡するので、パーから握っても見失いにくい。
             .setRunningMode(RunningMode.VIDEO)
             .setNumHands(MAX_HANDS)
-            .setMinHandDetectionConfidence(MIN_DETECTION_CONFIDENCE)
-            .setMinHandPresenceConfidence(MIN_KEEP_CONFIDENCE)
-            .setMinTrackingConfidence(MIN_KEEP_CONFIDENCE)
+            .setMinHandDetectionConfidence(minDetection)
+            .setMinHandPresenceConfidence(minKeep)
+            .setMinTrackingConfidence(minKeep)
             .build(),
     ).also { landmarker = it }
 

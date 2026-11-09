@@ -1,0 +1,12 @@
+// 既定の設定。API キーなどは同じフォルダの Secrets.xcconfig（コミットしない）に書くと上書きされる。
+// 書き方の例は Secrets.example.xcconfig。GitHub Actions ではシークレットから Secrets.xcconfig を作る。
+
+SHELFSIGHT_BUNDLE_ID = jp.devfest.shelfsight
+SHELFSIGHT_TEAM_ID =
+
+GEMINI_API_KEY =
+GEMINI_MODELS = gemini-3.8-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite
+CLOUD_VISION_API_KEY =
+GCP_API_KEY =
+
+#include? "Secrets.xcconfig"

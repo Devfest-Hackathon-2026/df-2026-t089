@@ -12,12 +12,14 @@ data class SceneEvidence(
     val shelves: Int,
     /** 商品の枠（正立画像の 0..1、[left, top, right, bottom]）。 */
     val productBoxes: List<FloatArray>,
+    /** スマホのすぐ前に商品がある（[NearProduct]、画面の中央の深度だけで決める）。 */
+    val near: Boolean = false,
 )
 
 /**
- * 写っているものを決める。毎回の結果はぶれるので、同じ判定が [STABLE] 回続いたときだけ切り替える。
+ * 写っているものを決める（iOS 版の SceneJudge と同じ）。毎回の結果はぶれるので、同じ判定が [STABLE] 回続いたときだけ切り替える。
  *
- * - 商品が 1 つ大きく写っている（近づいている）→ [Scene.ONE_PRODUCT]
+ * - スマホのすぐ前に商品がある（[NearProduct]、画面の中央の深度だけで決める）→ [Scene.ONE_PRODUCT]
  * - 棚が 2 つ以上 → [Scene.SHELVES]
  * - 棚が 1 つで、商品がいくつも見える → [Scene.ONE_SHELF]
  */
@@ -37,15 +39,27 @@ class SceneJudge {
 
     companion object {
         const val STABLE = 2
-        /** 画面に占める割合がこれ以上の商品は「1 つ大きく写っている」。 */
-        const val ONE_PRODUCT_AREA = 0.12f
-        /** 1 つ大きく写っている商品は、2 番目の商品よりこれだけ大きい。 */
-        const val ONE_PRODUCT_RATIO = 2.5f
         const val MIN_PRODUCTS_ON_SHELF = 4
 
         fun area(b: FloatArray) = (b[2] - b[0]).coerceAtLeast(0f) * (b[3] - b[1]).coerceAtLeast(0f)
 
-        /** 画面の真ん中にかかる、大きく写った 1 つの商品。なければ null。 */
+        /** 画面の中央とみなす範囲（中心からの距離、画像の幅・高さに対する割合）。中央を含む枠がないとき、これより近い枠を選ぶ。 */
+        const val CENTER_RADIUS = 0.15f
+
+        /**
+         * 画面の中央にある商品の枠（長押しで調べる 1 つ）。なければ null。
+         * 中央の点を含む枠のうち、枠の中心が画面の中央にいちばん近いもの。含む枠がなければ、中心が [CENTER_RADIUS] 以内でいちばん近いもの。
+         */
+        fun centerProduct(boxes: List<FloatArray>): FloatArray? {
+            fun dist(b: FloatArray) = kotlin.math.hypot((b[0] + b[2]) / 2 - 0.5f, (b[1] + b[3]) / 2 - 0.5f)
+            val containing = boxes.filter { it[0] <= 0.5f && it[2] >= 0.5f && it[1] <= 0.5f && it[3] >= 0.5f }
+            if (containing.isNotEmpty()) return containing.minBy(::dist)
+            return boxes.filter { dist(it) <= CENTER_RADIUS }.minByOrNull(::dist)
+        }
+
+        private const val ONE_PRODUCT_AREA = 0.12f
+        private const val ONE_PRODUCT_RATIO = 2.5f
+
         fun mainProduct(boxes: List<FloatArray>): FloatArray? {
             val sorted = boxes.sortedByDescending { area(it) }
             val first = sorted.firstOrNull() ?: return null
@@ -59,35 +73,39 @@ class SceneJudge {
         const val SHELF_MIN_WIDTH = 0.5f
         const val SHELF_MIN_HEIGHT = 0.35f
 
-        /** 画面のこれ以上を占める枠は、他の枠があっても手前の商品 1 つ（近づくと商品の中の文字や絵も枠になる）。 */
-        const val CLOSE_PRODUCT_AREA = 0.25f
-        /** 枠が少なく、合わせて画面のこれ以上を占めるときも、商品 1 つを近くで写している（横に並んだ 2 つの商品は、ここまで広がらない）。 */
-        const val CLOSE_UNION_AREA = 0.6f
-        const val CLOSE_MAX_BOXES = 4
-
         /**
          * 長押しのとき、何を調べるか。商品 1 つなら調べる範囲（正立画像の 0..1）も返す。
-         * - 商品 1 つが大きく写っている、または画面いっぱいに写っている → [Focus.PRODUCT]
+         * - スマホのすぐ前に商品がある（[nearBox] は [NearProduct] で決めた調べる範囲）→ [Focus.PRODUCT]
          * - 棚の広い範囲に小さな商品が並んでいる → [Focus.SHELF]
-         * - その間（中くらいの商品がいくつか、または商品が少ない） → [Focus.STEP_BACK]
+         * - それ以外（商品が少ない、広がっていない）→ [Focus.STEP_BACK]。枠の大きさでは決めない
          */
-        fun focus(boxes: List<FloatArray>): Pair<Focus, FloatArray?> {
+        fun focus(boxes: List<FloatArray>, nearBox: FloatArray? = null): Pair<Focus, FloatArray?> {
+            if (nearBox != null) return Focus.PRODUCT to nearBox
             if (boxes.isEmpty()) return Focus.NOTHING to null
-            mainProduct(boxes)?.let { return Focus.PRODUCT to it }
-            val largest = boxes.maxBy { area(it) }
-            val union = floatArrayOf(boxes.minOf { it[0] }, boxes.minOf { it[1] }, boxes.maxOf { it[2] }, boxes.maxOf { it[3] })
-            // 調べる範囲は、枠が少なければ全部を合わせた範囲（商品の部分ごとに枠が出ることがある）
-            if (area(largest) >= CLOSE_PRODUCT_AREA) return Focus.PRODUCT to if (boxes.size <= CLOSE_MAX_BOXES) union else largest
-            if (boxes.size <= CLOSE_MAX_BOXES && area(union) >= CLOSE_UNION_AREA && area(largest) >= ONE_PRODUCT_AREA / 2) {
-                return Focus.PRODUCT to union
+            val w = boxes.maxOf { it[2] } - boxes.minOf { it[0] }
+            val h = boxes.maxOf { it[3] } - boxes.minOf { it[1] }
+            val spread = boxes.size >= SHELF_MIN_PRODUCTS && w >= SHELF_MIN_WIDTH && h >= SHELF_MIN_HEIGHT
+            return (if (spread) Focus.SHELF else Focus.STEP_BACK) to null
+        }
+
+        /** 長押しで調べるものと範囲。[byCenterBox] は、ARCore で判定できず画面の中央の枠で選んだとき true。 */
+        data class LongPressTarget(val focus: Focus, val box: FloatArray?, val byCenterBox: Boolean)
+
+        /**
+         * [focus] に、Android 版だけの代わりを足したもの。ARCore で近い商品を判定できなかったとき（深度に対応していない機種、
+         * または深度で画面の中央の距離を測れなかったとき、[depthMeasured] が false）だけ、棚でなければ画面の中央の商品の枠を調べる。
+         * 深度で測れて商品が遠いと分かったときは使わない（iOS 版と同じく、棚の説明か「一歩下がって」になる）。
+         */
+        fun focusWithFallback(boxes: List<FloatArray>, nearBox: FloatArray?, depthMeasured: Boolean): LongPressTarget {
+            val (f, b) = focus(boxes, nearBox)
+            if (nearBox == null && !depthMeasured && f != Focus.SHELF) {
+                centerProduct(boxes)?.let { return LongPressTarget(Focus.PRODUCT, it, byCenterBox = true) }
             }
-            val spread = boxes.size >= SHELF_MIN_PRODUCTS && union[2] - union[0] >= SHELF_MIN_WIDTH && union[3] - union[1] >= SHELF_MIN_HEIGHT
-            val noneLarge = boxes.none { area(it) >= ONE_PRODUCT_AREA }
-            return (if (spread && noneLarge) Focus.SHELF else Focus.STEP_BACK) to null
+            return LongPressTarget(f, b, byCenterBox = false)
         }
 
         fun classify(e: SceneEvidence): Scene = when {
-            mainProduct(e.productBoxes) != null -> Scene.ONE_PRODUCT
+            e.near -> Scene.ONE_PRODUCT
             e.shelves >= 2 -> Scene.SHELVES
             e.productBoxes.size >= MIN_PRODUCTS_ON_SHELF -> Scene.ONE_SHELF
             e.shelves == 1 -> Scene.ONE_SHELF

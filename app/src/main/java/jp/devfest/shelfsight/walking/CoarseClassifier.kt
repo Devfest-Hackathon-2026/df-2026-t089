@@ -41,19 +41,23 @@ class CoarseClassifier(modelFile: File, val head: CoarseHead, threads: Int = DEF
     private val square = Bitmap.createBitmap(INPUT_SIZE, INPUT_SIZE, Bitmap.Config.ARGB_8888)
     private val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)
 
-    /** [image] は正立させた画像。 */
-    fun classify(image: Bitmap): CoarseResult {
+    /**
+     * [image] は正立させた画像。[known] は分類がもう分かっている列（列の番号 → 分類。地図から）で、
+     * その列はモデルにかけない（かかる時間は、かける列の数に比例する）。全部分かっていればモデルを動かさない。
+     */
+    fun classify(image: Bitmap, known: Map<Int, String> = emptyMap()): CoarseResult {
         val start = SystemClock.elapsedRealtime()
         val n = head.columns
+        val todo = (0 until n).filter { it !in known || known[it] !in head.classes }
         val plane = INPUT_SIZE * INPUT_SIZE
-        val input = FloatBuffer.allocate(n * 3 * plane)
+        val input = FloatBuffer.allocate(maxOf(1, todo.size) * 3 * plane)
         val canvas = Canvas(square)
         val target = Rect(0, 0, INPUT_SIZE, INPUT_SIZE)
-        for (c in 0 until n) {
+        for ((j, c) in todo.withIndex()) {
             val crop = head.cropFor(c, image.width, image.height)
             canvas.drawBitmap(image, Rect(crop.left, crop.top, crop.right, crop.bottom), target, paint)
             square.getPixels(pixels, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE)
-            val base = c * 3 * plane
+            val base = j * 3 * plane
             // PC と同じく 0〜1 にするだけで、平均や分散では割らない。
             for (i in 0 until plane) {
                 val p = pixels[i]
@@ -64,16 +68,24 @@ class CoarseClassifier(modelFile: File, val head: CoarseHead, threads: Int = DEF
         }
         val prepared = SystemClock.elapsedRealtime()
 
-        val shape = longArrayOf(n.toLong(), 3, INPUT_SIZE.toLong(), INPUT_SIZE.toLong())
-        val embeddings = OnnxTensor.createTensor(env, input, shape).use { tensor ->
-            session.run(mapOf(inputName to tensor)).use { output ->
-                @Suppress("UNCHECKED_CAST")
-                (output[0].value as Array<FloatArray>)
+        val embeddings = if (todo.isEmpty()) emptyArray() else {
+            val shape = longArrayOf(todo.size.toLong(), 3, INPUT_SIZE.toLong(), INPUT_SIZE.toLong())
+            OnnxTensor.createTensor(env, input, shape).use { tensor ->
+                session.run(mapOf(inputName to tensor)).use { output ->
+                    @Suppress("UNCHECKED_CAST")
+                    (output[0].value as Array<FloatArray>)
+                }
             }
         }
         val done = SystemClock.elapsedRealtime()
 
-        val probs = embeddings.map { head.probabilities(it) }
+        // 分かっている列は、その分類をほぼ確かとして並びの平滑化に入れる
+        val byColumn = todo.withIndex().associate { (j, c) -> c to head.probabilities(embeddings[j]) }
+        val probs = (0 until n).map { c ->
+            byColumn[c] ?: FloatArray(head.classes.size) { k ->
+                if (head.classes[k] == known[c]) KNOWN_P else (1f - KNOWN_P) / (head.classes.size - 1)
+            }
+        }
         val path = head.smooth(probs)
         return CoarseResult(
             columns = path.map { head.classes[it] },
@@ -90,6 +102,8 @@ class CoarseClassifier(modelFile: File, val head: CoarseHead, threads: Int = DEF
 
     companion object {
         private const val INPUT_SIZE = 256
+        /** 地図から分かっている列の分類の確率（平滑化で、隣の列に引きずられにくくする）。 */
+        private const val KNOWN_P = 0.9f
         private const val DEFAULT_THREADS = 4
         private const val ASSET_DIR = "coarse"
 
@@ -97,7 +111,7 @@ class CoarseClassifier(modelFile: File, val head: CoarseHead, threads: Int = DEF
          * アセットのモデルを読み込む。モデルが入っていないビルド（大きいのでリポジトリに含めない）では null を返す。
          * ONNX Runtime はファイルから読む方がメモリを使わないので、初回にアプリの領域へ写す。
          */
-        fun fromAssets(context: Context, name: String): CoarseClassifier? {
+        fun fromAssets(context: Context, name: String, threads: Int = DEFAULT_THREADS): CoarseClassifier? {
             val assets = context.assets
             val files = assets.list(ASSET_DIR).orEmpty()
             if ("$name.onnx" !in files || "$name.head.json" !in files) return null
@@ -107,7 +121,7 @@ class CoarseClassifier(modelFile: File, val head: CoarseHead, threads: Int = DEF
             if (!model.exists() || model.length() != size) {
                 assets.open("$ASSET_DIR/$name.onnx").use { input -> model.outputStream().use { input.copyTo(it) } }
             }
-            return CoarseClassifier(model, head)
+            return CoarseClassifier(model, head, threads)
         }
     }
 }

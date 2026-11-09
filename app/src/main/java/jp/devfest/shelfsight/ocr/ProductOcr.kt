@@ -7,8 +7,21 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import java.util.concurrent.ExecutionException
 
-/** OCR が読み取った 1 行。大きさと位置は画像の高さを 1 とした割合。 */
-internal class OcrLine(val text: String, val height: Float, val top: Float)
+/**
+ * OCR が読み取った 1 行。[height]・[top]・[bottom] は画像の高さ、[left]・[right] は画像の幅を 1 とした割合。
+ * 横の位置が分からない読み方（ML Kit）では、[left]・[right] は真ん中（0.5）にしておく。
+ */
+internal class OcrLine(
+    val text: String,
+    val height: Float,
+    val top: Float,
+    val bottom: Float = top + height,
+    val left: Float = 0.5f,
+    val right: Float = 0.5f,
+) {
+    val cx: Float get() = (left + right) / 2
+    val cy: Float get() = (top + bottom) / 2
+}
 
 /** 手に取った商品を読み取った結果。 */
 data class ProductResult(

@@ -8,11 +8,11 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 
-/** 画像と指示を渡して、スキーマに沿った JSON 文字列を受け取る。別のサービスへ替えるときはここを実装する。 */
+/** 指示（と画像）を渡して、スキーマに沿った JSON 文字列を受け取る。別のサービスへ替えるときはここを実装する。 */
 internal fun interface CloudVisionClient {
-    /** ネットワーク待ちで止まるので、GL スレッドでは呼ばない。 */
+    /** [jpeg] が null なら文字だけで頼む。ネットワーク待ちで止まるので、GL スレッドでは呼ばない。 */
     @Throws(CloudException::class)
-    fun generate(task: CloudTask, jpeg: ByteArray): String
+    fun generate(task: CloudTask, jpeg: ByteArray?): String
 }
 
 internal enum class CloudFailure(val messageJa: String) {
@@ -72,7 +72,7 @@ internal class GeminiClient(
     private val sleep: (Long) -> Unit = Thread::sleep,
 ) : CloudVisionClient {
 
-    override fun generate(task: CloudTask, jpeg: ByteArray): String {
+    override fun generate(task: CloudTask, jpeg: ByteArray?): String {
         val headers = mapOf(
             "x-goog-api-key" to apiKey,
             "Content-Type" to "application/json",
@@ -94,7 +94,7 @@ internal class GeminiClient(
         }
     }
 
-    private fun requestBody(task: CloudTask, jpeg: ByteArray, model: String): String = JSONObject()
+    private fun requestBody(task: CloudTask, jpeg: ByteArray?, model: String): String = JSONObject()
         .put("model", model)
         // 店内の写真には来店者が写ることがあるので、応答を返したら保存させない。
         .put("store", false)
@@ -102,13 +102,15 @@ internal class GeminiClient(
             "input",
             JSONArray()
                 .put(JSONObject().put("type", "text").put("text", task.prompt))
-                .put(
-                    JSONObject()
-                        .put("type", "image")
-                        .put("data", Base64.getEncoder().encodeToString(jpeg))
-                        .put("mime_type", "image/jpeg")
-                        .put("resolution", task.imageResolution),
-                ),
+                .apply {
+                    if (jpeg != null) put(
+                        JSONObject()
+                            .put("type", "image")
+                            .put("data", Base64.getEncoder().encodeToString(jpeg))
+                            .put("mime_type", "image/jpeg")
+                            .put("resolution", task.imageResolution),
+                    )
+                },
         )
         .put(
             "response_format",

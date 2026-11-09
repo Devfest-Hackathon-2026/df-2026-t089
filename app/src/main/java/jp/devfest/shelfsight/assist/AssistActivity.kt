@@ -107,12 +107,18 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     @Volatile private var people: List<PersonMarker> = emptyList()
     private val tracker = PersonTracker()
     private val chime = SpatialMixer.makeChime()
-    private val lookup = ProductLookup(BuildConfig.CLOUD_VISION_API_KEY)
-    private val narrator = Narrator(
-        BuildConfig.GEMINI_API_KEY.takeIf { it.isNotEmpty() }
-            // 話す文を作るだけなので、速い lite のモデルから試す（flash は 6〜9 秒、lite は 2 秒ほど）
-            ?.let { GeminiClient(it, BuildConfig.GEMINI_MODELS.split(",").map(String::trim).filter(String::isNotEmpty).sortedBy { m -> "lite" !in m }) },
-    )
+    private val lookup by lazy {
+        ProductLookup(
+            BuildConfig.CLOUD_VISION_API_KEY,
+            CategoryJudge(CategoryRules.parse(assets.open("category_rules.json").bufferedReader().readText()), geminiClient()),
+            getExternalFilesDir("lookup"),
+        )
+    }
+    private val narrator = Narrator(geminiClient())
+
+    // 話す文を作るだけなので、速い lite のモデルから試す（flash は 6〜9 秒、lite は 2 秒ほど）
+    private fun geminiClient() = BuildConfig.GEMINI_API_KEY.takeIf { it.isNotEmpty() }
+        ?.let { GeminiClient(it, BuildConfig.GEMINI_MODELS.split(",").map(String::trim).filter(String::isNotEmpty).sortedBy { m -> "lite" !in m }) }
     private val judge = SceneJudge()
     /** 1 秒ごとの商品認識の結果を、AR 空間の壁の上に貯めたもの（アプリを閉じると消える）。 */
     private val shelfMap = ShelfMap()
@@ -598,7 +604,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val t0 = SystemClock.elapsedRealtime()
         val result = try { lookup.lookup(crop) } finally { if (crop !== image) crop.recycle() }
         result.exceptionOrNull()?.let { Log.w(TAG, "lookup failed", it) }
-        debug.lookup = result.fold({ it?.let { a -> "社名「${a.maker}」商品「${a.product}」" } ?: "分からない" }, { "失敗: ${it.message}" }) +
+        debug.lookup = result.fold({ it?.let { a -> "商品「${a.product}」カテゴリ「${a.category}」" } ?: "分からない" }, { "失敗: ${it.message}" }) +
             "（Cloud Vision ${SystemClock.elapsedRealtime() - t0}ms）"
         speakLookup(result, at)
     }

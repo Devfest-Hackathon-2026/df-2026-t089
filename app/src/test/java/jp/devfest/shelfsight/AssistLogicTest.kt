@@ -155,52 +155,14 @@ class AssistLogicTest {
 
     // ---------------------------------------------------------------- ③ Cloud Vision の応答
 
-    @Test
-    fun `maker and product come from web detection`() {
-        val json = """{"responses":[{"webDetection":{
-            "bestGuessLabels":[{"label":"サントリー 伊右衛門"}],
-            "webEntities":[{"description":"Iyemon","score":0.8},{"description":"Green tea","score":0.6}],
-            "pagesWithMatchingImages":[{"pageTitle":"伊右衛門 | サントリー"}],
-            "fullMatchingImages":[{"url":"x"}]}}]}"""
-        val a = VisionProductParser.parse(json, 1000)!!
-        assertEquals("サントリー", a.maker)
-        assertEquals("伊右衛門", a.product)
-        assertEquals("サントリーの、伊右衛門です。", a.spoken())
-    }
-
-    @Test
-    fun `generic web guesses fall back to the logo and the largest printed text`() {
-        val json = """{"responses":[{
-            "webDetection":{"bestGuessLabels":[{"label":"snack"}],"webEntities":[{"description":"Food","score":0.9}]},
-            "logoAnnotations":[{"description":"Calbee"}],
-            "fullTextAnnotation":{"pages":[{"blocks":[{"paragraphs":[{"words":[
-              {"symbols":[{"text":"ポ","boundingBox":{"vertices":[{"x":0,"y":100},{"x":50,"y":100},{"x":50,"y":200},{"x":0,"y":200}]}},
-                          {"text":"テ","boundingBox":{"vertices":[{"x":50,"y":100},{"x":100,"y":100},{"x":100,"y":200},{"x":50,"y":200}]}},
-                          {"text":"ト","boundingBox":{"vertices":[{"x":100,"y":100},{"x":150,"y":100},{"x":150,"y":200},{"x":100,"y":200}]},
-                           "property":{"detectedBreak":{"type":"LINE_BREAK"}}}]}]}]}]}]}}]}"""
-        val a = VisionProductParser.parse(json, 1000)!!
-        assertEquals("カルビー", a.maker)
-        assertEquals("ポテト", a.product)
-    }
-
-    @Test
-    fun `nothing useful gives null`() {
-        assertNull(VisionProductParser.parse("""{"responses":[{"webDetection":{"bestGuessLabels":[{"label":"bottle"}]}}]}""", 1000))
-    }
-
-    @Test
-    fun `the request asks for web, logo and text in one call`() {
-        val r = VisionProductParser.request("AAAA")
-        assertTrue("WEB_DETECTION" in r && "LOGO_DETECTION" in r && "DOCUMENT_TEXT_DETECTION" in r)
-    }
-
     // ---------------------------------------------------------------- 写っているものの判定
 
     @Test
     fun `scene is decided from shelves and product boxes and needs two agreeing frames`() {
         val big = floatArrayOf(0.2f, 0.2f, 0.8f, 0.8f)
         val small = { x: Float -> floatArrayOf(x, 0.1f, x + 0.08f, 0.2f) }
-        assertEquals(Scene.ONE_PRODUCT, SceneJudge.classify(SceneEvidence(1, listOf(big, small(0f)))))
+        // 大きな枠があっても、商品 1 つにはしない
+        assertEquals(Scene.ONE_SHELF, SceneJudge.classify(SceneEvidence(1, listOf(big, small(0f)))))
         assertEquals(Scene.SHELVES, SceneJudge.classify(SceneEvidence(3, (0 until 10).map { small(it * 0.09f) })))
         assertEquals(Scene.ONE_SHELF, SceneJudge.classify(SceneEvidence(1, (0 until 10).map { small(it * 0.09f) })))
         assertEquals(Scene.NONE, SceneJudge.classify(SceneEvidence(0, emptyList())))
@@ -254,35 +216,6 @@ class AssistLogicTest {
     }
 
     // ---------------------------------------------------------------- 長押しで調べるもの
-
-    @Test
-    fun `long press picks the product, the shelf or asks to step back`() {
-        val small = { x: Float, y: Float -> floatArrayOf(x, y, x + 0.08f, y + 0.12f) }
-        val shelf = (0 until 4).flatMap { i -> listOf(small(0.05f + 0.22f * i, 0.1f), small(0.05f + 0.22f * i, 0.6f)) }
-        assertEquals(Focus.SHELF, SceneJudge.focus(shelf).first)
-        assertEquals(Focus.PRODUCT, SceneJudge.focus(listOf(floatArrayOf(0.2f, 0.15f, 0.8f, 0.85f), small(0f, 0f))).first)
-        // 少し大きめの商品が 2 つ並んでいる（どちらとも決まらない）
-        assertEquals(Focus.STEP_BACK, SceneJudge.focus(listOf(floatArrayOf(0.1f, 0.2f, 0.45f, 0.7f), floatArrayOf(0.5f, 0.2f, 0.85f, 0.7f))).first)
-        // 商品が 3 つだけ
-        assertEquals(Focus.STEP_BACK, SceneJudge.focus(listOf(small(0.1f, 0.4f), small(0.4f, 0.4f), small(0.7f, 0.4f))).first)
-        assertEquals(Focus.NOTHING, SceneJudge.focus(emptyList()).first)
-    }
-
-    @Test
-    fun `a product filling the screen is one product even if its parts are detected too`() {
-        // 画面いっぱいの商品と、その中の絵や文字の枠
-        val whole = floatArrayOf(0.02f, 0.05f, 0.98f, 0.95f)
-        val parts = listOf(floatArrayOf(0.1f, 0.1f, 0.6f, 0.5f), floatArrayOf(0.3f, 0.55f, 0.9f, 0.9f))
-        val (f1, b1) = SceneJudge.focus(listOf(whole) + parts)
-        assertEquals(Focus.PRODUCT, f1)
-        assertTrue(b1!!.contentEquals(whole))
-        // 商品全体の枠が出ず、部分の枠だけが画面いっぱいに広がっている
-        val pieces = listOf(floatArrayOf(0.05f, 0.05f, 0.5f, 0.45f), floatArrayOf(0.5f, 0.1f, 0.95f, 0.5f), floatArrayOf(0.1f, 0.5f, 0.9f, 0.95f))
-        val (f2, b2) = SceneJudge.focus(pieces)
-        assertEquals(Focus.PRODUCT, f2)
-        assertEquals(0.05f, b2!![0], 1e-6f)
-        assertEquals(0.95f, b2[3], 1e-6f)
-    }
 
     // ---------------------------------------------------------------- 自分の手を人と間違えない
 

@@ -167,6 +167,18 @@ class ShelfMap {
             }.minByOrNull { it.first }?.second
         }
 
+        private const val FACING_MIN_DOT = 0.3f
+
+        /** 商品からカメラへ向かう水平の単位ベクトル（ShelfLabels が使う）。 */
+        fun towards(item: Vec3, camera: Vec3): Vec3 {
+            val v = camera.minus(item)
+            val l = sqrt(v.x * v.x + v.z * v.z)
+            return if (l < 1e-4f) Vec3(0f, 0f, 0f) else Vec3(v.x / l, 0f, v.z / l)
+        }
+
+        /** どちらかの向きが分からなければ同じ向きとみなす。 */
+        fun facesSameWay(a: Vec3, b: Vec3): Boolean = a.length() < 0.5f || b.length() < 0.5f || dot(a, b) >= FACING_MIN_DOT
+
         private fun distance(w: Wall, p: Vec3) = dot(w.normal, p.minus(w.center))
         private fun near(w: Wall, p: Vec3) = p.minus(w.center).length() < w.radius + 0.5f
         private fun dot(a: Vec3, b: Vec3) = a.x * b.x + a.y * b.y + a.z * b.z
