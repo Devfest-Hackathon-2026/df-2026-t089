@@ -50,6 +50,10 @@ main button { font:inherit; padding:4px 10px; border-radius:6px; border:1px soli
 .rcell { position:relative; display:inline-block; cursor:pointer; border:2px solid transparent; border-radius:4px; }
 .rcell img { height:88px; display:block; border-radius:3px; } .rcell.x { border-color:#d33; } .rcell.x img { opacity:.3; }
 .rcell.x::after { content:"×"; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:40px; color:#d33; font-weight:700; }
+.egrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(130px, 1fr)); gap:6px; margin-top:8px; }
+main button.rcell { padding:0 0 3px; background:var(--bg); text-align:left; font-size:11px; } .egrid .rcell img { width:100%; height:130px; object-fit:contain; }
+.egrid .rcell.x::after { bottom:44px; } .egrid { user-select:none; } .rcell.sel { outline:3px solid var(--acc); outline-offset:-1px; } .rcell.pk { outline:3px solid var(--ok); outline-offset:-1px; } .rcell.pk::after { content:"〇"; position:absolute; top:2px; right:6px; color:var(--ok); font-weight:700; font-size:20px; } .evv { color:var(--bad); font-weight:600; font-size:12px; padding:0 3px; min-height:1.5em; }
+main dialog { border:0; border-radius:10px; background:var(--card); color:var(--fg); width:min(640px, 94vw); } main dialog::backdrop { background:#0009; }
 .gcell .gn { position:absolute; right:1px; bottom:1px; font-size:10px; line-height:1; padding:2px 3px; border-radius:3px; background:var(--acc); color:#fff; }
 .gthumbs { display:flex; gap:3px; overflow-x:auto; max-width:100%; } .gthumbs img { height:64px; border-radius:3px; flex:none; }
 .row { display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
@@ -61,7 +65,7 @@ main button { font:inherit; padding:4px 10px; border-radius:6px; border:1px soli
 <div id="runbar"></div>
 <main id="main"></main>
 <script>
-const TABS = { overview:"概要", detect:"① 切り出し", products:"② 商品テーブル", groups:"②b グループ", naming:"②c 命名", category:"②d カテゴリ", train:"③ YOLO境界検出の学習", classify:"③b 商品分類の学習", infer:"④ 推論・評価" };
+const TABS = { overview:"概要", detect:"① 切り出し", products:"② 商品テーブル", groups:"②b グループ", naming:"②c 命名", category:"②d カテゴリ", cropEval:"②e カテゴリの人手チェック", train:"③ YOLO境界検出の学習", classify:"③b 商品分類の学習", infer:"④ 推論・評価" };
 const STAGES = { category:"②d 商品カテゴリ付け (Gemini)", embed:"③b 埋め込みの学習 (Modal GPU)", classify:"③b 商品分類の評価", compare:"②c 命名方法の比較", detect:"① 商品枠の検出 (OWLv2)", regroup:"②b しきい値の反映", crops:"② 切り抜き＋ルール判定", judge:"② ローカルモデル判定", group:"② 同じ商品のグループ化 (DINOv2)", name:"②c 商品名付け (Gemini)", train:"③ YOLO境界検出の学習", infer:"④ 推論・評価" };
 let S = null, tab = location.hash.slice(1) || "overview", selDet = null, selInf = null;
 const $ = (h) => { const t = document.createElement("template"); t.innerHTML = h.trim(); return t.content.firstChild; };
@@ -83,9 +87,9 @@ async function refresh() {
 // 入力中の欄や選択中の画像を壊さないよう、操作系タブは自動更新では作り直さない
 function render(force) {
   const m = document.getElementById("main");
-  if (!force && ["detect", "products", "groups", "naming", "category", "classify", "infer"].includes(tab) && m.dataset.tab == tab) return;
+  if (!force && ["detect", "products", "groups", "naming", "category", "cropEval", "classify", "infer"].includes(tab) && m.dataset.tab == tab) return;
   m.dataset.tab = tab; m.innerHTML = "";
-  ({ overview, detect, products, groups, naming, category, train, classify, infer })[tab](m);
+  ({ overview, detect, products, groups, naming, category, cropEval, train, classify, infer })[tab](m);
 }
 
 // 今動いている段階・進捗・残り時間・終了予定。残りは「今のフェーズの開始からのペース」で見積もる
@@ -436,6 +440,189 @@ async function categoryReview(m) {
     rv.append(sec);
   }
 }
+
+// ②e カテゴリの人手チェック: 未チェックから合っているものを選ぶ。選ばなかったものは「再分類待ち」にためて、後から本当のカテゴリを付ける
+let evCat = "", evMode = "card", evQ = [], evHist = [], evChain = Promise.resolve(), evPicked = new Set(), evCardDraw = null, evSel = new Set(), evAnchor = null, evSelMode = false;
+// 判定は押した順に送る（Ctrl+Z が先の保存を追い越さないように）
+const evSend = body => (evChain = evChain.then(async () => {
+  try {
+    const r = await fetch("/api/crop_eval", { method:"POST", body:JSON.stringify(body) });
+    if (r.ok) return true;
+    alert("保存に失敗しました: " + await r.text());
+  } catch (e) { alert("保存に失敗しました: " + e); }
+  return false;
+}));
+async function cropEval(m) {
+  await evChain;
+  const V = await (await fetch(`/api/crop_eval/${encodeURIComponent(evCat)}`)).json();
+  if (tab != "cropEval") return;
+  evCat = V.cat; evQ = V.next.slice(); evCardDraw = null;
+  if (document.activeElement?.closest?.("nav")) document.activeElement.blur();  // タブを押した直後の Enter で確定できるように
+  const sum = $(`<div class="card"></div>`), sp = $(`<div class="split"><div class="card list"></div><div class="card"></div></div>`), [list, box] = sp.children, rows = new Map();
+  const drawSum = () => { const done = V.cats.reduce((a, c) => a + c.done, 0), inCat = V.cats.reduce((a, c) => a + c.in, 0), total = V.cats.reduce((a, c) => a + c.total, 0);
+    sum.innerHTML = `<b>チェック済み ${done} / ${total} 枚</b> <span class="mute">· カテゴリが合っていた割合 ${done ? Math.round(inCat / done * 100) + "%" : "-"}</span>`; };
+  m.append(sum, sp); drawSum();
+  for (const c of V.cats) {
+    const b = $(`<div class="${c.cat == evCat ? "on" : ""}"><span>${c.done == c.total ? '<span class="ok">✓</span> ' : ""}${esc(c.cat)}</span><span class="mute">${c.done}/${c.total}</span></div>`);
+    b.onclick = () => { evCat = c.cat; evMode = "card"; render(true); };
+    list.append(b); rows.set(c.cat, b.lastChild);
+  }
+  list.querySelector(".on")?.scrollIntoView({ block:"nearest" });
+  const cur = V.cats.find(c => c.cat == evCat) || { total:0, done:0, in:0 };
+  const head = $(`<div class="row"><b style="font-size:18px">${esc(evCat)}</b><span class="row" style="gap:6px;margin-left:auto"></span></div>`);
+  for (const [k, label] of [["card", `未チェック (${cur.total - cur.done})`], ["review", `チェック済みを見直す (${V.judged.length})`], ["pending", `再分類待ち <b id="evpn">${V.pending.length}</b>`]]) {
+    const b = $(`<button class="chip ${evMode == k ? "on" : ""}">${label}</button>`);
+    b.onclick = () => { evMode = k; render(true); };
+    head.lastChild.append(b);
+  }
+  box.append(head);
+  if (evMode == "card") evCard(box, V, cur, rows, drawSum); else evGrid(m, box, V);
+}
+// 未チェックは1ページ60枚のグリッドで、合っているものを選んで確定する。選ばなかったものは ✖（再分類待ち）になる
+function evCard(box, V, cur, rows, drawSum) {
+  const SIZE = 60, body = $(`<div style="margin-top:8px"></div>`); box.append(body);
+  const pn = d => { const b = document.getElementById("evpn"); b.textContent = +b.textContent + d; };
+  const bump = (done, inCat) => { cur.done += done; cur.in += inCat; rows.get(cur.cat).textContent = `${cur.done}/${cur.total}`; drawSum(); };
+  let page = [], tiles = new Map(), count = null, anchor = null;
+  const drawPicked = () => {
+    for (const [id, c] of tiles) { c.classList.toggle("pk", evPicked.has(id)); c.setAttribute("aria-pressed", evPicked.has(id)); }
+    if (count) count.textContent = `${evPicked.size} / ${page.length} 枚を選択`;
+  };
+  const toggleAll = () => { const all = page.length && page.every(x => evPicked.has(x[0])); page.forEach(x => all ? evPicked.delete(x[0]) : evPicked.add(x[0])); drawPicked(); };
+  const commit = () => {
+    if (!page.length) return;
+    if (!evPicked.size && !confirm(`1枚も選んでいません。${page.length} 枚すべてを ✖（再分類待ち）にします`)) return;  // Enter の押し間違いで1ページ分が ✖ にならないように
+    const ok = page.filter(x => evPicked.has(x[0])).map(x => x[0]), hold = page.filter(x => !evPicked.has(x[0])).map(x => x[0]);
+    evQ.splice(0, page.length);
+    evHist.push({ cat:evCat, items:page, ok, hold });
+    evSend({ category:evCat, ok, hold });
+    bump(page.length, ok.length); pn(hold.length);
+    evPicked.clear(); evCardDraw(); scrollTo(0, 0);
+  };
+  evCardDraw = () => {
+    page = evQ.slice(0, SIZE); tiles = new Map(); anchor = null;
+    evPicked = new Set([...evPicked].filter(x => page.some(i => i[0] == x)));
+    if (!page.length) {
+      count = null;
+      if (cur.total > cur.done) return render(true);  // まだ残りがあるので、次の分を読み直す
+      body.innerHTML = `<p class="mute">このカテゴリはチェック完了です</p>`;
+      const b = $(`<button>次の未完了カテゴリへ</button>`); b.onclick = () => { evCat = ""; render(true); }; body.append(b);
+      return;
+    }
+    body.innerHTML = `<div class="row" style="gap:8px;position:sticky;top:48px;z-index:4;background:var(--card);padding:6px 0"><b id="evc"></b><span class="mute">残り ${cur.total - cur.done} 枚 · 合っているものをクリック。選ばなかったものは ✖ になります</span>
+      <span class="row" style="gap:6px;margin-left:auto"><button id="eva">全部選ぶ / 解除 (A)</button><button id="evz">1回戻す (Ctrl+Z)</button><button id="evo">確定して次へ (Enter)</button></span></div><div class="egrid"></div>`;
+    count = body.querySelector("#evc");
+    body.querySelector("#eva").onclick = toggleAll;
+    body.querySelector("#evz").onclick = evUndo;
+    body.querySelector("#evo").onclick = commit;
+    const grid = body.querySelector(".egrid");
+    page.forEach(([id, name], i) => {
+      const c = $(`<button class="rcell" title="${esc(name)} (${esc(id)})" aria-label="${esc(name)}"><img loading="lazy" alt="" src="/work/crops/${encodeURIComponent(id)}.jpg"><div class="tname">${esc(name)}</div></button>`);
+      c.onclick = e => {
+        if (e.shiftKey && anchor != null) page.slice(Math.min(anchor, i), Math.max(anchor, i) + 1).forEach(x => evPicked.add(x[0]));
+        else { evPicked.has(id) ? evPicked.delete(id) : evPicked.add(id); anchor = i; }
+        drawPicked();
+      };
+      tiles.set(id, c); grid.append(c);
+    });
+    drawPicked();
+  };
+  evCard.commit = commit; evCard.toggleAll = toggleAll;
+  evCard.undoHere = h => { evQ.unshift(...h.items); evPicked = new Set(h.ok); bump(-h.items.length, -h.ok.length); pn(-h.hold.length); evCardDraw(); };
+  evCardDraw();
+}
+function evUndo() {
+  const h = evHist.pop(); if (!h) return;
+  evSend({ category:h.cat, undo:h.items.map(x => x[0]) });
+  if (h.cat != evCat || evMode != "card" || !evCardDraw) { evCat = h.cat; evMode = "card"; evPicked = new Set(h.ok); return render(true); }
+  evCard.undoHere(h);
+}
+// 見直し（このカテゴリのチェック済み）と再分類待ち（全カテゴリの ✖）は一覧で、複数選択してまとめて変えられる
+function evGrid(m, box, V) {
+  const pending = evMode == "pending", items = pending ? V.pending : V.judged;
+  const jud = new Map(items.map(x => [x[0], pending ? null : x[2]])), from = new Map(items.map(x => [x[0], pending ? x[2] : evCat])), tiles = new Map();
+  box.append($(`<div class="row" style="justify-content:space-between;margin-top:8px"><span class="mute">${pending ? "✖ にした切り抜きです。クリックして本当のカテゴリを選ぶと、ここから消えます" : "変えたい切り抜きをクリックすると、その場で保存します"}</span></div>`));
+  if (!items.length) return box.append($(`<p class="mute">${pending ? "再分類待ちはありません" : "チェック済みはありません"}</p>`));
+  const modeBtn = $(`<button aria-pressed="${evSelMode}" title="Ctrl+クリックで1枚ずつ、Shift+クリックで範囲を選べます">${evSelMode ? "複数選択をやめる" : "複数選択"}</button>`);
+  modeBtn.onclick = () => { evSelMode = !evSelMode; render(true); };
+  box.lastChild.append(modeBtn);
+  evSel = new Set([...evSel].filter(x => jud.has(x)));  // 画面に無い選択は捨てる
+  const bar = $(`<div class="row" style="gap:6px;position:sticky;top:48px;z-index:4;background:var(--card);padding:6px 0"><b></b><button id="evp">選択した切り抜きを変更 (Space)</button><button id="evx">選択を解除</button></div>`);
+  const grid = $(`<div class="egrid"></div>`); box.append(bar, grid);
+  const drawSel = () => {
+    for (const [id, c] of tiles) { c.classList.toggle("sel", evSel.has(id)); c.setAttribute("aria-pressed", evSel.has(id)); }
+    bar.style.display = evSel.size ? "" : "none"; bar.firstChild.textContent = `${evSel.size}枚を選択中`;
+  };
+  const select = (id, shift) => {
+    const ids = items.map(x => x[0]), a = ids.indexOf(evAnchor), b = ids.indexOf(id);
+    if (shift && a >= 0) ids.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(x => evSel.add(x));
+    else { evSel.has(id) ? evSel.delete(id) : evSel.add(id); evAnchor = id; }
+    drawSel();
+  };
+  const verdict = id => { const t = jud.get(id); return t === from.get(id) ? "" : t === null ? (pending ? "" : "再分類待ち") : t || "どれにも属さない"; };
+  const save = async (ids, v) => {
+    const groups = {}; ids.forEach(x => (groups[from.get(x)] ||= []).push(x));
+    for (const [cat, list] of Object.entries(groups)) for (let i = 0; i < list.length; i += 50) {  // サーバーが受ける本文サイズに収まるよう分けて送る
+      const part = list.slice(i, i + 50), t = v ?? cat;
+      if (!await evSend({ category:cat, ok:t === cat ? part : [], none:t === "" ? part : [], other:t && t !== cat ? Object.fromEntries(part.map(x => [x, t])) : {} })) return;
+      for (const x of part) {
+        if (pending) { tiles.get(x).remove(); tiles.delete(x); document.getElementById("evpn").textContent -= 1; } else { jud.set(x, t); tiles.get(x).draw(); }
+      }
+    }
+  };
+  const apply = (ids, v) => {
+    if (!pending && ids.length > 1 && !confirm(`チェック済みの ${ids.length} 枚を「${v == null ? evCat : v || "どれにも属さない"}」に変更して保存します`)) return;  // 見直しは即保存で、前の判定が消えるため
+    save(ids, v); evSel.clear(); drawSel();
+  };
+  const pick = (ids, name) => evPick(m, ids, name, V.all, apply, pending ? "" : evCat, pending ? "元のカテゴリに戻す" : "このカテゴリに属する");
+  for (const [id, name, x] of items) {
+    const c = $(`<button class="rcell" title="${esc(name)} (${esc(id)})" aria-label="${esc(name)}"><img loading="lazy" alt="" src="/work/crops/${encodeURIComponent(id)}.jpg"><div class="tname">${esc(pending ? `${name}（元: ${x}）` : name)}</div><div class="evv"></div></button>`);
+    c.draw = () => { c.classList.toggle("x", !pending && jud.get(id) !== from.get(id)); c.querySelector(".evv").textContent = verdict(id); };
+    tiles.set(id, c);
+    c.onclick = e => {
+      if (!(evSelMode || e.ctrlKey || e.metaKey || e.shiftKey)) return pick([id], name);
+      select(id, e.shiftKey);
+      if (e.detail) c.blur();  // マウスで選んだ後の Space を、この切り抜きの選択ではなく一括変更にする（キーボード操作ではフォーカスを残す）
+    };
+    c.draw(); grid.append(c);
+  }
+  drawSel();
+  bar.querySelector("#evp").onclick = () => pick([...evSel], `${evSel.size}枚をまとめて変更`);
+  bar.querySelector("#evx").onclick = () => { evSel.clear(); drawSel(); };
+}
+function evPick(m, ids, name, all, apply, cur, inLabel) {
+  const src = id => `/work/crops/${encodeURIComponent(id)}.jpg`;
+  const d = $(`<dialog>${ids.length == 1 ? `<img alt="" src="${src(ids[0])}" style="max-height:38vh;max-width:100%;display:block;margin:auto">`
+      : `<div class="crops">${ids.slice(0, 24).map(x => `<img alt="" src="${src(x)}">`).join("")}${ids.length > 24 ? `<span class="mute">ほか ${ids.length - 24} 枚</span>` : ""}</div>`}
+    <div style="margin:8px 0"><b>${esc(name)}</b>${cur ? ` <span class="mute">今のカテゴリ: ${esc(cur)}</span>` : ""}</div>
+    <div class="row" style="gap:6px"><button data-v="in">✓ ${inLabel} (Esc)</button><button data-v="none">どれにも属さない (Backspace)</button></div>
+    <input type="text" aria-label="正しいカテゴリを検索" placeholder="本当のカテゴリを検索（Enter で先頭を選択）" style="margin:8px 0"><div class="crops" style="max-height:30vh;overflow:auto"></div></dialog>`);
+  const set = v => { d.close(); apply(ids, v); };
+  const inp = d.querySelector("input"), box = d.querySelector("input + .crops");
+  const matches = () => all.filter(c => c != cur && c.toLowerCase().includes(inp.value.trim().toLowerCase()));
+  const show = () => { box.innerHTML = ""; for (const c of matches()) { const b = $(`<button>${esc(c)}</button>`); b.onclick = () => set(c); box.append(b); } };
+  d.querySelector('[data-v="in"]').onclick = () => set(null);
+  d.querySelector('[data-v="none"]').onclick = () => set("");
+  inp.oninput = show;
+  inp.onkeydown = e => { if (e.key == "Enter" && !e.isComposing) { e.preventDefault(); const c = matches()[0]; if (c && inp.value.trim()) set(c); } };
+  d.onkeydown = e => {
+    if (e.isComposing) return;  // 日本語変換中のキーは変換の操作なので判定にしない
+    if (e.key == "Escape") { e.preventDefault(); set(null); }
+    if (e.key == "Backspace" && !e.repeat && !inp.value) { e.preventDefault(); set(""); }  // 検索欄の文字を消す Backspace（長押しも含む）は判定にしない
+  };
+  d.onclick = e => { if (e.target == d) d.close(); };
+  d.onclose = () => d.remove();
+  m.append(d); show(); d.showModal(); inp.focus();
+}
+document.addEventListener("keydown", e => {
+  if (tab != "cropEval" || document.querySelector("main dialog[open]") || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() == "z") { e.preventDefault(); return evUndo(); }
+  if (evMode == "card" && evCardDraw) {
+    if (e.target != document.body && !e.target.closest?.(".rcell")) return;  // Tab で移動したボタンは普通に押せるように
+    if (e.key == "Enter") { e.preventDefault(); if (!e.repeat) evCard.commit(); }
+    if (e.key.toLowerCase() == "a" && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); if (!e.repeat) evCard.toggleAll(); }
+  } else if (e.key == " " && e.target == document.body && evSel.size) { e.preventDefault(); document.getElementById("evp")?.click(); }
+});
 
 // ③b 商品分類: カテゴリ付きの切り抜きで埋め込みを学習し、最近傍（一番似ている学習用の切り抜きのカテゴリ）の正解率を測る
 async function classify(m) {

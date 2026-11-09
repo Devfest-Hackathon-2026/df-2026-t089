@@ -1,5 +1,5 @@
 // 記録の再生（products/replay.html）。端末で記録したデータに、アプリと同じ認識と案内を動かした結果を時間に沿って見る
-const R = { list:[], name:"", detector:"app", hz:1, data:null, i:0, timer:null, depth:false, img:new Image(), job:false };
+const R = { list:[], name:"", detector:"app", hz:1, data:null, events:[], videoOffset:0, audioOffset:0, appAudioOffset:0, preview:false, hasAudio:false, hasAppAudio:false, i:0, timer:null, depth:false, img:new Image(), job:false };
 const KIND = { glass:"#2bb7ad", island:"#3987e5", wall:"#d95926", case:"#199e70", end:"#c98500", register:"#d55181" };
 const KIND_NAME = { glass:"ガラスのケース", island:"島ゴンドラ", wall:"壁面ゴンドラ", case:"冷蔵・冷凍ケース", end:"エンド什器", register:"レジ" };
 const EVENT_NAME = { tap:"タップ", double_tap:"ダブルタップ", long_press:"長押し", speech:"聞き取り" };
@@ -18,9 +18,14 @@ $("main").innerHTML = `
   <button id="run">認識を実行</button>
   <span class="mute" id="status"></span>
 </div>
+<div class="cols">
+  <div class="card" id="video-card" hidden><b>カメラ動画（約30 fps）</b><video id="video" controls playsinline preload="metadata" style="width:100%;max-height:640px;object-fit:contain;margin-top:6px"></video></div>
+  <div class="card"><b id="events-title">記録した操作</b><div id="events" class="small" style="margin-top:6px;max-height:440px;overflow:auto"></div></div>
+</div>
+<div class="card row" id="audio-row" hidden><b>マイク音声</b><audio id="audio" controls preload="metadata" style="flex:1"></audio></div>
+<div class="card row" id="app-audio-row" hidden><b>ShelfSightの音声</b><audio id="app-audio" controls preload="metadata" style="flex:1"></audio></div>
 <div id="body" hidden>
   <div class="card row"><button id="play">▶</button><input id="t" type="range" min="0" value="0" style="flex:1"><span id="clock"></span></div>
-  <div class="card row" id="audio-row" hidden><b>記録中のマイク音声</b><audio id="audio" controls preload="metadata" style="flex:1"></audio></div>
   <div class="tiles" id="tiles"></div>
   <div class="cols">
     <div class="card"><div class="row"><b>カメラと認識</b><label class="mute small"><input type="checkbox" id="depth"> 深度を表示</label></div>
@@ -32,7 +37,7 @@ $("main").innerHTML = `
       <div style="margin-top:12px"><b>長押しの質問（今の位置で AI に聞く）</b>
       <div class="row" style="margin-top:4px"><input type="text" id="q" value="カップ麺はどこにある？" style="flex:1"><button id="ask">聞く</button></div>
       <div id="answer" style="margin-top:6px;font-weight:600"></div></div>
-      <div style="margin-top:12px"><b>記録中の操作</b><div id="events" class="small" style="margin-top:4px;max-height:220px;overflow:auto"></div></div></div>
+      </div>
   </div>
   <div class="card"><b>AI に渡す文脈（この瞬間）</b><pre class="log" id="context"></pre></div>
   <div class="card"><b>記述言語で書いた店モデル（最後）</b><pre class="log" id="text"></pre></div>
@@ -44,18 +49,37 @@ $("detector").onchange = (e) => { R.detector = e.target.value; load(); };
 $("hz").onchange = (e) => { R.hz = +e.target.value; };
 $("pull").onclick = () => job("/api/replay/pull", {});
 $("run").onclick = () => R.name && job("/api/replay/run", { name:R.name, detector:R.detector, hz:R.hz });
-$("t").oninput = (e) => { R.i = +e.target.value; draw(); syncAudio(); };
+$("t").oninput = (e) => { R.i = +e.target.value; draw(); syncMedia(); };
 $("play").onclick = play;
 $("depth").onchange = (e) => { R.depth = e.target.checked; draw(); };
 $("ask").onclick = askAi;
 R.img.onload = paintCam;
 $("audio").ontimeupdate = () => {
-  if (!R.data || R.timer) return;
-  const at = $("audio").currentTime - R.data.audio_offset;
-  let best = 0;
-  R.data.steps.forEach((s, k) => { if (Math.abs(s.t - at) < Math.abs(R.data.steps[best].t - at)) best = k; });
-  if (best !== R.i) { R.i = best; $("t").value = best; draw(); }
+  if (!R.data || R.timer || !$("video").paused) return;
+  const at = $("audio").currentTime - R.audioOffset;
+  selectAt(at);
 };
+$("video").ontimeupdate = () => {
+  if (!R.data || R.timer) return;
+  selectAt($("video").currentTime - R.videoOffset);
+};
+$("video").onplay = () => {
+  $("play").textContent = "⏸";
+  syncAudioToVideo(true);
+};
+$("video").onseeked = () => syncAudioToVideo(false);
+$("video").onratechange = () => syncAudioToVideo(false);
+function syncAudioToVideo(start) {
+  for (const [id, available, offset] of [["audio", R.hasAudio, R.audioOffset], ["app-audio", R.hasAppAudio, R.appAudioOffset]]) {
+    const a = $(id);
+    if (available && a.readyState >= 1) {
+      a.currentTime = Math.max(0, $("video").currentTime - R.videoOffset + offset);
+      a.playbackRate = $("video").playbackRate;
+      if (start && !$("video").paused) a.play().catch(() => {});
+    }
+  }
+}
+$("video").onpause = () => { $("play").textContent = "▶"; $("audio").pause(); $("app-audio").pause(); };
 refresh();
 
 async function refresh() {
@@ -68,12 +92,26 @@ async function refresh() {
 
 async function load() {
   stopPlay();
+  const er = await (await fetch(`/api/replay/events/${R.name}`)).json();
+  R.events = er.events; R.videoOffset = er.video_offset;
+  R.audioOffset = er.audio_offset; R.appAudioOffset = er.app_audio_offset;
+  $("events-title").textContent = `記録した操作（${R.events.length} 件）`;
+  $("events").innerHTML = R.events.length ? R.events.map(e => `<button class="ev" data-at="${e.at}">${e.at.toFixed(1)} 秒　${EVENT_NAME[e.type] || esc(e.type)}${e.type === "speech" ? (e.text ? "「" + esc(e.text) + "」" : "（認識なし）") : ""}</button>`).join("") : "<span class='mute'>操作の記録はありません</span>";
+  $("events").querySelectorAll("button").forEach(b => b.onclick = () => seek(+b.dataset.at, b.textContent.includes("聞き取り") ? b.textContent : null));
+  const recording = R.list.find(x => x.name === R.name);
+  R.preview = !!recording?.preview;
+  R.hasAudio = !!recording?.audio;
+  R.hasAppAudio = !!recording?.app_audio;
+  $("video-card").hidden = !R.preview;
+  $("video").src = R.preview ? `/api/replay/preview/${R.name}.mp4` : "";
+  $("audio-row").hidden = !R.hasAudio;
+  $("audio").src = R.hasAudio ? `/api/replay/audio/${R.name}.wav` : "";
+  $("app-audio-row").hidden = !R.hasAppAudio;
+  $("app-audio").src = R.hasAppAudio ? `/api/replay/app_audio/${R.name}.wav` : "";
   const r = await fetch(`/api/replay/data/${R.name}/${R.detector}`);
   if (!r.ok) { R.data = null; $("body").hidden = true; if (!R.job) $("status").textContent = "「認識を実行」を押すと、この記録で認識を動かします"; return; }
   R.data = await r.json(); R.i = 0;
   $("body").hidden = false; if (!R.job) $("status").textContent = "";
-  $("audio-row").hidden = !R.data.has_audio;
-  $("audio").src = R.data.has_audio ? `/api/replay/audio/${R.name}.wav` : "";
   $("t").max = R.data.steps.length - 1; $("t").value = 0;
   $("text").textContent = R.data.text;
   const s = R.data.summary;
@@ -81,17 +119,22 @@ async function load() {
   $("tiles").innerHTML = [tile("長さ", s.seconds + " 秒", `${s.steps} ステップ`), tile("追跡できた割合", pct(s.tracked_ratio), `画像 ${s.keyframes} 枚・姿勢 ${s.poses}`), tile("検出（1 回あたり）", s.boxes_per_step, "枠の数"),
     tile("名前付き（1 回）", s.named_per_step, `置けた ${s.placed_per_step}`), tile("深度がある枠", pct(s.depth_ratio), "枠の中央の深度"), tile("処理時間", s.ms_per_step + " ms", "このPCの認識 1 回"),
     tile("地図の商品", s.items, `平面 ${s.planes}`), tile("推定した什器", s.fixtures, "最後の店モデル")].join("");
-  $("events").innerHTML = R.data.events.length ? R.data.events.map(e => `<button class="ev" data-at="${e.at}">${e.at.toFixed(1)} 秒 ${EVENT_NAME[e.type] || e.type}${e.text ? "「" + esc(e.text) + "」" : ""}</button>`).join("") : "<span class='mute'>なし</span>";
-  $("events").querySelectorAll("button").forEach(b => b.onclick = () => seek(+b.dataset.at, b.textContent.includes("聞き取り") ? b.textContent : null));
   draw();
 }
 
 function seek(at, speech) {
+  selectAt(at);
+  if (speech) { const m = speech.match(/「(.*)」/); if (m) $("q").value = m[1]; }
+  if (R.preview && $("video").readyState >= 1) $("video").currentTime = Math.max(0, Math.min($("video").duration - 0.1, R.videoOffset + at));
+  if (R.hasAudio && $("audio").readyState >= 1) $("audio").currentTime = Math.max(0, R.audioOffset + at);
+  if (R.hasAppAudio && $("app-audio").readyState >= 1) $("app-audio").currentTime = Math.max(0, R.appAudioOffset + at);
+}
+
+function selectAt(at) {
+  if (!R.data?.steps.length) return;
   const steps = R.data.steps; let best = 0;
   steps.forEach((s, k) => { if (Math.abs(s.t - at) < Math.abs(steps[best].t - at)) best = k; });
-  R.i = best; $("t").value = best;
-  if (speech) { const m = speech.match(/「(.*)」/); if (m) $("q").value = m[1]; }
-  draw(); syncAudio();
+  if (best !== R.i) { R.i = best; $("t").value = best; draw(); }
 }
 
 async function job(url, body) {
@@ -108,17 +151,19 @@ async function poll() {
 }
 
 function play() {
-  if (R.timer) return stopPlay();
+  if (R.timer || (R.preview && !$("video").paused)) return stopPlay();
   if (R.i >= R.data.steps.length - 1) R.i = 0;
+  if (R.preview) { syncMedia(); $("video").play().catch(() => {}); return; }
   $("play").textContent = "⏸";
-  syncAudio();
-  if (R.data.has_audio) { $("audio").playbackRate = 2; $("audio").play().catch(() => {}); }
+  syncMedia();
+  if (R.hasAudio) { $("audio").playbackRate = 2; $("audio").play().catch(() => {}); }
   R.timer = setInterval(() => { if (R.i >= R.data.steps.length - 1) return stopPlay(); R.i++; $("t").value = R.i; draw(); }, Math.max(100, 1000 / R.data.hz / 2));
 }
-function stopPlay() { clearInterval(R.timer); R.timer = null; $("audio").pause(); $("play").textContent = "▶"; }
-function syncAudio() {
-  if (!R.data?.has_audio || $("audio").readyState < 1) return;
-  $("audio").currentTime = Math.max(0, R.data.audio_offset + step().t);
+function stopPlay() { clearInterval(R.timer); R.timer = null; $("video").pause(); $("audio").pause(); $("app-audio").pause(); $("play").textContent = "▶"; }
+function syncMedia() {
+  if (R.preview && $("video").readyState >= 1) $("video").currentTime = Math.max(0, Math.min($("video").duration - 0.1, R.videoOffset + step().t));
+  if (R.hasAudio && $("audio").readyState >= 1) $("audio").currentTime = Math.max(0, R.audioOffset + step().t);
+  if (R.hasAppAudio && $("app-audio").readyState >= 1) $("app-audio").currentTime = Math.max(0, R.appAudioOffset + step().t);
 }
 
 const step = () => R.data.steps[R.i];

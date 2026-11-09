@@ -2,7 +2,7 @@
 
   python products/dashboard.py [--port 8770]   -> http://127.0.0.1:8770
 """
-import argparse, csv, json, math, os, subprocess, sys, threading, time
+import argparse, csv, heapq, json, math, os, subprocess, sys, threading, time, zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -134,6 +134,29 @@ def summary(rows):
     return s
 
 
+def eval_crops(v, c):
+    """カテゴリ c の切り抜き [(ID, 商品名)]。学習から外したものは除く"""
+    return [(cid, p["name"]) for p in c["products"] for cid, x in v["every"].get(p["key"], []) if not x]
+
+
+def crop_eval_view(cat, n=300):
+    """②e カテゴリの人手チェック: カテゴリごとの進み具合と、次に見る切り抜き（cat が無効なら未完了の先頭）。
+    ハッシュ順なので途中までのチェックでも偏りのない標本になる。商品のカテゴリが後で変わったら assigned が合わず再度チェック対象になる"""
+    v, e = categories_view(), read_json(WORK / "crop_eval.json", {})
+    cats, todo, judged = [], {}, {}
+    for c in v["categories"]:
+        if c["cat"]:
+            crops = eval_crops(v, c)
+            judged[c["cat"]] = [(i, name, e[i]["true"]) for i, name in crops if i in e and e[i]["assigned"] == c["cat"]]
+            todo[c["cat"]] = [(i, name) for i, name in crops if i not in e or e[i]["assigned"] != c["cat"]]
+            cats.append({"cat": c["cat"], "total": len(crops), "done": len(judged[c["cat"]]), "in": sum(j[2] == c["cat"] for j in judged[c["cat"]])})
+    if cat not in todo:
+        cat = next((c for c in todo if todo[c]), cats[0]["cat"] if cats else "")
+    order = lambda x: zlib.crc32(x[0].encode())
+    pending = [(i, name, c) for c, js in judged.items() for i, name, t in js if t is None]  # ✖ のまま再分類を待っているもの（全カテゴリ）
+    return {"cat": cat, "cats": cats, "all": v["all"], "next": heapq.nsmallest(n, todo.get(cat, []), key=order), "judged": sorted(judged.get(cat, []), key=order), "pending": pending}
+
+
 def run_script(name, args):
     if name in RUNNING and RUNNING[name].poll() is None:
         raise ValueError(f"{name} は実行中です")
@@ -228,6 +251,23 @@ def post(path, body):
             else:
                 r.pop(c, None)
             write_json(WORK / "category_review.json", r)
+    elif path == "/api/crop_eval":  # ②e 判定を保存（true: 本当のカテゴリ。"" はどれにも属さない、None は ✖ で再分類待ち。やり直しは上書き、undo は未チェックに戻す）
+        cat, ok, none, hold, undo, other = (body.get("category"), body.get("ok", []), body.get("none", []), body.get("hold", []), body.get("undo", []), body.get("other", {}))
+        v = categories_view()
+        c = next((x for x in v["categories"] if x["cat"] == cat and cat), None)
+        if not c or not all(isinstance(x, list) for x in (ok, none, hold, undo)) or not isinstance(other, dict):
+            raise ValueError("bad crop_eval")
+        known = {i for i, _ in eval_crops(v, c)}
+        if not all(isinstance(x, str) and x in known for x in ok + none + hold + undo + list(other)) or not all(isinstance(x, str) and x in v["all"] for x in other.values()):
+            raise ValueError("bad crop_eval")
+        at = time.strftime("%Y-%m-%d %H:%M:%S")
+        with _lock:
+            e = read_json(WORK / "crop_eval.json", {})
+            for i, t in [*((i, cat) for i in ok), *((i, "") for i in none), *((i, None) for i in hold), *other.items()]:
+                e[i] = {"assigned": cat, "true": t, "at": at}
+            for i in undo:
+                e.pop(i, None)
+            write_json(WORK / "crop_eval.json", e)
     elif path == "/api/compare_eval":
         cid, meth, v = body.get("id"), body.get("method"), body.get("v")
         if not isinstance(cid, str) or meth not in {f.stem for f in CMP.glob("*.json")} - {"sample", "eval"} or v not in (1, 0, None):
@@ -268,6 +308,8 @@ class H(BaseHTTPRequestHandler):
             ps = next((x["products"] for x in v["categories"] if x["cat"] == c), [])
             out = [{"key": p["key"], "name": p["name"], "manual": p["manual"], "crops": v["every"].get(p["key"], [])} for p in ps]
             return self.send(200, json.dumps(out, ensure_ascii=False).encode(), TYPES[".json"])
+        if path.startswith("/api/crop_eval/"):
+            return self.send(200, json.dumps(crop_eval_view(path[15:]), ensure_ascii=False).encode(), TYPES[".json"])
         if path == "/api/categories":
             v = {k: x for k, x in categories_view().items() if k not in ("keys", "every")}
             v["review"] = read_json(WORK / "category_review.json", {})

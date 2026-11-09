@@ -8,7 +8,7 @@
 タップの答えと AI への文脈が同じになることは StoreGuideTest（Kotlin 側）で確かめる。
 shortcut: 分類はまだ今のアプリの埋め込み。M1 ができたら recognizer() で差し替える
 """
-import argparse, json, re, subprocess, sys, time
+import argparse, json, re, shutil, subprocess, sys, time
 from math import atan2, cos, degrees, floor, hypot, radians, sin, sqrt
 
 from common import ROOT, WORK, read_json, write_json
@@ -372,6 +372,25 @@ def set_status(**kw):
     write_json(RECORDINGS / "status.json", {"t": time.time(), **kw})
 
 
+def make_preview(d):
+    """ARCore MP4 のカメラトラックを、元の約 30 fps のまま縦向きで見られる動画にする。"""
+    if (d / "preview30.mp4").exists() or not (d / "session.mp4").exists():
+        return
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg が見つかりません。動画プレビューを作れません")
+    tmp = d / "preview30.tmp.mp4"
+    cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", str(d / "session.mp4"),
+           "-map", "0:v:0", "-vf", "transpose=clock,scale=720:-2", "-an",
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "24", "-pix_fmt", "yuv420p",
+           "-movflags", "+faststart", "-y", str(tmp)]
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode or not tmp.exists() or tmp.stat().st_size == 0:
+        tmp.unlink(missing_ok=True)
+        raise RuntimeError(f"動画プレビューを作れません: {r.stderr[-300:]}")
+    tmp.replace(d / "preview30.mp4")
+
+
 def pull():
     """端末にあって PC にない記録を取り込む。全部取れたものだけ .pulled を付ける"""
     r = adb("shell", "ls", REMOTE)
@@ -388,6 +407,11 @@ def pull():
             set_status(state="error", job="pull", msg=f"{n}: {p.stderr[-200:]}")
             return
         (RECORDINGS / n / ".pulled").write_text("ok")
+    for k, n in enumerate(names):
+        d = RECORDINGS / n
+        if (d / ".pulled").exists() and not (d / "preview30.mp4").exists():
+            set_status(state="running", job="preview", msg=f"{n} の 30 fps 動画を作成中", done=k, total=len(names))
+            make_preview(d)
     set_status(state="done", job="pull", msg=f"{len(todo)} 件を取り込みました（端末には {len(names)} 件）")
 
 
@@ -549,7 +573,9 @@ def replay(name, detector="app", hz=1.0, recognize=None):
     timed = [{**e, "at": round((e["t"] - t0) / 1e9, 2)} for e in events]
     meta = read_json(d / "meta.json", {})
     audio_offset = max(0.0, (keyframes[0].get("wall_ms", 0) - meta.get("audio_start_ms", 0)) / 1000) if meta.get("audio_start_ms") and keyframes[0].get("wall_ms") else 0.0
+    video_offset = max(0.0, (keyframes[0].get("wall_ms", 0) - meta.get("start_ms", 0)) / 1000) if meta.get("start_ms") and keyframes[0].get("wall_ms") else 0.0
     result = {"name": name, "detector": detector, "hz": hz, "meta": meta, "has_audio": (d / "audio.pcm").exists(), "audio_offset": audio_offset,
+              "has_preview": (d / "preview30.mp4").exists(), "video_offset": video_offset,
               "summary": summary, "steps": steps, "events": timed,
               "text": store_text(view), "final_model": light_model(view),
               "glass_points": [[round(x, 3), round(z, 3), round(r[0], 3), round(r[1], 3)] for cx, cz, x, z in observed if (r := glass_restored(view, cx, cz, x, z))]}
@@ -566,7 +592,8 @@ def recordings():
             if p.is_dir() and NAME.match(p.name):
                 mp4 = p / "session.mp4"
                 out.append({"name": p.name, "keyframes": len(list((p / "frames").glob("*.jpg"))), "mp4_mb": round(mp4.stat().st_size / 1e6) if mp4.exists() else 0,
-                            "audio": (p / "audio.pcm").exists(),
+                            "audio": (p / "audio.pcm").exists(), "app_audio": (p / "app_audio.pcm").exists(),
+                            "preview": (p / "preview30.mp4").exists(),
                             "pulled": (p / ".pulled").exists(), "replays": [d for d in DETECTORS if (p / f"replay_{d}.json").exists()]})
     return out
 
@@ -641,6 +668,7 @@ def fixture():
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--pull", action="store_true")
+    ap.add_argument("--previews", action="store_true")
     ap.add_argument("--run")
     ap.add_argument("--detector", choices=DETECTORS, default="app")
     ap.add_argument("--hz", type=float, default=1.0)
@@ -651,6 +679,10 @@ if __name__ == "__main__":
             fixture()
         elif a.pull:
             pull()
+        elif a.previews:
+            for d in sorted(RECORDINGS.iterdir()):
+                if d.is_dir() and NAME.match(d.name):
+                    make_preview(d)
         elif a.run:
             if not NAME.match(a.run):
                 raise ValueError("bad name")
