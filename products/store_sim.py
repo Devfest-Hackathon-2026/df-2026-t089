@@ -118,7 +118,8 @@ def auto_route(store):
     for lane in lanes:
         pts += [(lane, low if near else high), (lane, high if near else low)]
         near = not near
-    return pts + [(lanes[-1], high), (lanes[0], high), (lanes[0], low), (W * 0.45, 0.8)]
+    # 店を一周して、最後にレジの前で会計して出る
+    return pts + [(lanes[-1], high), (lanes[0], high), (lanes[0], low), (W - 2.0, low), (W - 2.0, 2.9), (W - 3.4, 2.9), (W * 0.45, 0.8)]
 
 
 def rect_of(f):
@@ -356,12 +357,17 @@ def evaluate(est, store, seen, w0, ou, ov):
                 rows.append([g["kind"], truth, top, top == truth])
     seen_n = sum(g["seen"] for g in gt)
     seen_hit = sum(gt[gi]["seen"] for gi, _, _ in matched)
+    by_kind = {}
+    for g in gt:
+        by_kind.setdefault(g["kind"], [0, 0])[1] += 1
+    for gi, _, _ in matched:
+        by_kind[gt[gi]["kind"]][0] += 1
     n = max(len(matched), 1)
     precision, recall = len(matched) / max(len(pred), 1), len(matched) / max(len(gt), 1)
     return {"gt": len(gt), "pred": len(pred), "matched": len(matched), "precision": round(precision, 3), "recall": round(recall, 3),
             "f1": round(2 * precision * recall / max(precision + recall, 1e-9), 3), "seen_gt": seen_n, "seen_recall": round(seen_hit / max(seen_n, 1), 3),
             "kind_acc": round(kind_ok / n, 3), "pos_err": round(err / n, 3), "faces": faces, "cat_acc": round(cat_ok / max(faces, 1), 3),
-            "genre_acc": round(genre_ok / max(faces, 1), 3), "rows": rows}
+            "genre_acc": round(genre_ok / max(faces, 1), 3), "by_kind": by_kind, "rows": rows}
 
 
 _genre = {}
@@ -390,7 +396,8 @@ def batch(n):
             r = simulate({**cfg, "seed": seed, "snap": 10 ** 6}, cal)["metrics"]
             ms.append(r)
         keys = ("precision", "recall", "f1", "seen_recall", "kind_acc", "pos_err", "cat_acc", "genre_acc")
-        out.append({"name": name, "n": n, **{k: round(sum(m[k] for m in ms) / n, 3) for k in keys}, "f1_min": min(m["f1"] for m in ms)})
+        out.append({"name": name, "n": n, **{k: round(sum(m[k] for m in ms) / n, 3) for k in keys}, "f1_min": min(m["f1"] for m in ms),
+                    "by_kind": {k: round(sum(m["by_kind"].get(k, [0, 0])[0] for m in ms) / max(sum(m["by_kind"].get(k, [0, 0])[1] for m in ms), 1), 3) for k in ("island", "wall", "case", "end", "register")}})
         print(out[-1], flush=True)
     write_json(WORK / "store_sim_batch.json", {"rows": out, "seeds": n, "crops": cal["crops"], "named": cal["named"], "acc_named": cal["acc_named"]})
 
