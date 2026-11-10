@@ -4,7 +4,7 @@
 
 書き出すもの（app/src/main/assets/products/、git には入れない）
   category_head.bin   float32 のリトルエンディアン。1 層目の重み・バイアス、2 層目の重み・バイアスの順
-  category_head.json  入力と中間層の次元、カテゴリの一覧（コード・名前・アプリの棚の種類）
+  category_head.json  入力と中間層の次元、カテゴリの一覧（コード・名前・アプリの棚の種類）、信頼度調整の重み
 """
 import json
 from pathlib import Path
@@ -14,6 +14,8 @@ import torch
 
 ROOT = Path(__file__).resolve().parent.parent
 HEAD = ROOT / "products/work/sku26n/mobileclip_s0_head_gem.pt"
+# 周りの判定との一致で確からしさを付け直す重み（products/sku26n/neighbor_confidence.py が求める）
+CONFIDENCE = ROOT / "products/work/sku26n/neighbor_confidence.json"
 TAXONOMY = ROOT / "products/konbinidb/taxonomy.json"
 OUT = ROOT / "app/src/main/assets/products"
 
@@ -56,7 +58,8 @@ def main():
     body = np.concatenate([state[k].ravel() for k in ("0.weight", "0.bias", "3.weight", "3.bias")]).astype("<f4")
     (OUT / "category_head.bin").write_bytes(body.tobytes())
     (OUT / "category_head.json").write_text(json.dumps({"dim": dim, "hidden": hidden, "categories": [
-        {"code": c, "name": names[c], "genre": genres[c]} for c in classes]}, ensure_ascii=False, indent=0), encoding="utf-8")
+        {"code": c, "name": names[c], "genre": genres[c]} for c in classes],
+        "confidence": json.loads(CONFIDENCE.read_text(encoding="utf-8"))}, ensure_ascii=False, indent=0), encoding="utf-8")
 
     # 書き出した数値で、学習時の分類層と同じ確率になることを確かめる
     x = np.random.default_rng(0).normal(size=(8, dim)).astype(np.float32)

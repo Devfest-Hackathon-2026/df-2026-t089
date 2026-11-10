@@ -125,12 +125,13 @@ class ProductRecognizer(context: Context) : AutoCloseable {
     /** 枠の切り抜き（分類層の学習と同じく広げない）。[judge] にそのまま渡せる大きさで、解放は呼ぶ側で行う。 */
     fun cropOf(image: Bitmap, box: FloatArray): Bitmap = crop(image, box, 0f)
 
-    /** 切り抜き 1 枚を 122 カテゴリに分類する。確率が [KNOWN_PROB] 未満なら、分からないとして null。 */
-    fun judge(crop: Bitmap, box: FloatArray): RecognizedProduct? {
-        val (index, prob) = head.predict(normalize(embed(listOf(crop)).single()))
-        if (prob < KNOWN_PROB) return null
-        val category = categories[index]
-        return RecognizedProduct(box[0], box[1], box[2], box[3], category.name, category.genre, category.name, prob)
+    /** 切り抜き 1 枚を 122 カテゴリに分類する。@return 1 位の商品と、確率の高い順の上位 5 つ（[NeighborConfidence] に渡す） */
+    fun judge(crop: Bitmap, box: FloatArray): Pair<RecognizedProduct, List<Pair<String, Float>>> {
+        val p = head.probabilities(normalize(embed(listOf(crop)).single()))
+        val order = p.indices.sortedByDescending { p[it] }.take(TOP_CATEGORIES)
+        val category = categories[order[0]]
+        return RecognizedProduct(box[0], box[1], box[2], box[3], category.name, category.genre, category.name, p[order[0]]) to
+            order.map { categories[it].name to p[it] }
     }
 
     private fun embed(crops: List<Bitmap>): List<FloatArray> =
@@ -207,8 +208,12 @@ class ProductRecognizer(context: Context) : AutoCloseable {
         /** 枠は 1 枚で 100 個を超えることがある。256px を一度に埋め込むとメモリを食うので分ける。 */
         private const val EMBED_BATCH = 8
         private const val CROP_PAD = 0.04f
-        /** 検証では、確率 0.7 以上の箱の 87% が正解だった（Gemini の確定ラベルとの一致。products/sku26n）。 */
-        private const val KNOWN_PROB = 0.7f
+        /**
+         * 地図に置く確からしさ（[NeighborConfidence] で調整したもの）。検証写真で、調整前の確率 0.7 以上は枠の 52% を残して 87% が正解、
+         * 調整後 0.7 以上は 53% を残して 91% が正解だった（Gemini の確定ラベルとの一致。products/sku26n）。
+         */
+        const val KNOWN_PROB = 0.7f
+        private const val TOP_CATEGORIES = 5
 
         /** 照合先やカテゴリを作り直すと変わる値。事前計算の結果が今のモデルのものかを見分ける。 */
         fun version(context: Context): String = context.assets.open("$DIR/gallery.json").bufferedReader().use { it.readText() }.hashCode().toString()

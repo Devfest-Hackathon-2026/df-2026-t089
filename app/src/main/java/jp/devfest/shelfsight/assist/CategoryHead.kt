@@ -13,13 +13,20 @@ internal class CategoryHead(private val dim: Int, private val hidden: Int, priva
 
     /** いちばん確率の高いカテゴリの番号と、その確率。[embedding] は長さ 1 に正規化したもの。 */
     fun predict(embedding: FloatArray): Pair<Int, Float> {
+        val p = probabilities(embedding)
+        val best = p.indices.maxBy { p[it] }
+        return best to p[best]
+    }
+
+    /** カテゴリごとの確率（softmax）。 */
+    fun probabilities(embedding: FloatArray): FloatArray {
         val middle = layer(embedding, dim, hidden, 0)
         for (i in middle.indices) if (middle[i] < 0f) middle[i] = 0f
         val logits = layer(middle, hidden, classes, (dim + 1) * hidden)
-        val best = logits.indices.maxBy { logits[it] }
+        val top = logits.max()
         var sum = 0f
-        for (v in logits) sum += exp(v - logits[best])
-        return best to 1f / sum
+        for (v in logits) sum += exp(v - top)
+        return FloatArray(classes) { exp(logits[it] - top) / sum }
     }
 
     private fun layer(input: FloatArray, inputs: Int, outputs: Int, offset: Int): FloatArray {

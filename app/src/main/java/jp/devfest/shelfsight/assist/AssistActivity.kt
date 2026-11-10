@@ -105,6 +105,10 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     @Volatile private var pendingCapture: ((CapturedFrame) -> Unit)? = null
 
     private val recognizer by lazy { ProductRecognizer(this) }
+    /** 判定した確からしさを、地図で近くの判定との一致で付け直す。 */
+    private val confidence by lazy {
+        NeighborConfidence.parse(org.json.JSONObject(assets.open("products/category_head.json").bufferedReader().readText()).optJSONObject("confidence"))
+    }
     private val personDetector by lazy { YoloPersonDetector(this) }
     /** 3D モデルに描く、今見えている人（ARCore の世界座標）。 */
     @Volatile private var people: List<PersonMarker> = emptyList()
@@ -795,7 +799,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                 val e = cropQueue.take(deviceAt, SystemClock.elapsedRealtime())
                 if (e == null) { Thread.sleep(IDENTIFY_IDLE_MS); continue }
                 try {
-                    val p = recognizer.judge(e.crop, e.box)
+                    val (judged, top) = recognizer.judge(e.crop, e.box)
+                    val p = judged.takeIf { confidence.adjust(e.position, maxOf(e.widthM, e.heightM), top) >= ProductRecognizer.KNOWN_PROB }
                     if (p == null) cropQueue.reject(e) else {
                         shelfMap.add(p.name, p.genre, p.fine, e.position, e.widthM, e.heightM, e.time, e.camera)
                         sceneGeometry?.let { debug.mapView = shelfMap.visible(it) }  // 分かったものから順にオレンジにする
