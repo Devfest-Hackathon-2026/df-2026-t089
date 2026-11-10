@@ -821,10 +821,14 @@ final class StoreModel {
         var opaque: [Candidate] = [], doubtful: [Candidate] = []
         var pending = drafts
         func candidate(_ d: Draft, _ f: StoreFixture, _ through: Set<Pt> = []) -> Candidate {
-            let kept = Set(d.faces.flatMap { $0.pts }.filter { $0.p[1 - d.axis] >= d.a - 0.1 && $0.p[1 - d.axis] <= d.b + 0.1 })
+            let lo = d.a - 0.1, hi = d.b + 0.1, along = 1 - d.axis
+            let own: [Pt] = d.faces.flatMap { $0.pts }
+            let kept = Set(own.filter { (p: Pt) -> Bool in p.p[along] >= lo && p.p[along] <= hi })
             let r = rect(f)
-            let near = Set(pts.filter {
-                $0.p[0] >= r.u0 - Self.explain && $0.p[0] <= r.u1 + Self.explain && $0.p[1] >= r.v0 - Self.explain && $0.p[1] <= r.v1 + Self.explain
+            let u0 = r.u0 - Self.explain, u1 = r.u1 + Self.explain, v0 = r.v0 - Self.explain, v1 = r.v1 + Self.explain
+            let near = Set(pts.filter { (p: Pt) -> Bool in
+                let u = p.p[0], v = p.p[1]
+                return u >= u0 && u <= u1 && v >= v0 && v <= v1
             })
             return Candidate(d, f, near.union(kept), Self.cornerBonus * Double(cornerSupport(d, drafts)), through)
         }

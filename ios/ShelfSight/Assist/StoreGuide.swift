@@ -175,9 +175,9 @@ enum StoreGuide {
                 let cu = f.axis == 0 ? f.c : (f.a + f.b) / 2
                 let cv = f.axis == 0 ? (f.a + f.b) / 2 : f.c
                 let at = Vec3(Float(cu * cs - cv * sn), l.position.y, Float(cu * sn + cv * cs))
-                let goods = f.faces.values.flatMap { $0 }.flatMap { $0 }.orderedGroups { $0.0 }
-                    .stableSorted { a, b in a.values.reduce(0) { $0 + $1.1 } > b.values.reduce(0) { $0 + $1.1 } }
-                    .prefix(4).map(\.key).joined(separator: "、")
+                let shares: [(String, Double)] = f.faces.values.flatMap { $0 }.flatMap { $0 }
+                let totals: [(key: String, total: Double)] = shares.orderedGroups { $0.0 }.map { g in (g.key, g.values.reduce(0.0) { $0 + $1.1 }) }
+                let goods = totals.stableSorted { $0.total > $1.total }.prefix(4).map(\.key).joined(separator: "、")
                 var seenTheme = Set<String>()
                 let themes = f.themes.values.flatMap { $0 }.compactMap { $0 }.filter { seenTheme.insert($0).inserted }.joined(separator: "、")
                 let label = (kindNames[f.kind] ?? f.kind) + (themes.isEmpty ? "" : "（テーマ: \(themes)）")
