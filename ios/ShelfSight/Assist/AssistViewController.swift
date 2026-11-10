@@ -58,6 +58,8 @@ final class Assist: NSObject, ARSessionDelegate, CLLocationManagerDelegate {
     @Locked private var listener: Listener? = nil
     /// 棚や商品の説明を始めてから 90 度より大きく向きを変えたら、説明をやめる（向いている棚が変わったため）。
     private let turnGuard = TurnGuard()
+    /// 「〇〇はどこ？」の場所から、3 秒ごとにジングルを鳴らす（着いたら止める）。
+    @Locked private var beacon: Beacon? = nil
     /// 立体音響のテストのタブを開いている。
     @Locked private var showTest = false
     private lazy var mixer = SpatialMixer(hrtf: Hrtf.load()) { [weak self] in
@@ -227,6 +229,15 @@ final class Assist: NSObject, ARSessionDelegate, CLLocationManagerDelegate {
         if len > 0.3 {
             let l = Listener(position: position, forwardX: fx / len, forwardZ: fz / len)
             listener = l
+            if let b = beacon {
+                switch b.update(l, now: nowMs()) {
+                case .play: mixer.play(SpatialMixer.Sound(chime, position: { b.at }))
+                case .arrived:
+                    beacon = nil
+                    voice.say("\(b.name)の近くに着きました。", interrupt: true)
+                case nil: break
+                }
+            }
             if turnGuard.turned(l, turn: voice.turn, speaking: voice.speaking, now: nowMs()) {
                 voice.stop()
                 debug.description = "（向きが 90 度より大きく変わったので、説明をやめました）"
@@ -621,7 +632,20 @@ final class Assist: NSObject, ARSessionDelegate, CLLocationManagerDelegate {
 
     /// 決まった言い方でない質問は、今のカメラの画像と、店の地図や調べた商品を LLM に渡して答えてもらう。
     private func ask(_ question: String) {
+        beacon = nil
+        // 「〇〇はどこ？」で地図に〇〇があれば、答えのあとにその場所からジングルを鳴らし続ける
+        let target = Beacon.whereQuery(question).flatMap { q in listener.flatMap { Beacon.find(q, shelfMap.snapshot(), storeView, $0) } }
+        let startBeacon = { [self] in
+            guard let target else { return }
+            beacon = Beacon(name: target.name, at: target.at)
+            voice.say("音の鳴る方に\(target.name)があります。")
+        }
         if !narrator.available {
+            if let target {
+                voice.say("\(target.name)の場所を音でお知らせします。", interrupt: true)
+                startBeacon()
+                return
+            }
             voice.say("質問に答える設定がされていません。", interrupt: true)
             return
         }
@@ -633,6 +657,7 @@ final class Assist: NSObject, ARSessionDelegate, CLLocationManagerDelegate {
             let answer = narrator.answer(question, context, ImageUtil.jpeg(f.image, longSide: Self.questionLongSide))
             debug.voice = "質問「\(question)」→「\(answer ?? "失敗")」（\(nowMs() - t0)ms）"
             voice.say(answer ?? "答えられませんでした。通信を確認してください。")
+            startBeacon()
         }
     }
 

@@ -91,6 +91,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     @Volatile private var listener: Listener? = null
     /** 棚や商品の説明を始めてから 90 度より大きく向きを変えたら、説明をやめる（向いている棚が変わったため）。 */
     private val turnGuard = TurnGuard()
+    /** 「〇〇はどこ？」の場所から、3 秒ごとにジングルを鳴らす（着いたら止める）。 */
+    @Volatile private var beacon: Beacon? = null
     private val mixer by lazy { SpatialMixer(Hrtf.load(this)) { listener ?: if (showTest) DEMO_LISTENER else null } }
     private val voice by lazy { Voice(this, mixer) }
     private val listening by lazy { Listening(this) }
@@ -489,6 +491,16 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             val l = Listener(Vec3(pose.tx(), pose.ty(), pose.tz()), fx / len, fz / len)
             listener = l
             debug.headingDeg = Math.toDegrees(kotlin.math.atan2(fx.toDouble(), -fz.toDouble())).toFloat()
+            beacon?.let { b ->
+                when (b.update(l, SystemClock.elapsedRealtime())) {
+                    Beacon.Event.PLAY -> mixer.play(SpatialMixer.Sound(chime, { b.at }))
+                    Beacon.Event.ARRIVED -> {
+                        beacon = null
+                        voice.say("${b.name}の近くに着きました。", interrupt = true)
+                    }
+                    null -> Unit
+                }
+            }
             if (turnGuard.turned(l, voice.turn, voice.speaking, SystemClock.elapsedRealtime())) {
                 voice.stop()
                 debug.description = "（向きが 90 度より大きく変わったので、説明をやめました）"
@@ -763,7 +775,12 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
 
     /** 決まった言い方でない質問は、今のカメラの画像と、店の地図や調べた商品を LLM に渡して答えてもらう。 */
     private fun ask(question: String) {
+        beacon = null
+        // 「〇〇はどこ？」で地図に〇〇があれば、答えのあとにその場所からジングルを鳴らし続ける
+        val target = Beacon.whereQuery(question)?.let { q -> listener?.let { Beacon.find(q, shelfMap.snapshot(), storeView, it) } }
+        val startBeacon = { target?.let { (name, at) -> beacon = Beacon(name, at); voice.say("音の鳴る方に${name}があります。") } }
         if (!narrator.available) {
+            if (target != null) { voice.say("${target.first}の場所を音でお知らせします。", interrupt = true); startBeacon(); return }
             voice.say("質問に答える設定がされていません。", interrupt = true)
             return
         }
@@ -775,6 +792,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             val answer = try { narrator.answer(question, context, jpeg(image, QUESTION_LONG_SIDE)) } finally { image.recycle() }
             debug.voice = "質問「$question」→「${answer ?: "失敗"}」（${SystemClock.elapsedRealtime() - t0}ms）"
             voice.say(answer ?: "答えられませんでした。通信を確認してください。")
+            startBeacon()
         }
     }
 
