@@ -90,7 +90,7 @@ final class Assist: NSObject, ARSessionDelegate, CLLocationManagerDelegate {
         apiKey: Secrets.value("CLOUD_VISION_API_KEY", fallback: "GCP_API_KEY"),
         judge: CategoryJudge(rules: .fromBundle(), client: Assist.geminiClient())
     )
-    private let narrator = Narrator(client: Assist.geminiClient())
+    private let narrator = Narrator(client: Assist.geminiClient(), fastClient: Assist.fastGeminiClient())
     private let judge = SceneJudge()
     private let recorder = Once<Recorder> { Recorder() }
     /// 商品のジャンル（26 種類）→ 7 つのまとまり。場違いな商品を外すのに使う（categories.json）。
@@ -447,8 +447,21 @@ final class Assist: NSObject, ARSessionDelegate, CLLocationManagerDelegate {
             return
         }
         switch StoreGuide.tapAnswer(storeView, shelfMap.snapshot(), l, groups, floorY: l.position.y - Self.deviceHeightM) {
-        case .sentence(let text):
+        case .sentence(let text, let shelf, let bands):
             debug.description = text
+            // 2 段以上に商品があれば、速いモデルで言い直す（段がどれも同じなら「全部〇〇です」にまとめる）
+            if let shelf, bands.count >= 2, narrator.canRephrase {
+                voice.stop()
+                let tapTurn = voice.turn
+                lookupWorker.async { [self] in
+                    let said = narrator.shelfSentence(shelf, bands) ?? text
+                    guard voice.turn == tapTurn else { return }   // 待つ間に、ほかの声やたたく操作があった
+                    debug.description = said
+                    voice.say(said, interrupt: true)
+                    turnGuard.start(l, turn: voice.turn, now: nowMs())   // たたいたときの向きから見る
+                }
+                return
+            }
             voice.say(text, interrupt: true)
         case .around(let clauses, let shelves):
             let all = clauses.joined()
@@ -726,6 +739,14 @@ final class Assist: NSObject, ARSessionDelegate, CLLocationManagerDelegate {
             .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
             .stableSorted { $0.contains("lite") && !$1.contains("lite") }
         return models.isEmpty ? nil : GeminiClient(apiKey: key, models: models)
+    }
+
+    /// 正面の棚の説明を言い直すだけの、速いモデル 1 つ。やり直さず、3 秒で諦めてアプリが作った文を言う。
+    private static func fastGeminiClient() -> GeminiClient? {
+        let key = Secrets.value("GEMINI_API_KEY")
+        let model = Secrets.value("GEMINI_FAST_MODEL", default: "gemini-3.1-flash-lite").trimmingCharacters(in: .whitespaces)
+        if key.isEmpty || model.isEmpty { return nil }
+        return GeminiClient(apiKey: key, models: [model], retryDelays: [], timeout: 3)
     }
 
     private static func loadThemes() -> [Theme] {

@@ -14,22 +14,23 @@ class LookedUp(val name: String, val at: Vec3, val time: Long)
 
 /** 1 回たたいたときの答え。 */
 sealed interface TapAnswer {
-    class Sentence(val text: String) : TapAnswer
+    /** [shelf] と [bands]（上の方・真ん中・下の方ごとの商品の種類）があれば、Gemini で言い直せる。 */
+    class Sentence(val text: String, val shelf: String? = null, val bands: List<Pair<String, List<String>>> = emptyList()) : TapAnswer
     class Around(val clauses: List<String>, val shelves: List<NearShelf>) : TapAnswer
     data object Unknown : TapAnswer
 }
 
 /** タップで話す文と、質問に答える AI に渡す文脈を、店のモデルと今の位置から作る。 */
 object StoreGuide {
-    /** ここまでの棚と商品だけを話す。遠くの棚を言われても、どこか分からないため。 */
-    const val RANGE_M = 2f
+    /** ここまでの棚を話す（商品の位置が分かる距離 [ShelfMap.MAX_DEPTH_M] と同じ）。 */
+    const val RANGE_M = ShelfMap.MAX_DEPTH_M
     /** 棚に「向かっている」: この距離以内で、棚の面と向き合う角度（面の法線との角度が [FACING_DEG] 以内）。 */
     const val FACING_M = 1.8f
     const val FACING_DEG = 40f
     private const val MAX_SHELVES = 4
     /** 棚の商品として見る範囲（正面からの角度と距離）。 */
     private const val FRONT_DEG = 35f
-    private const val FRONT_M = RANGE_M
+    private const val FRONT_M = 2.2f
     /** モデルがまだないときに、商品だけで棚に向かっていると言える範囲（通路を歩いているだけの横の棚を含めない）。 */
     private const val ITEMS_ONLY_DEG = 20f
     private const val ITEMS_ONLY_M = 1.5f
@@ -180,28 +181,40 @@ object StoreGuide {
         if (facing != null || front.size >= ShelfDescriber.MIN_PRODUCTS) {
             val split = ShelfDescriber.split(front.map { RecognizedProduct(0f, 0f, 0f, 0f, it.name, it.genre, it.fine, it.seen.toFloat()) }, groups)
             val kept = split.kept.map { it.name }.toSet()
-            val text = facingSentence(facing?.main, front.filter { it.name in kept }, floorY) ?: facing?.let { facingSentence(it.main, emptyList(), 0f) }
-            if (text != null) return TapAnswer.Sentence(text)
+            val shown = front.filter { it.name in kept }
+            val text = facingSentence(facing?.main, shown, floorY) ?: facing?.let { facingSentence(it.main, emptyList(), 0f) }
+            if (text != null) return TapAnswer.Sentence(text, shelfName(facing?.main, shown), bands(shown, floorY))
         }
         if (shelves.isEmpty()) return if (view?.fixtures.isNullOrEmpty()) TapAnswer.Unknown else TapAnswer.Sentence(FAR_TEXT)
         val near = toSpeak(shelves)
         return TapAnswer.Around(clauses(near), near)
     }
 
-    /** 「カップ麺の棚で、上の方にはA、真ん中にはBやC、下の方にはDがあります。」商品がなければ null。 */
+    /** 上の方・真ん中・下の方ごとの、見えた回数の多い商品の種類（話す名前）。商品のない段は入れない。 */
+    fun bands(items: List<MapItem>, floorY: Float): List<Pair<String, List<String>>> = listOf(
+        "上の方" to items.filter { it.position.y - floorY >= UPPER_M },
+        "真ん中" to items.filter { it.position.y - floorY >= LOWER_M && it.position.y - floorY < UPPER_M },
+        "下の方" to items.filter { it.position.y - floorY < LOWER_M },
+    ).mapNotNull { (band, list) ->
+        val kinds = list.groupBy { ShelfDescriber.spoken(it.name) }.entries
+            .sortedByDescending { e -> e.value.sumOf { it.seen } }.take(KINDS_PER_BAND).map { it.key }
+        if (kinds.isEmpty()) null else band to kinds
+    }
+
+    /** 棚の名前（話す名前）。主な商品が分からなければ、見えた回数のいちばん多い商品。 */
+    private fun shelfName(main: String?, items: List<MapItem>): String? =
+        (main ?: items.groupBy { it.name }.maxByOrNull { e -> e.value.sumOf { it.seen } }?.key)?.let(ShelfDescriber::spoken)
+
+    /**
+     * 「上の方にはA、真ん中にはBやC、下の方にはDがあります。」（棚の名前は言わない）。段に商品がなければ「カップ麺の棚です。」、
+     * 主な商品も分からなければ null。2 つ以上の段がどれも同じ種類なら、「全部チョコレート菓子です。」とまとめる。
+     */
     fun facingSentence(main: String?, items: List<MapItem>, floorY: Float): String? {
-        val bands = listOf(
-            "上の方" to items.filter { it.position.y - floorY >= UPPER_M },
-            "真ん中" to items.filter { it.position.y - floorY >= LOWER_M && it.position.y - floorY < UPPER_M },
-            "下の方" to items.filter { it.position.y - floorY < LOWER_M },
-        ).mapNotNull { (band, list) ->
-            val kinds = list.groupBy { ShelfDescriber.spoken(it.name) }.entries
-                .sortedByDescending { e -> e.value.sumOf { it.seen } }.take(KINDS_PER_BAND).map { it.key }
-            if (kinds.isEmpty()) null else "${band}には${kinds.joinToString("や")}"
-        }
-        val top = main ?: items.groupBy { it.name }.maxByOrNull { e -> e.value.sumOf { it.seen } }?.key ?: return null
-        val shelf = "${ShelfDescriber.spoken(top)}の棚"
-        return if (bands.isEmpty()) "${shelf}です。" else "${shelf}で、${bands.joinToString("、")}があります。"
+        val bands = bands(items, floorY)
+        val shelf = "${shelfName(main, items) ?: return null}の棚"
+        if (bands.isEmpty()) return "${shelf}です。"
+        if (bands.size >= 2 && bands.all { it.second.toSet() == bands[0].second.toSet() }) return "全部${bands[0].second.joinToString("や")}です。"
+        return "${bands.joinToString("、") { (band, kinds) -> "${band}には${kinds.joinToString("や")}" }}があります。"
     }
 
     private fun where(at: Vec3, l: Listener): String {

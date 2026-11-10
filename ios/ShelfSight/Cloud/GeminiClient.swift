@@ -37,7 +37,7 @@ enum Http {
     /// 立ち止まっている間に答えが欲しいので、待ち続けずに次のモデルへ切り替える。
     static let timeout: TimeInterval = 12
 
-    static func post(_ url: String, headers: [String: String], body: Data) throws -> HttpResult {
+    static func post(_ url: String, headers: [String: String], body: Data, timeout: TimeInterval = Http.timeout) throws -> HttpResult {
         guard let u = URL(string: url) else { throw URLError(.badURL) }
         var request = URLRequest(url: u, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
         request.httpMethod = "POST"
@@ -71,15 +71,19 @@ final class GeminiClient: CloudVisionClient {
     private static let endpoint = "https://generativelanguage.googleapis.com/v1beta/interactions"
     private static let apiRevision = "2026-05-20"
     private static let maxErrorChars = 500
-    private static let retryDelays: [TimeInterval] = [0.3, 0.3, 1.0, 3.0]
+    static let retryDelays: [TimeInterval] = [0.3, 0.3, 1.0, 3.0]
 
     private let apiKey: String
     private let models: [String]
+    private let retryDelays: [TimeInterval]
+    private let timeout: TimeInterval
 
-    /// models は試す順に並べたモデル。
-    init(apiKey: String, models: [String]) {
+    /// models は試す順に並べたモデル。retryDelays が空ならやり直さない（すぐに答えが欲しい棚の言い直しなど）。
+    init(apiKey: String, models: [String], retryDelays: [TimeInterval] = GeminiClient.retryDelays, timeout: TimeInterval = Http.timeout) {
         self.apiKey = apiKey
         self.models = models
+        self.retryDelays = retryDelays
+        self.timeout = timeout
     }
 
     func generate(_ task: CloudTask, _ jpeg: Data?) throws -> String {
@@ -88,15 +92,15 @@ final class GeminiClient: CloudVisionClient {
         while true {
             let model = models[attempt % models.count]
             do {
-                let response = try Http.post(Self.endpoint, headers: headers, body: requestBody(task, jpeg, model))
+                let response = try Http.post(Self.endpoint, headers: headers, body: requestBody(task, jpeg, model), timeout: timeout)
                 return try handle(response)
             } catch let e as CloudError {
                 let retryable = e.failure == .rateLimit || e.failure == .server
-                if !retryable || attempt >= Self.retryDelays.count { throw e }
+                if !retryable || attempt >= retryDelays.count { throw e }
             } catch {
-                if attempt >= Self.retryDelays.count { throw CloudError(failure: .network, detail: "request failed: \(error)") }
+                if attempt >= retryDelays.count { throw CloudError(failure: .network, detail: "request failed: \(error)") }
             }
-            Thread.sleep(forTimeInterval: Self.retryDelays[attempt])
+            Thread.sleep(forTimeInterval: retryDelays[attempt])
             attempt += 1
         }
     }

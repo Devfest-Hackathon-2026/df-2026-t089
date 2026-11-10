@@ -33,18 +33,16 @@ internal fun interface HttpTransport {
     fun post(url: String, headers: Map<String, String>, body: String): HttpResult
 }
 
-internal object UrlConnectionTransport : HttpTransport {
-    private const val CONNECT_TIMEOUT_MS = 10_000
+internal object UrlConnectionTransport : HttpTransport by TimedTransport(10_000, 12_000)
 
-    /** 立ち止まっている間に答えが欲しいので、待ち続けずに次のモデルへ切り替える。 */
-    private const val READ_TIMEOUT_MS = 12_000
-
+/** [readTimeoutMs] まで待つ。立ち止まっている間に答えが欲しいので、待ち続けずに次のモデルへ切り替える。 */
+internal class TimedTransport(private val connectTimeoutMs: Int, private val readTimeoutMs: Int) : HttpTransport {
     override fun post(url: String, headers: Map<String, String>, body: String): HttpResult {
         val connection = URL(url).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "POST"
-            connection.connectTimeout = CONNECT_TIMEOUT_MS
-            connection.readTimeout = READ_TIMEOUT_MS
+            connection.connectTimeout = connectTimeoutMs
+            connection.readTimeout = readTimeoutMs
             connection.doOutput = true
             headers.forEach { (name, value) -> connection.setRequestProperty(name, value) }
             connection.outputStream.use { it.write(body.toByteArray()) }
@@ -69,6 +67,8 @@ internal class GeminiClient(
     private val apiKey: String,
     private val models: List<String>,
     private val transport: HttpTransport = UrlConnectionTransport,
+    /** 失敗したときに待ってやり直す間隔。空ならやり直さない（すぐに答えが欲しい棚の言い直しなど）。 */
+    private val retryDelaysMs: LongArray = RETRY_DELAYS_MS,
     private val sleep: (Long) -> Unit = Thread::sleep,
 ) : CloudVisionClient {
 
@@ -84,12 +84,12 @@ internal class GeminiClient(
             try {
                 return handle(transport.post(ENDPOINT, headers, requestBody(task, jpeg, model)))
             } catch (e: IOException) {
-                if (attempt >= RETRY_DELAYS_MS.size) throw CloudException(CloudFailure.NETWORK, "request failed", e)
+                if (attempt >= retryDelaysMs.size) throw CloudException(CloudFailure.NETWORK, "request failed", e)
             } catch (e: CloudException) {
                 val retryable = e.failure == CloudFailure.RATE_LIMIT || e.failure == CloudFailure.SERVER
-                if (!retryable || attempt >= RETRY_DELAYS_MS.size) throw e
+                if (!retryable || attempt >= retryDelaysMs.size) throw e
             }
-            sleep(RETRY_DELAYS_MS[attempt])
+            sleep(retryDelaysMs[attempt])
             attempt++
         }
     }

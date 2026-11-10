@@ -39,6 +39,8 @@ android {
             "GEMINI_MODELS",
             "\"${localProperties.getProperty("GEMINI_MODELS", "gemini-3.8-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite")}\"",
         )
+        // 正面の棚の説明を言い直す速いモデル（待たずに話したいので、やり直さず 3 秒で諦める）
+        buildConfigField("String", "GEMINI_FAST_MODEL", "\"${localProperties.getProperty("GEMINI_FAST_MODEL", "gemini-3.1-flash-lite")}\"")
         // 商品の OCR に使う Cloud Vision API のキー（GCP_API_KEY の名前でもよい）。なければ端末内の ML Kit で読む。
         val visionKey = secret("CLOUD_VISION_API_KEY", "GCP_API_KEY")
         buildConfigField("String", "CLOUD_VISION_API_KEY", "\"$visionKey\"")

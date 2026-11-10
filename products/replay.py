@@ -24,8 +24,7 @@ MAX_NAMED = 20        # ProductRecognizer.MAX_CROPS
 ESTIMATE_S = 3.0      # AssistActivity.STORE_ESTIMATE_MS
 SNAP_EVERY = 3        # 再生用に店モデルを残す間隔（ステップ）
 RANGE_M, FACING_M, FACING_DEG, MAX_SHELVES = 3.5, 1.8, 40.0, 4
-SPEAK_M = 2.0  # StoreGuide.RANGE_M: ここまでの棚と商品だけを話す
-FRONT_DEG, FRONT_M, ITEMS_ONLY_DEG, ITEMS_ONLY_M = 35.0, SPEAK_M, 20.0, 1.5
+FRONT_DEG, FRONT_M, ITEMS_ONLY_DEG, ITEMS_ONLY_M = 35.0, 2.2, 20.0, 1.5
 FAR_TEXT = "近くに分かっている棚がありません。棚の方へ少し歩いてください。"
 EDGE_M, OWNER_MARGIN_M = 0.1, 0.35  # StoreGuide: 見えるかを調べるとき什器の両端を縮める量、商品の置かれた什器を決める余裕
 KINDS_PER_BAND, UPPER_M, LOWER_M = 3, 1.25, 0.75
@@ -280,7 +279,7 @@ def near_shelves(view, l):
             pu, pv = (face, center(i)) if f["axis"] == 0 else (center(i), face)
             at = (pu * cs - pv * sn, l["p"][1], pu * sn + pv * cs)
             d = hypot(at[0] - l["p"][0], at[2] - l["p"][2])
-            if d > SPEAK_M:
+            if d > RANGE_M:
                 continue
             if _blocked(view, u, v, pu, pv, f):  # ほかの什器の陰で見えない
                 continue
@@ -326,7 +325,7 @@ def facing_sentence(main, items, floor_y):
             groups.setdefault(spoken(i.name), []).append(i)
         kinds = [k for k, _ in sorted(groups.items(), key=lambda e: -sum(i.seen for i in e[1]))[:KINDS_PER_BAND]]
         if kinds:
-            bands.append(f"{band}には{'や'.join(kinds)}")
+            bands.append((band, kinds))
     top = main
     if top is None:
         by = {}
@@ -336,7 +335,11 @@ def facing_sentence(main, items, floor_y):
             return None
         top = max(by, key=lambda n: sum(i.seen for i in by[n]))
     shelf = f"{spoken(top)}の棚"
-    return f"{shelf}です。" if not bands else f"{shelf}で、{'、'.join(bands)}があります。"
+    if not bands:
+        return f"{shelf}です。"
+    if len(bands) >= 2 and all(set(k) == set(bands[0][1]) for _, k in bands):  # 段がどれも同じなら「全部〇〇です」
+        return f"全部{'や'.join(bands[0][1])}です。"
+    return "、".join(b + "には" + "や".join(k) for b, k in bands) + "があります。"  # 棚の名前は言わない
 
 
 def tap_answer(view, items, l, floor_y):

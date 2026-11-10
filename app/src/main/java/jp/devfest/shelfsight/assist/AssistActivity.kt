@@ -123,11 +123,15 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             getExternalFilesDir("lookup"),
         )
     }
-    private val narrator = Narrator(geminiClient())
+    private val narrator = Narrator(geminiClient(), fastGeminiClient())
 
     // 話す文を作るだけなので、速い lite のモデルから試す（flash は 6〜9 秒、lite は 2 秒ほど）
     private fun geminiClient() = BuildConfig.GEMINI_API_KEY.takeIf { it.isNotEmpty() }
         ?.let { GeminiClient(it, BuildConfig.GEMINI_MODELS.split(",").map(String::trim).filter(String::isNotEmpty).sortedBy { m -> "lite" !in m }) }
+
+    /** 正面の棚の説明を言い直すだけの、速いモデル 1 つ。やり直さず、3 秒で諦めてアプリが作った文を言う。 */
+    private fun fastGeminiClient() = BuildConfig.GEMINI_API_KEY.takeIf { it.isNotEmpty() && BuildConfig.GEMINI_FAST_MODEL.isNotBlank() }
+        ?.let { GeminiClient(it, listOf(BuildConfig.GEMINI_FAST_MODEL.trim()), jp.devfest.shelfsight.cloud.TimedTransport(2_000, 3_000), retryDelaysMs = LongArray(0)) }
     private val judge = SceneJudge()
     /** 1 秒ごとの商品認識の結果を、AR 空間の壁の上に貯めたもの（アプリを閉じると消える）。 */
     private val shelfMap = ShelfMap()
@@ -596,7 +600,24 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         listening.cancel()
         val l = listener ?: return voice.say("位置を合わせています。少し周りを見回してから、もう一度たたいてください。", interrupt = true)
         when (val answer = StoreGuide.tapAnswer(storeView, shelfMap.snapshot(), l, groups, l.position.y - DEVICE_HEIGHT_M)) {
-            is TapAnswer.Sentence -> { debug.description = answer.text; voice.say(answer.text, interrupt = true) }
+            is TapAnswer.Sentence -> {
+                debug.description = answer.text
+                val shelf = answer.shelf
+                // 2 段以上に商品があれば、速いモデルで言い直す（段がどれも同じなら「全部〇〇です」にまとめる）
+                if (shelf != null && answer.bands.size >= 2 && narrator.canRephrase) {
+                    voice.stop()
+                    val tapTurn = voice.turn
+                    lookupWorker.execute {
+                        val text = narrator.shelfSentence(shelf, answer.bands) ?: answer.text
+                        if (voice.turn != tapTurn) return@execute   // 待つ間に、ほかの声やたたく操作があった
+                        debug.description = text
+                        voice.say(text, interrupt = true)
+                        turnGuard.start(l, voice.turn, SystemClock.elapsedRealtime())   // たたいたときの向きから見る
+                    }
+                    return
+                }
+                voice.say(answer.text, interrupt = true)
+            }
             is TapAnswer.Around -> {
                 debug.description = answer.clauses.joinToString("")
                 voice.remember(debug.description)

@@ -6,6 +6,8 @@ SHELFSIGHT_TEAM_ID =
 
 GEMINI_API_KEY =
 GEMINI_MODELS = gemini-3.8-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite
+// 正面の棚の説明を言い直す速いモデル（やり直さず 3 秒で諦める）
+GEMINI_FAST_MODEL = gemini-3.1-flash-lite
 CLOUD_VISION_API_KEY =
 GCP_API_KEY =
 // xcconfig では // がコメントになるので、$() で区切る

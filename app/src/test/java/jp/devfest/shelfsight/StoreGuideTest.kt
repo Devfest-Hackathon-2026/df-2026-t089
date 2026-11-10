@@ -85,21 +85,29 @@ class StoreGuideTest {
     }
 
     @Test
-    fun `shelves and products beyond 2 m are not described`() {
-        val far = StoreView(0.0, null, listOf(fixture(2.5, "-", "お茶")))
+    fun `with a map but no shelf in range, the tap says nothing is near`() {
+        val far = StoreView(0.0, null, listOf(fixture(4.0, "-", "お茶")))
         val l = Listener(Vec3(0f, 1.3f, 0f), 1f, 0f)
         assertTrue(StoreGuide.nearShelves(far, l).isEmpty())
-        assertTrue(StoreGuide.inFront(listOf(item("緑茶", 2.5f, 1.4f, 0f)), l).isEmpty())
         val groups = jp.devfest.shelfsight.assist.ShelfDescriber.Groups.parse("{}")
-        val answer = StoreGuide.tapAnswer(far, listOf(item("緑茶", 2.5f, 1.4f, 0f)), l, groups, 0f)
+        val answer = StoreGuide.tapAnswer(far, listOf(item("緑茶", 4.0f, 1.4f, 0f)), l, groups, 0f)
         assertEquals(StoreGuide.FAR_TEXT, (answer as jp.devfest.shelfsight.assist.TapAnswer.Sentence).text)
+    }
+
+    @Test
+    fun `when every shelf band has the same products it says all of them are`() {
+        val items = listOf(item("チョコ", 2f, 1.5f, 0f), item("チョコ", 2f, 1.0f, 0.2f), item("チョコ", 2f, 0.4f, 0f))
+        assertEquals("全部チョコです。", StoreGuide.facingSentence("チョコ", items, 0f))
+        assertEquals(listOf("上の方" to listOf("チョコ"), "真ん中" to listOf("チョコ"), "下の方" to listOf("チョコ")), StoreGuide.bands(items, 0f))
+        // 1 段だけなら、まとめずに段を言う
+        assertEquals("上の方にはチョコがあります。", StoreGuide.facingSentence("チョコ", items.take(1), 0f))
     }
 
     @Test
     fun `facing sentence is split by height from the floor`() {
         val items = listOf(item("緑茶", 2f, 1.5f, 0f), item("麦茶", 2f, 1.4f, 0.2f), item("コーラ", 2f, 1.0f, 0f), item("水", 2f, 0.4f, 0f))
-        assertEquals("お茶の棚で、上の方には緑茶や麦茶、真ん中にはコーラ、下の方には水があります。", StoreGuide.facingSentence("お茶", items, 0f))
-        assertEquals("緑茶の棚で、上の方には緑茶があります。", StoreGuide.facingSentence(null, listOf(item("緑茶", 2f, 1.5f, 0f)), 0f))
+        assertEquals("上の方には緑茶や麦茶、真ん中にはコーラ、下の方には水があります。", StoreGuide.facingSentence("お茶", items, 0f))
+        assertEquals("上の方には緑茶があります。", StoreGuide.facingSentence(null, listOf(item("緑茶", 2f, 1.5f, 0f)), 0f))
         assertNull(StoreGuide.facingSentence(null, emptyList(), 0f))
     }
 

@@ -97,6 +97,7 @@ targets:
         # ビルドのときに Config.xcconfig / Secrets.xcconfig から入る設定
         GEMINI_API_KEY: $(GEMINI_API_KEY)
         GEMINI_MODELS: $(GEMINI_MODELS)
+        GEMINI_FAST_MODEL: $(GEMINI_FAST_MODEL)
         CLOUD_VISION_API_KEY: $(CLOUD_VISION_API_KEY)
         GCP_API_KEY: $(GCP_API_KEY)
         BACKEND_URL: $(BACKEND_URL)

@@ -18,22 +18,23 @@ struct LookedUp {
 
 /// 1 回たたいたときの答え。
 enum TapAnswer {
-    case sentence(String)
+    /// shelf と bands（上の方・真ん中・下の方ごとの商品の種類）があれば、Gemini で言い直せる。
+    case sentence(String, shelf: String? = nil, bands: [(String, [String])] = [])
     case around(clauses: [String], shelves: [NearShelf])
     case unknown
 }
 
 /// タップで話す文と、質問に答える AI に渡す文脈を、店のモデルと今の位置から作る（Android 版の StoreGuide）。
 enum StoreGuide {
-    /// ここまでの棚と商品だけを話す。遠くの棚を言われても、どこか分からないため。
-    static let rangeM: Float = 2
+    /// ここまでの棚を話す（商品の位置が分かる距離と同じ）。
+    static let rangeM = ShelfMap.maxDepthM
     /// 棚に「向かっている」: この距離以内で、棚の面と向き合う角度（面の法線との角度が facingDeg 以内）。
     static let facingM: Float = 1.8
     static let facingDeg: Float = 40
     private static let maxShelves = 4
     /// 棚の商品として見る範囲（正面からの角度と距離）。
     private static let frontDeg: Float = 35
-    private static let frontM: Float = rangeM
+    private static let frontM: Float = 2.2
     /// モデルがまだないときに、商品だけで棚に向かっていると言える範囲（通路を歩いているだけの横の棚を含めない）。
     private static let itemsOnlyDeg: Float = 20
     private static let itemsOnlyM: Float = 1.5
@@ -192,8 +193,9 @@ enum StoreGuide {
         if facing != nil || front.count >= ShelfDescriber.minProducts {
             let split = ShelfDescriber.split(front.map { RecognizedProduct(left: 0, top: 0, right: 0, bottom: 0, name: $0.name, genre: $0.genre, fine: $0.fine, sim: Float($0.seen)) }, groups)
             let kept = Set(split.kept.map(\.name))
-            if let text = facingSentence(facing?.main, front.filter { kept.contains($0.name) }, floorY) ?? facing.flatMap({ facingSentence($0.main, [], 0) }) {
-                return .sentence(text)
+            let shown = front.filter { kept.contains($0.name) }
+            if let text = facingSentence(facing?.main, shown, floorY) ?? facing.flatMap({ facingSentence($0.main, [], 0) }) {
+                return .sentence(text, shelf: shelfName(facing?.main, shown), bands: bands(shown, floorY))
             }
         }
         if shelves.isEmpty { return (view?.fixtures.isEmpty ?? true) ? .unknown : .sentence(farText) }
@@ -201,29 +203,43 @@ enum StoreGuide {
         return .around(clauses: clauses(near), shelves: near)
     }
 
-    /// 「カップ麺の棚で、上の方にはA、真ん中にはBやC、下の方にはDがあります。」商品がなければ nil。
-    static func facingSentence(_ main: String?, _ items: [MapItem], _ floorY: Float) -> String? {
+    /// 上の方・真ん中・下の方ごとの、見えた回数の多い商品の種類（話す名前）。商品のない段は入れない。
+    static func bands(_ items: [MapItem], _ floorY: Float) -> [(String, [String])] {
         func height(_ m: MapItem) -> Float { m.position.y - floorY }
         let divided: [(String, [MapItem])] = [
             ("上の方", items.filter { height($0) >= upperM }),
             ("真ん中", items.filter { height($0) >= lowerM && height($0) < upperM }),
             ("下の方", items.filter { height($0) < lowerM }),
         ]
-        let bands: [String] = divided.compactMap { band, list in
+        return divided.compactMap { band, list in
             let groups = list.orderedGroups { ShelfDescriber.spoken($0.name) }
-            let kinds = groups.stableSorted { seen($0.values) > seen($1.values) }.prefix(kindsPerBand).map(\.key)
-            return kinds.isEmpty ? nil : "\(band)には\(kinds.joined(separator: "や"))"
+            let kinds = Array(groups.stableSorted { seen($0.values) > seen($1.values) }.prefix(kindsPerBand).map(\.key))
+            return kinds.isEmpty ? nil : (band, kinds)
         }
+    }
+
+    /// 棚の名前（話す名前）。主な商品が分からなければ、見えた回数のいちばん多い商品。
+    private static func shelfName(_ main: String?, _ items: [MapItem]) -> String? {
         var top = main
         if top == nil {
-            let groups = items.orderedGroups { $0.name }
             var best: (key: String, values: [MapItem])?
-            for g in groups where best == nil || seen(g.values) > seen(best!.values) { best = g }
+            for g in items.orderedGroups({ $0.name }) where best == nil || seen(g.values) > seen(best!.values) { best = g }
             top = best?.key
         }
-        guard let top else { return nil }
-        let shelf = "\(ShelfDescriber.spoken(top))の棚"
-        return bands.isEmpty ? "\(shelf)です。" : "\(shelf)で、\(bands.joined(separator: "、"))があります。"
+        return top.map(ShelfDescriber.spoken)
+    }
+
+    /// 「上の方にはA、真ん中にはBやC、下の方にはDがあります。」（棚の名前は言わない）。段に商品がなければ「カップ麺の棚です。」、
+    /// 主な商品も分からなければ nil。2 つ以上の段がどれも同じ種類なら、「全部チョコレート菓子です。」とまとめる。
+    static func facingSentence(_ main: String?, _ items: [MapItem], _ floorY: Float) -> String? {
+        let rows = bands(items, floorY)
+        guard let name = shelfName(main, items) else { return nil }
+        let shelf = "\(name)の棚"
+        if rows.isEmpty { return "\(shelf)です。" }
+        if rows.count >= 2, rows.allSatisfy({ Set($0.1) == Set(rows[0].1) }) {
+            return "全部\(rows[0].1.joined(separator: "や"))です。"
+        }
+        return "\(rows.map { "\($0.0)には\($0.1.joined(separator: "や"))" }.joined(separator: "、"))があります。"
     }
 
     private static func seen(_ items: [MapItem]) -> Int { items.reduce(0) { $0 + $1.seen } }
