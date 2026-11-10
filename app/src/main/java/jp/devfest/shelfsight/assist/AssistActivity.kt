@@ -881,7 +881,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
                 recordButton.text = "計算の準備中"
                 sceneWorker.execute {
                     val done = try {
-                        PrecomputedRecognition.compute(rec.directory, ProductRecognizer.version(this), { recognizer.recognize(it) }, { precomputeCancelled }) { n, total ->
+                        PrecomputedRecognition.compute(rec.directory, ProductRecognizer.version(this), { recognizer.recognize(it, confidence) }, { precomputeCancelled }) { n, total ->
                             runOnUiThread { recordButton.text = "計算中 $n/$total" }
                         }
                     } catch (e: Exception) {

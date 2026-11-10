@@ -30,6 +30,15 @@ class NeighborConfidenceTest {
         assertTrue(c.adjust(Vec3(5.2f, 0f, 0f), 0.1f, top("A", "B", 0.9f)) > 0.7f)
     }
 
+    @Test fun `in one photo the neighbours are boxes within three long sides`() {
+        val c = NeighborConfidence(floatArrayOf(1f, 2f, 3f, 4f), 0.5f, 4, 3f)
+        val tops = listOf(top("A", "B", 0.5f), top("A", "B", 0.8f), top("B", "A", 0.6f))
+        val s = c.inImage(listOf(0f to 0f, 1f to 0f, 2f to 0f), listOf(2f, 2f, 2f), tops)
+        // 1 枚目の周りは A(.8) と B（A が .4）: logit 0、一致 .5、A の平均 .6
+        assertEquals(sigmoid(2 + 3 * 0.5 + 4 * 0.6 + 0.5), s[0], 1e-4f)
+        assertEquals(sigmoid(0.5), c.inImage(listOf(0f to 0f), listOf(1f), tops.take(1))[0], 1e-5f)
+    }
+
     @Test fun `without weights the first probability is kept`() {
         assertEquals(0.83f, NeighborConfidence.parse(null).adjust(Vec3(0f, 0f, 0f), 1f, top("A", "B", 0.83f)), 0f)
     }

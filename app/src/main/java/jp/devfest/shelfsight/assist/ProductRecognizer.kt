@@ -14,13 +14,13 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 
 /**
- * 商品認識ダッシュボード（products/）で作ったモデルで、写っている商品を見つけて名前を付ける（products/infer.py の移植）。
+ * 商品認識ダッシュボード（products/sku26n）で作ったモデルで、写っている商品を見つけてカテゴリを付ける。
  *
- * 1. YOLO で「商品らしいもの」の枠を全部出す（[detect]。写っているものの判定にも使う）
- * 2. 各枠を切り抜いて埋め込み（MobileCLIP-S0 256px）を出し、照合先（命名済みの切り抜き）と比べて名前の候補を出す
- * 3. 周りの商品のジャンル・細分類・カテゴリで選び直す（[ContextAdjust]）
+ * 1. YOLO（sku110k-2）で「商品らしいもの」の枠を全部出す（[detect]。写っているものの判定にも使う）
+ * 2. 各枠の切り抜きを MobileCLIP-S0 で埋め込み、学習した分類層で 122 カテゴリに分ける（[judge]）
+ * 3. 周りの判定との一致で確からしさを付け直す（[NeighborConfidence]、ダッシュボードの「信頼度調整」）
  *
- * モデルと照合先は tools/export_products.py で assets/products/ に書き出す。
+ * モデルは tools/export_products.py と tools/export_category_head.py で assets/products/ に書き出す。
  */
 class ProductRecognizer(context: Context) : AutoCloseable {
     private val env = OrtEnvironment.getEnvironment()
@@ -31,17 +31,8 @@ class ProductRecognizer(context: Context) : AutoCloseable {
     private val embInput = embedder.inputNames.first()
     private val detSize = meta.getInt("detector_size")
     private val embSize = meta.getInt("embed_size")
-    private val dim = meta.getInt("dim")
     private val detThreshold = meta.getDouble("det_threshold").toFloat()
     private val nmsIou = meta.optDouble("nms_iou", 0.5).toFloat()
-    // (ジャンル, 細分類, カテゴリそのもの)。古い gallery.json は 2 つだけなので足りない分は 0
-    private val lambdas = meta.getJSONArray("context_lambda").let { a -> DoubleArray(3) { if (it < a.length()) a.getDouble(it) else 0.0 } }
-
-    private class Product(val key: String, val name: String, val genre: String?, val fine: String?, val start: Int)
-
-    private val products: List<Product>
-    private val gallery: FloatArray
-    private val byKey: Map<String, Product>
 
     private class Category(val name: String, val genre: String)
 
@@ -49,17 +40,6 @@ class ProductRecognizer(context: Context) : AutoCloseable {
     private val head: CategoryHead
 
     init {
-        val list = meta.getJSONArray("products")
-        products = (0 until list.length()).map { i ->
-            val o = list.getJSONObject(i)
-            Product(o.getString("key"), o.getString("name"), o.text("genre"), o.text("fine"), o.getInt("start"))
-        }
-        byKey = products.associateBy { it.key }
-        val count = meta.getInt("count")
-        val raw = context.assets.open("$DIR/gallery.bin").use { it.readBytes() }
-        val half = ByteBuffer.wrap(raw).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
-        gallery = FloatArray(count * dim) { android.util.Half.toFloat(half.get(it)) }
-
         val headMeta = JSONObject(context.assets.open("$DIR/category_head.json").bufferedReader().readText())
         val names = headMeta.getJSONArray("categories")
         categories = (0 until names.length()).map { i -> names.getJSONObject(i).let { Category(it.getString("name"), it.getString("genre")) } }
@@ -96,38 +76,35 @@ class ProductRecognizer(context: Context) : AutoCloseable {
         }
     }
 
-    /** 枠のすべてに、いちばん近い商品の名前を付ける（似ていなくても外さない）。 */
-    fun recognize(image: Bitmap, boxes: List<FloatArray> = detect(image).map { it.first }): List<RecognizedProduct> {
+    /**
+     * 写真 1 枚の枠すべてを分類し、同じ写真の周りの枠との一致で確からしさを付け直して、[KNOWN_PROB] 以上だけを返す
+     * （再生の事前計算。ダッシュボードの「信頼度調整」と同じ計算）。
+     */
+    fun recognize(image: Bitmap, confidence: NeighborConfidence): List<RecognizedProduct> {
+        val boxes = detect(image).map { it.first }
         if (boxes.isEmpty()) return emptyList()
-        val emb = boxes.chunked(EMBED_BATCH).flatMap { part ->
-            val crops = part.map { crop(image, it) }
+        val judged = boxes.chunked(EMBED_BATCH).flatMap { part ->
+            val crops = part.map { cropOf(image, it) }
             try { embed(crops) } finally { crops.forEach { it.recycle() } }
-        }
-
-        val cands = emb.map { e -> topProducts(normalize(e)) }
-        val centers = boxes.map { (it[0] + it[2]) / 2 to (it[1] + it[3]) / 2 }
-        val picked = ContextAdjust.adjust(
-            centers, cands,
-            listOf(
-                ContextAdjust.Level({ byKey[it]?.genre }, lambdas[0]),
-                ContextAdjust.Level({ byKey[it]?.fine }, lambdas[1]),
-                ContextAdjust.Level({ it }, lambdas[2]),  // キーがカテゴリそのもの
-            ),
+        }.mapIndexed { i, e -> classify(e, boxes[i]) }
+        val w = image.width.toFloat()
+        val h = image.height.toFloat()
+        val sure = confidence.inImage(
+            boxes.map { (it[0] + it[2]) / 2 * w to (it[1] + it[3]) / 2 * h },
+            boxes.map { maxOf((it[2] - it[0]) * w, (it[3] - it[1]) * h) },
+            judged.map { it.second },
         )
-        return boxes.indices.mapNotNull { i ->
-            val p = picked[i]
-            val prod = p.key?.let { byKey[it] } ?: return@mapNotNull null
-            val b = boxes[i]
-            RecognizedProduct(b[0], b[1], b[2], b[3], prod.name, prod.genre, prod.fine, p.sim)
-        }
+        return judged.indices.filter { sure[it] >= KNOWN_PROB }.map { judged[it].first }
     }
 
-    /** 枠の切り抜き（分類層の学習と同じく広げない）。[judge] にそのまま渡せる大きさで、解放は呼ぶ側で行う。 */
-    fun cropOf(image: Bitmap, box: FloatArray): Bitmap = crop(image, box, 0f)
+    /** 枠の切り抜き（分類層の学習と同じく広げず、正方形に引き伸ばす）。[judge] にそのまま渡せる大きさで、解放は呼ぶ側で行う。 */
+    fun cropOf(image: Bitmap, box: FloatArray): Bitmap = crop(image, box)
 
     /** 切り抜き 1 枚を 122 カテゴリに分類する。@return 1 位の商品と、確率の高い順の上位 5 つ（[NeighborConfidence] に渡す） */
-    fun judge(crop: Bitmap, box: FloatArray): Pair<RecognizedProduct, List<Pair<String, Float>>> {
-        val p = head.probabilities(normalize(embed(listOf(crop)).single()))
+    fun judge(crop: Bitmap, box: FloatArray): Pair<RecognizedProduct, List<Pair<String, Float>>> = classify(embed(listOf(crop)).single(), box)
+
+    private fun classify(embedding: FloatArray, box: FloatArray): Pair<RecognizedProduct, List<Pair<String, Float>>> {
+        val p = head.probabilities(normalize(embedding))
         val order = p.indices.sortedByDescending { p[it] }.take(TOP_CATEGORIES)
         val category = categories[order[0]]
         return RecognizedProduct(box[0], box[1], box[2], box[3], category.name, category.genre, category.name, p[order[0]]) to
@@ -142,32 +119,11 @@ class ProductRecognizer(context: Context) : AutoCloseable {
             }
         }
 
-    /** 商品ごとの最大類似度の上位 [TOP_K]。 */
-    private fun topProducts(e: FloatArray): List<ContextAdjust.Candidate> {
-        val best = FloatArray(products.size)
-        val count = gallery.size / dim
-        for ((pi, p) in products.withIndex()) {
-            val end = if (pi + 1 < products.size) products[pi + 1].start else count
-            var m = -1f
-            for (row in p.start until end) {
-                var s = 0f
-                val o = row * dim
-                for (k in 0 until dim) s += gallery[o + k] * e[k]
-                if (s > m) m = s
-            }
-            best[pi] = m
-        }
-        return best.indices.sortedByDescending { best[it] }.take(TOP_K).map { ContextAdjust.Candidate(products[it].key, best[it]) }
-    }
-
-    /** 枠を少し広げて切り抜き、正方形に引き伸ばす（照合先と同じ作り方。products/s2_crops.py）。 */
-    private fun crop(image: Bitmap, b: FloatArray, pad: Float = CROP_PAD): Bitmap {
-        val px = (b[2] - b[0]) * pad
-        val py = (b[3] - b[1]) * pad
-        val l = ((b[0] - px) * image.width).toInt().coerceIn(0, image.width - 1)
-        val t = ((b[1] - py) * image.height).toInt().coerceIn(0, image.height - 1)
-        val r = ((b[2] + px) * image.width).toInt().coerceIn(l + 1, image.width)
-        val btm = ((b[3] + py) * image.height).toInt().coerceIn(t + 1, image.height)
+    private fun crop(image: Bitmap, b: FloatArray): Bitmap {
+        val l = (b[0] * image.width).toInt().coerceIn(0, image.width - 1)
+        val t = (b[1] * image.height).toInt().coerceIn(0, image.height - 1)
+        val r = (b[2] * image.width).toInt().coerceIn(l + 1, image.width)
+        val btm = (b[3] * image.height).toInt().coerceIn(t + 1, image.height)
         val out = Bitmap.createBitmap(embSize, embSize, Bitmap.Config.ARGB_8888)
         Canvas(out).drawBitmap(image, Rect(l, t, r, btm), Rect(0, 0, embSize, embSize), Paint(Paint.FILTER_BITMAP_FLAG))
         return out
@@ -204,10 +160,8 @@ class ProductRecognizer(context: Context) : AutoCloseable {
 
     companion object {
         private const val DIR = "products"
-        private const val TOP_K = 10
         /** 枠は 1 枚で 100 個を超えることがある。256px を一度に埋め込むとメモリを食うので分ける。 */
         private const val EMBED_BATCH = 8
-        private const val CROP_PAD = 0.04f
         /**
          * 地図に置く確からしさ（[NeighborConfidence] で調整したもの）。検証写真で、調整前の確率 0.7 以上は枠の 52% を残して 87% が正解、
          * 調整後 0.7 以上は 53% を残して 91% が正解だった（Gemini の確定ラベルとの一致。products/sku26n）。
@@ -216,9 +170,9 @@ class ProductRecognizer(context: Context) : AutoCloseable {
         private const val TOP_CATEGORIES = 5
 
         /** 照合先やカテゴリを作り直すと変わる値。事前計算の結果が今のモデルのものかを見分ける。 */
-        fun version(context: Context): String = context.assets.open("$DIR/gallery.json").bufferedReader().use { it.readText() }.hashCode().toString()
+        fun version(context: Context): String = listOf("gallery.json", "category_head.json")
+            .joinToString("|") { context.assets.open("$DIR/$it").bufferedReader().use { r -> r.readText() }.hashCode().toString() }
 
-        private fun JSONObject.text(name: String): String? = if (isNull(name)) null else optString(name).ifEmpty { null }
 
         private fun normalize(v: FloatArray): FloatArray {
             var s = 0f
