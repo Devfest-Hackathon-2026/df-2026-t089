@@ -14,6 +14,8 @@ final class NeighborConfidence {
     }
 
     private static let maxJudged = 3000
+    /// 同じ商品をもう一度見ただけとみなす距離（ShelfMap.sameSpotM と同じ。テストでカメラまわりを持ち込まないよう、ここに置く）。
+    private static let sameSpotM: Float = 0.12
 
     private let coef: [Float]?
     private let intercept: Float
@@ -35,7 +37,7 @@ final class NeighborConfidence {
         let (cat, prob) = top[0]
         let near = judged.map { ($0, $0.position.distanceTo(position)) }
             // 同じ場所の判定は、同じ商品をもう一度見ただけなので周りに入れない
-            .filter { $0.1 >= ShelfMap.sameSpotM && $0.1 <= radius * sizeM }
+            .filter { $0.1 >= Self.sameSpotM && $0.1 <= radius * sizeM }
             .stableSorted { $0.1 < $1.1 }.prefix(k).map(\.0)
         judged.append(Judged(position: position, top: Dictionary(top, uniquingKeysWith: { a, _ in a }), first: cat))
         if judged.count > Self.maxJudged { judged.removeFirst() }
