@@ -257,6 +257,9 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         testView = SpatialTestView(this) { demoListener() to demoPosition() }.apply { visibility = View.GONE }
         topViewButton = Button(this).apply {
             text = "2D"
+            visibility = View.GONE
+            setOnClickListener { topView = !topView; text = if (topView) "3D" else "2D"; legend.showTopViewRows(topView) }
+        }
         val logToggle = Button(this).apply {
             text = "ログ"
             setOnClickListener {
@@ -270,9 +273,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             visibility = View.GONE
             addView(modelText, FrameLayout.LayoutParams(-1, -1))
             addView(logToggle, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END))
-        }
-            visibility = View.GONE
-            setOnClickListener { topView = !topView; text = if (topView) "3D" else "2D"; legend.showTopViewRows(topView) }
         }
         legend = StoreLegend(this) { storeLayers = it }.apply { visibility = View.GONE }
         val names = listOf("案内", "3D", "立体音響")
@@ -521,7 +521,6 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
 
     // ---------------------------------------------------------------- ①② 写っているものの判定
 
-    /**
     /** 映像を画面いっぱいの大きさで描き、中央の帯だけを下半分に出す（縦横比を保つ）。 */
     private fun drawCameraInBottomHalf(frame: com.google.ar.core.Frame, height: Int) {
         glEnable(android.opengl.GLES20.GL_SCISSOR_TEST)
@@ -535,6 +534,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         }
     }
 
+    /**
      * 1 秒ごと: 商品の枠を出して写っているものを判定し、枠ごとの切り抜きを判定待ちに入れ、画像と姿勢を記録する。
      * 事前計算のトグルが ON のときは、保存済みの名前をすぐ地図に置く。
      */
