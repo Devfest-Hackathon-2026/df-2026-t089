@@ -25,15 +25,15 @@ enum TapAnswer {
 
 /// タップで話す文と、質問に答える AI に渡す文脈を、店のモデルと今の位置から作る（Android 版の StoreGuide）。
 enum StoreGuide {
-    /// ここまでの棚を話す（商品の位置が分かる距離と同じ）。
-    static let rangeM = ShelfMap.maxDepthM
+    /// ここまでの棚と商品だけを話す。遠くの棚を言われても、どこか分からないため。
+    static let rangeM: Float = 2
     /// 棚に「向かっている」: この距離以内で、棚の面と向き合う角度（面の法線との角度が facingDeg 以内）。
     static let facingM: Float = 1.8
     static let facingDeg: Float = 40
     private static let maxShelves = 4
     /// 棚の商品として見る範囲（正面からの角度と距離）。
     private static let frontDeg: Float = 35
-    private static let frontM: Float = 2.2
+    private static let frontM: Float = rangeM
     /// モデルがまだないときに、商品だけで棚に向かっていると言える範囲（通路を歩いているだけの横の棚を含めない）。
     private static let itemsOnlyDeg: Float = 20
     private static let itemsOnlyM: Float = 1.5
@@ -45,6 +45,8 @@ enum StoreGuide {
     private static let edgeM = 0.1
     /// 商品がどの什器に置かれているかを決めるときの、什器の外側の余裕（商品の位置の誤差）。
     private static let ownerMarginM = 0.35
+    /// 店のモデルはあるが、rangeM 以内に話せる棚がないとき。
+    static let farText = "近くに分かっている棚がありません。棚の方へ少し歩いてください。"
     private static let maxMapLines = 30
     private static let maxItemLines = 60
     private static let maxLookedLines = 10
@@ -95,10 +97,12 @@ enum StoreGuide {
         return out.stableSorted { $0.distance < $1.distance }
     }
 
-    /// 方向ごとにいちばん近い棚を、話す分だけ。
+    /// 方向ごとにいちばん近い棚を、話す分だけ。前の棚があれば先に話し、あとは近い順。
     static func toSpeak(_ shelves: [NearShelf]) -> [NearShelf] {
         var seen = Set<String>()
-        return Array(shelves.filter { seen.insert(direction($0.azimuthDeg)).inserted }.prefix(maxShelves))
+        // 前の棚があれば先に話し、あとは近い順
+        let ordered = shelves.stableSorted { direction($0.azimuthDeg) == "前" && direction($1.azimuthDeg) != "前" }
+        return Array(ordered.filter { seen.insert(direction($0.azimuthDeg)).inserted }.prefix(maxShelves))
     }
 
     /// 「右にはカップ麺の棚、」「前にはお菓子の棚があります。」のように、1 棚ごとの文。チャイムを挟むので分ける。
@@ -192,7 +196,7 @@ enum StoreGuide {
                 return .sentence(text)
             }
         }
-        if shelves.isEmpty { return .unknown }
+        if shelves.isEmpty { return (view?.fixtures.isEmpty ?? true) ? .unknown : .sentence(farText) }
         let near = toSpeak(shelves)
         return .around(clauses: clauses(near), shelves: near)
     }

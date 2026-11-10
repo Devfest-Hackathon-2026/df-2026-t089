@@ -24,7 +24,9 @@ MAX_NAMED = 20        # ProductRecognizer.MAX_CROPS
 ESTIMATE_S = 3.0      # AssistActivity.STORE_ESTIMATE_MS
 SNAP_EVERY = 3        # 再生用に店モデルを残す間隔（ステップ）
 RANGE_M, FACING_M, FACING_DEG, MAX_SHELVES = 3.5, 1.8, 40.0, 4
-FRONT_DEG, FRONT_M, ITEMS_ONLY_DEG, ITEMS_ONLY_M = 35.0, 2.2, 20.0, 1.5
+SPEAK_M = 2.0  # StoreGuide.RANGE_M: ここまでの棚と商品だけを話す
+FRONT_DEG, FRONT_M, ITEMS_ONLY_DEG, ITEMS_ONLY_M = 35.0, SPEAK_M, 20.0, 1.5
+FAR_TEXT = "近くに分かっている棚がありません。棚の方へ少し歩いてください。"
 EDGE_M, OWNER_MARGIN_M = 0.1, 0.35  # StoreGuide: 見えるかを調べるとき什器の両端を縮める量、商品の置かれた什器を決める余裕
 KINDS_PER_BAND, UPPER_M, LOWER_M = 3, 1.25, 0.75
 MIN_PRODUCTS, OUTLIER_SHARE = 3, 0.25
@@ -278,7 +280,7 @@ def near_shelves(view, l):
             pu, pv = (face, center(i)) if f["axis"] == 0 else (center(i), face)
             at = (pu * cs - pv * sn, l["p"][1], pu * sn + pv * cs)
             d = hypot(at[0] - l["p"][0], at[2] - l["p"][2])
-            if d > RANGE_M:
+            if d > SPEAK_M:
                 continue
             if _blocked(view, u, v, pu, pv, f):  # ほかの什器の陰で見えない
                 continue
@@ -351,9 +353,11 @@ def tap_answer(view, items, l, floor_y):
         if t is not None:
             return {"kind": "sentence", "text": t}
     if not shelves:
+        if view and view["fixtures"]:
+            return {"kind": "sentence", "text": FAR_TEXT}
         return {"kind": "unknown", "text": "まだ棚が分かりません。棚の方を向いて、少し歩いてください。"}
     speak, seen = [], set()
-    for s in shelves:
+    for s in sorted(shelves, key=lambda s: 0 if direction(s["az"]) == "前" else 1):  # 前の棚を先に、あとは近い順
         d = direction(s["az"])
         if d not in seen:
             seen.add(d)

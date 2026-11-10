@@ -21,15 +21,15 @@ sealed interface TapAnswer {
 
 /** タップで話す文と、質問に答える AI に渡す文脈を、店のモデルと今の位置から作る。 */
 object StoreGuide {
-    /** ここまでの棚を話す（商品の位置が分かる距離 [ShelfMap.MAX_DEPTH_M] と同じ）。 */
-    const val RANGE_M = ShelfMap.MAX_DEPTH_M
+    /** ここまでの棚と商品だけを話す。遠くの棚を言われても、どこか分からないため。 */
+    const val RANGE_M = 2f
     /** 棚に「向かっている」: この距離以内で、棚の面と向き合う角度（面の法線との角度が [FACING_DEG] 以内）。 */
     const val FACING_M = 1.8f
     const val FACING_DEG = 40f
     private const val MAX_SHELVES = 4
     /** 棚の商品として見る範囲（正面からの角度と距離）。 */
     private const val FRONT_DEG = 35f
-    private const val FRONT_M = 2.2f
+    private const val FRONT_M = RANGE_M
     /** モデルがまだないときに、商品だけで棚に向かっていると言える範囲（通路を歩いているだけの横の棚を含めない）。 */
     private const val ITEMS_ONLY_DEG = 20f
     private const val ITEMS_ONLY_M = 1.5f
@@ -41,6 +41,8 @@ object StoreGuide {
     private const val EDGE_M = 0.1
     /** 商品がどの什器に置かれているかを決めるときの、什器の外側の余裕（商品の位置の誤差）。 */
     private const val OWNER_MARGIN_M = 0.35
+    /** 店のモデルはあるが、[RANGE_M] 以内に話せる棚がないとき。 */
+    const val FAR_TEXT = "近くに分かっている棚がありません。棚の方へ少し歩いてください。"
 
     /** 右が正の方位角（度）を、話す方向にする。 */
     fun direction(azimuthDeg: Float): String {
@@ -87,9 +89,9 @@ object StoreGuide {
         return out.sortedBy { it.distance }
     }
 
-    /** 方向ごとにいちばん近い棚を、話す分だけ。 */
+    /** 方向ごとにいちばん近い棚を、話す分だけ。前の棚があれば先に話し、あとは近い順。 */
     fun toSpeak(shelves: List<NearShelf>): List<NearShelf> =
-        shelves.distinctBy { direction(it.azimuthDeg) }.take(MAX_SHELVES)
+        shelves.sortedBy { if (direction(it.azimuthDeg) == "前") 0 else 1 }.distinctBy { direction(it.azimuthDeg) }.take(MAX_SHELVES)
 
     /** 「右にはカップ麺の棚、」「前にはお菓子の棚があります。」のように、1 棚ごとの文。ポンの音を挟むので分ける。 */
     fun clauses(shelves: List<NearShelf>): List<String> = shelves.mapIndexed { i, s ->
@@ -181,7 +183,7 @@ object StoreGuide {
             val text = facingSentence(facing?.main, front.filter { it.name in kept }, floorY) ?: facing?.let { facingSentence(it.main, emptyList(), 0f) }
             if (text != null) return TapAnswer.Sentence(text)
         }
-        if (shelves.isEmpty()) return TapAnswer.Unknown
+        if (shelves.isEmpty()) return if (view?.fixtures.isNullOrEmpty()) TapAnswer.Unknown else TapAnswer.Sentence(FAR_TEXT)
         val near = toSpeak(shelves)
         return TapAnswer.Around(clauses(near), near)
     }

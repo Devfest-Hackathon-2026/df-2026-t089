@@ -49,27 +49,50 @@ class StoreGuideTest {
         assertTrue(StoreGuide.nearShelves(view, behindShelf).none { it.main == "お茶" })
     }
 
-    /** x=2 に両面の島の棚（手前の面がお茶、奥の面がお菓子）、その奥の x=3.6 に -x を向く壁ぎわの棚（カップ麺）。 */
+    /** x=2 に両面の島の棚（手前の面がお茶、奥の面がお菓子）、その奥の x=2.9 に -x を向く壁ぎわの棚（カップ麺、z=0〜1.2）。 */
     private val island = StoreFixture("island", 0, 2.0, -0.6, 0.6, 0.9, 1.8, 1, 1.2, mapOf("-" to listOf(listOf("お茶" to 0.8)), "+" to listOf(listOf("お菓子" to 0.8))))
-    private val behind = StoreView(0.0, doubleArrayOf(-3.0, -3.0, 5.0, 3.0), listOf(island, fixture(3.6, "-", "カップ麺")))
+    private val backWall = StoreFixture("wall", 0, 2.9, 0.0, 1.2, 0.0, 1.8, 1, 1.2, mapOf("-" to listOf(listOf("カップ麺" to 0.8))))
+    private val behind = StoreView(0.0, doubleArrayOf(-3.0, -3.0, 5.0, 3.0), listOf(island, backWall))
+    private val behindItems = listOf(item("緑茶", 1.55f, 1.4f, 0f), item("ポテトチップス", 2.45f, 1.0f, 0.1f), item("カップヌードル", 2.9f, 1.0f, 0.6f))
 
     @Test
     fun `a shelf hidden behind the shelf in front is not described`() {
-        val facingIsland = Listener(Vec3(0.8f, 1.3f, 0f), 1f, 0f)
+        val facingIsland = Listener(Vec3(1.3f, 1.3f, 0f), 1f, 0f)
         val near = StoreGuide.nearShelves(behind, facingIsland)
         assertEquals(listOf("お茶"), near.map { it.main })
         assertTrue(near.first().facing)
-        val items = listOf(item("緑茶", 1.55f, 1.4f, 0f), item("ポテトチップス", 2.45f, 1.0f, 0.1f), item("カップヌードル", 3.6f, 1.0f, 0f))
-        assertEquals(listOf("緑茶"), StoreGuide.visibleItems(behind, items, facingIsland).map { it.name })
+        assertEquals(listOf("緑茶"), StoreGuide.visibleItems(behind, behindItems, facingIsland).map { it.name })
     }
 
     @Test
     fun `stepping past the end of the shelf in front shows the shelf behind it`() {
-        val pastTheEnd = Listener(Vec3(0.8f, 1.3f, 1.5f), 1f, 0f)
+        val pastTheEnd = Listener(Vec3(1.3f, 1.3f, 1.0f), 1f, 0f)
         assertTrue(StoreGuide.nearShelves(behind, pastTheEnd).any { it.main == "カップ麺" })
-        val onTheOtherSide = Listener(Vec3(2.9f, 1.3f, 0f), 1f, 0f)
-        val items = listOf(item("緑茶", 1.55f, 1.4f, 0f), item("ポテトチップス", 2.45f, 1.0f, 0.1f), item("カップヌードル", 3.6f, 1.0f, 0f))
-        assertEquals(listOf("ポテトチップス", "カップヌードル"), StoreGuide.visibleItems(behind, items, onTheOtherSide).map { it.name })
+        val onTheOtherSide = Listener(Vec3(2.7f, 1.3f, 0f), 1f, 0f)
+        assertEquals(listOf("ポテトチップス", "カップヌードル"), StoreGuide.visibleItems(behind, behindItems, onTheOtherSide).map { it.name })
+    }
+
+    @Test
+    fun `the shelf in front is spoken first, then the nearer ones`() {
+        // 左 1.0 m にカップ麺、前 1.9 m にお茶、右 1.5 m にお菓子
+        val view = StoreView(0.0, null, listOf(
+            StoreFixture("wall", 0, -1.0, -0.6, 0.6, 0.0, 1.8, 1, 1.2, mapOf("+" to listOf(listOf("カップ麺" to 0.8)))),
+            StoreFixture("wall", 1, -1.9, -0.6, 0.6, 0.0, 1.8, 1, 1.2, mapOf("+" to listOf(listOf("お茶" to 0.8)))),
+            StoreFixture("wall", 0, 1.5, -0.6, 0.6, 0.0, 1.8, 1, 1.2, mapOf("-" to listOf(listOf("お菓子" to 0.8)))),
+        ))
+        val l = Listener(Vec3(0f, 1.3f, 0f), 0f, -1f)
+        assertEquals(listOf("前にはお茶の棚、", "左にはカップ麺の棚、", "右にはお菓子の棚があります。"), StoreGuide.clauses(StoreGuide.toSpeak(StoreGuide.nearShelves(view, l))))
+    }
+
+    @Test
+    fun `shelves and products beyond 2 m are not described`() {
+        val far = StoreView(0.0, null, listOf(fixture(2.5, "-", "お茶")))
+        val l = Listener(Vec3(0f, 1.3f, 0f), 1f, 0f)
+        assertTrue(StoreGuide.nearShelves(far, l).isEmpty())
+        assertTrue(StoreGuide.inFront(listOf(item("緑茶", 2.5f, 1.4f, 0f)), l).isEmpty())
+        val groups = jp.devfest.shelfsight.assist.ShelfDescriber.Groups.parse("{}")
+        val answer = StoreGuide.tapAnswer(far, listOf(item("緑茶", 2.5f, 1.4f, 0f)), l, groups, 0f)
+        assertEquals(StoreGuide.FAR_TEXT, (answer as jp.devfest.shelfsight.assist.TapAnswer.Sentence).text)
     }
 
     @Test
