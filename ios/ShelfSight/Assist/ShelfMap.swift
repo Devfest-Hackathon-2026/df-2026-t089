@@ -45,6 +45,12 @@ final class ShelfMap {
         if pending.count > Self.maxItems { pending.removeFirst() }
     }
 
+    /// 分類しなかった（確からしさが低かった、判定待ちから捨てた）点を消す。
+    func removePending(_ position: Vec3) {
+        lock.lock(); defer { lock.unlock() }
+        pending.removeAll { $0.distanceTo(position) < Self.sameSpotM }
+    }
+
     func pendingPoints() -> [Vec3] { lock.lock(); defer { lock.unlock() }; return pending }
 
     func snapshot() -> [MapItem] { lock.lock(); defer { lock.unlock() }; return items }

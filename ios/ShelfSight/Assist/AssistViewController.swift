@@ -34,8 +34,8 @@ final class Assist: NSObject, ARSessionDelegate, CLLocationManagerDelegate {
     private static let storeEstimateMs: Int64 = 3000
     private static let demoTickS = 0.05
     private static let backendUploadMs: Int64 = 60_000   // 送るたびに店の検索（Places API）と OR-Tools が 1 回ずつ動く
-    /// 判定待ちの切り抜きは、メモリを食わないよう数を抑える。
-    private static let maxPendingCrops = 240
+    /// 判定待ちの切り抜きは、メモリを食わないよう数を抑える。iOS は Core ML で判定が速く計算に余裕があるので、Android 版（240）より多く持つ。
+    private static let maxPendingCrops = 480
     private static let identifyIdleS = 0.03
     private static let deviceHeightM: Float = 1.3
     /// スマホ（胸の高さ）から見たレジの天板の高さ。
@@ -364,10 +364,12 @@ final class Assist: NSObject, ARSessionDelegate, CLLocationManagerDelegate {
         for (b, confidence) in boxes {
             guard let at = locate(b, f, walls) else { continue }
             if shelfMap.touch(at.position, at.widthM, at.heightM, now, camera) { continue }
-            shelfMap.addPending(at.position)
             guard let crop = recognizer.cropOf(image, b) else { continue }
-            cropQueue.add(CropQueue.Entry(crop: crop, box: b, position: at.position, camera: camera, widthM: at.widthM, heightM: at.heightM,
-                                          area: SceneJudge.area(b), time: now, confidence: confidence))
+            let (added, dropped) = cropQueue.add(CropQueue.Entry(crop: crop, box: b, position: at.position, camera: camera, widthM: at.widthM, heightM: at.heightM,
+                                                                 area: SceneJudge.area(b), time: now, confidence: confidence))
+            if let dropped { shelfMap.removePending(dropped) }
+            // 確からしさが低かった場所は、十分大きく写るまで茶色の点も出さない
+            if added { shelfMap.addPending(at.position) }
         }
     }
 
@@ -381,23 +383,23 @@ final class Assist: NSObject, ARSessionDelegate, CLLocationManagerDelegate {
 
     private func identifyOne() {
         guard Memory.availableMB() >= Self.minAvailableMB, let recognizer = recognizer.get,
-              let e = cropQueue.take(user: deviceAt, now: nowMs()) else {
+              let e = cropQueue.take() else {
             Thread.sleep(forTimeInterval: Self.identifyIdleS)
             return
         }
         do {
             let (judged, top) = try recognizer.judge(e.crop, e.box)
             let p = confidence.adjust(e.position, sizeM: max(e.widthM, e.heightM), top: top) >= ProductRecognizer.knownProb ? judged : nil
-            if let p {
-                shelfMap.add(p.name, p.genre, p.fine, e.position, e.widthM, e.heightM, e.time, e.camera)
-                if let g = sceneGeometry { debug.products = shelfMap.visible(g) }   // 分かったものから順に出す
-            } else {
+            guard let p else {
+                // MobileCLIP の確からしさが低いものは無視する（地図にも店のモデルにも入れない。棚の形は枠の位置から別に入っている）
                 cropQueue.reject(e)
+                shelfMap.removePending(e.position)
+                return
             }
-            // 分からなかった点も、棚の形の手がかりとしてカテゴリなしで渡す
-            let name = p?.name ?? "", genre = p?.genre ?? ""
+            shelfMap.add(p.name, p.genre, p.fine, e.position, e.widthM, e.heightM, e.time, e.camera)
+            if let g = sceneGeometry { debug.products = shelfMap.visible(g) }   // 分かったものから順に出す
             sceneWorker.async { [self] in
-                storeModel.addProduct(Double(e.camera.x), Double(e.camera.z), Double(e.position.x), Double(e.position.z), name, genre)
+                storeModel.addProduct(Double(e.camera.x), Double(e.camera.z), Double(e.position.x), Double(e.position.z), p.name, p.genre)
             }
         } catch {
             logInfo("Assist", "crop identification failed: \(error)")

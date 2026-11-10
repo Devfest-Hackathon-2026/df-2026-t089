@@ -1,8 +1,9 @@
 import Foundation
 
 /**
- * MobileCLIP の判定を待つ、点ごとの切り抜き。判定には時間がかかり全部は追いつかないので、
- * 今いる場所に近く、新しく、大きく写り、検出の確からしさが高いものから取り出す。
+ * MobileCLIP の判定を待つ、点ごとの切り抜き（iOS 版）。Core ML で判定が速くなり計算に余裕があるので、
+ * 検出（YOLO）の確からしさが高い順に、片っ端から取り出す（同じなら大きく写った方から）。
+ * Android 版は、今いる場所に近く新しいものを先にする（CropQueue.kt）。
  */
 final class CropQueue<T> {
     struct Entry {
@@ -17,9 +18,6 @@ final class CropQueue<T> {
         let confidence: Float
     }
 
-    private static var ageSeconds: Float { 0.2 }   // 5 秒古いと 1 m 遠いのと同じ
-    private static var areaWeight: Float { 2 }
-    private static var confidenceWeight: Float { 1 }  // 確からしさ 0.5 の差は 0.5 m 近いのと同じ
     private static var retryArea: Float { 1.5 }
     private static var maxRejected: Int { 1000 }
 
@@ -40,27 +38,36 @@ final class CropQueue<T> {
         if rejected.count > Self.maxRejected { rejected.removeFirst() }
     }
 
-    /// 同じ場所の切り抜きは大きく写った方だけ残す。
-    func add(_ entry: Entry) {
+    /**
+     * 同じ場所の切り抜きは大きく写った方だけ残す。判定待ちに入った（または同じ場所の切り抜きがすでに待っている）なら added。
+     * 分からなかった場所で、前より十分大きく写っていなければ入れない（added は false）。
+     * 上限を超えたら、検出の確からしさがいちばん低いものを捨て、その場所を dropped で返す。
+     */
+    @discardableResult
+    func add(_ entry: Entry) -> (added: Bool, dropped: Vec3?) {
         lock.lock(); defer { lock.unlock() }
-        if let failed = rejected.first(where: { $0.position.distanceTo(entry.position) < ShelfMap.sameSpotM }), entry.area < failed.area * Self.retryArea { return }
+        if let failed = rejected.first(where: { $0.position.distanceTo(entry.position) < ShelfMap.sameSpotM }), entry.area < failed.area * Self.retryArea {
+            return (false, nil)
+        }
         if let same = items.firstIndex(where: { $0.position.distanceTo(entry.position) < ShelfMap.sameSpotM }) {
-            if items[same].area >= entry.area { return }
-            items.remove(at: same)
-            items.append(entry)
-            return
+            if items[same].area < entry.area { items[same] = entry }
+            return (true, nil)
         }
         items.append(entry)
-        if items.count > capacity, let oldest = items.indices.min(by: { items[$0].time < items[$1].time }) { items.remove(at: oldest) }
+        guard items.count > capacity, let worst = items.indices.min(by: { Self.before(items[$1], items[$0]) }) else { return (true, nil) }
+        let dropped = items.remove(at: worst)
+        return (dropped.position != entry.position, dropped.position)
     }
 
-    /// いちばん優先度の高い切り抜きを取り出す。空なら nil。
-    func take(user: Vec3?, now: Int64) -> Entry? {
+    /// いちばん確からしい切り抜きを取り出す。空なら nil。
+    func take() -> Entry? {
         lock.lock(); defer { lock.unlock() }
-        func score(_ e: Entry) -> Float {
-            (user?.distanceTo(e.position) ?? 0) + Float(now - e.time) / 1000 * Self.ageSeconds - e.area * Self.areaWeight - e.confidence * Self.confidenceWeight
-        }
-        guard let best = items.indices.min(by: { score(items[$0]) < score(items[$1]) }) else { return nil }
+        guard let best = items.indices.min(by: { Self.before(items[$0], items[$1]) }) else { return nil }
         return items.remove(at: best)
+    }
+
+    /// a を b より先に判定するか。
+    private static func before(_ a: Entry, _ b: Entry) -> Bool {
+        a.confidence != b.confidence ? a.confidence > b.confidence : a.area > b.area
     }
 }
