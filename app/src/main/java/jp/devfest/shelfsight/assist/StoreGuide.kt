@@ -37,6 +37,10 @@ object StoreGuide {
     /** 床からの高さで分ける（棚は 1.8 m ほど）。 */
     private const val UPPER_M = 1.25f
     private const val LOWER_M = 0.75f
+    /** 見えるかを調べるとき、什器の両端をこれだけ縮める（棚の角をかすめるだけなら見えていることにする）。 */
+    private const val EDGE_M = 0.1
+    /** 商品がどの什器に置かれているかを決めるときの、什器の外側の余裕（商品の位置の誤差）。 */
+    private const val OWNER_MARGIN_M = 0.35
 
     /** 右が正の方位角（度）を、話す方向にする。 */
     fun direction(azimuthDeg: Float): String {
@@ -71,6 +75,7 @@ object StoreGuide {
             val at = Vec3(pu * cs - pv * sn, l.position.y, pu * sn + pv * cs)
             val distance = hypot(at.x - l.position.x, at.z - l.position.z)
             if (distance > RANGE_M) continue
+            if (blocked(view, u.toDouble(), v.toDouble(), pu.toDouble(), pv.toDouble(), f)) continue   // ほかの什器の陰で見えない
             val nu = if (f.axis == 0) s else 0f
             val nv = if (f.axis == 0) 0f else s
             val nx = nu * cs - nv * sn
@@ -102,9 +107,71 @@ object StoreGuide {
     /** モデルがまだないときに、棚に向かっていると言える商品。 */
     fun squarelyInFront(items: List<MapItem>, l: Listener): List<MapItem> = items.filter { aimedAt(it, l, ITEMS_ONLY_DEG, ITEMS_ONLY_M) }
 
+    /** 店の座標 (u, v) での什器の四角形 (u0, v0, u1, v1)。[across] は厚みの方向に広げる量、[along] は長さの方向に広げる量（負なら縮める）。 */
+    private fun rect(f: StoreFixture, across: Double, along: Double): DoubleArray {
+        val c0 = f.c - f.d / 2 - across
+        val c1 = f.c + f.d / 2 + across
+        val l0 = minOf(f.a, f.b) - along
+        val l1 = maxOf(f.a, f.b) + along
+        return if (f.axis == 0) doubleArrayOf(c0, l0, c1, l1) else doubleArrayOf(l0, c0, l1, c1)
+    }
+
+    /** 線分 (x0, y0)-(x1, y1) が四角形を通るか（Liang–Barsky）。端の点で触れるだけなら通らないことにする。 */
+    private fun crosses(x0: Double, y0: Double, x1: Double, y1: Double, r: DoubleArray): Boolean {
+        if (r[0] > r[2] || r[1] > r[3]) return false
+        val dx = x1 - x0
+        val dy = y1 - y0
+        val p = doubleArrayOf(-dx, dx, -dy, dy)
+        val q = doubleArrayOf(x0 - r[0], r[2] - x0, y0 - r[1], r[3] - y0)
+        var t0 = 0.0
+        var t1 = 1.0
+        for (k in 0..3) {
+            if (p[k] == 0.0) {
+                if (q[k] < 0) return false
+            } else {
+                val t = q[k] / p[k]
+                if (p[k] < 0) { if (t > t1) return false; if (t > t0) t0 = t } else { if (t < t0) return false; if (t < t1) t1 = t }
+            }
+        }
+        return t0 <= t1 && t1 > 1e-6 && t0 < 1 - 1e-6
+    }
+
+    /** 店の座標で (u0, v0) から (u1, v1) を見たとき、[skip] 以外の什器に遮られるか。 */
+    private fun blocked(view: StoreView, u0: Double, v0: Double, u1: Double, v1: Double, skip: StoreFixture?): Boolean =
+        view.fixtures.any { it !== skip && crosses(u0, v0, u1, v1, rect(it, 0.0, -EDGE_M)) }
+
+    /**
+     * 今の位置から見える商品だけ。置かれている什器の裏の面にある商品と、ほかの什器の陰にある商品を外す
+     * （正面の棚を見ているときに、記憶している 1 つ奥の棚の商品まで話さないように）。
+     */
+    fun visibleItems(view: StoreView, items: List<MapItem>, l: Listener): List<MapItem> {
+        val cs = cos(view.yaw)
+        val sn = sin(view.yaw)
+        val lu = l.position.x * cs + l.position.z * sn
+        val lv = -l.position.x * sn + l.position.z * cs
+        return items.filter { item ->
+            val iu = item.position.x * cs + item.position.z * sn
+            val iv = -item.position.x * sn + item.position.z * cs
+            val owner = view.fixtures.filter { f ->
+                val r = rect(f, OWNER_MARGIN_M, OWNER_MARGIN_M)
+                iu in r[0]..r[2] && iv in r[1]..r[3]
+            }.minByOrNull { f -> abs((if (f.axis == 0) iu else iv) - f.c) }
+            if (owner != null) {
+                // 商品が向いている面: 片面の什器ならその面、両面なら什器の中心のどちら側にあるか
+                val side = when {
+                    owner.faces.keys.size == 1 -> if ("+" in owner.faces) 1.0 else -1.0
+                    else -> Math.signum((if (owner.axis == 0) iu else iv) - owner.c)
+                }
+                if (side != 0.0 && ((if (owner.axis == 0) lu else lv) - owner.c) * side <= 0) return@filter false
+            }
+            !blocked(view, lu, lv, iu, iv, owner)
+        }
+    }
+
     /** 1 回たたいたときに話すことを決める。棚に向かっていればその棚の説明、近くに棚があれば方向ごとの棚。 */
-    fun tapAnswer(view: StoreView?, items: List<MapItem>, l: Listener, groups: ShelfDescriber.Groups, floorY: Float): TapAnswer {
+    fun tapAnswer(view: StoreView?, allItems: List<MapItem>, l: Listener, groups: ShelfDescriber.Groups, floorY: Float): TapAnswer {
         val shelves = view?.let { nearShelves(it, l) }.orEmpty()
+        val items = view?.let { visibleItems(it, allItems, l) } ?: allItems
         val facing = shelves.firstOrNull { it.facing }
         // モデルができる前でも、正面の棚の商品が十分見えていれば答える
         val front = if (facing != null) inFront(items, l) else if (shelves.isEmpty()) squarelyInFront(items, l) else emptyList()

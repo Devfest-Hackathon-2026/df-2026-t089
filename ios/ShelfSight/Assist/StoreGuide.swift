@@ -41,6 +41,10 @@ enum StoreGuide {
     /// 床からの高さで分ける（棚は 1.8 m ほど）。
     private static let upperM: Float = 1.25
     private static let lowerM: Float = 0.75
+    /// 見えるかを調べるとき、什器の両端をこれだけ縮める（棚の角をかすめるだけなら見えていることにする）。
+    private static let edgeM = 0.1
+    /// 商品がどの什器に置かれているかを決めるときの、什器の外側の余裕（商品の位置の誤差）。
+    private static let ownerMarginM = 0.35
     private static let maxMapLines = 30
     private static let maxItemLines = 60
     private static let maxLookedLines = 10
@@ -79,6 +83,7 @@ enum StoreGuide {
                 let at = Vec3(pu * cs - pv * sn, l.position.y, pu * sn + pv * cs)
                 let distance = hypot(at.x - l.position.x, at.z - l.position.z)
                 if distance > rangeM { continue }
+                if blocked(view, Double(u), Double(v), Double(pu), Double(pv), skip: f) { continue }   // ほかの什器の陰で見えない
                 let nu: Float = f.axis == 0 ? s : 0
                 let nv: Float = f.axis == 0 ? 0 : s
                 let nx = nu * cs - nv * sn
@@ -107,9 +112,69 @@ enum StoreGuide {
         hypot(item.position.x - l.position.x, item.position.z - l.position.z) <= maxM && abs(degrees(Binaural.azimuth(l, item.position))) <= maxDeg
     }
 
+    /// 店の座標 (u, v) での什器の四角形 (u0, v0, u1, v1)。across は厚みの方向に広げる量、along は長さの方向に広げる量（負なら縮める）。
+    private static func rect(_ f: StoreFixture, across: Double, along: Double) -> [Double] {
+        let c0 = f.c - f.d / 2 - across, c1 = f.c + f.d / 2 + across
+        let l0 = min(f.a, f.b) - along, l1 = max(f.a, f.b) + along
+        return f.axis == 0 ? [c0, l0, c1, l1] : [l0, c0, l1, c1]
+    }
+
+    /// 線分 (x0, y0)-(x1, y1) が四角形を通るか（Liang–Barsky）。端の点で触れるだけなら通らないことにする。
+    private static func crosses(_ x0: Double, _ y0: Double, _ x1: Double, _ y1: Double, _ r: [Double]) -> Bool {
+        if r[0] > r[2] || r[1] > r[3] { return false }
+        let dx = x1 - x0, dy = y1 - y0
+        let p = [-dx, dx, -dy, dy]
+        let q = [x0 - r[0], r[2] - x0, y0 - r[1], r[3] - y0]
+        var t0 = 0.0, t1 = 1.0
+        for k in 0..<4 {
+            if p[k] == 0 {
+                if q[k] < 0 { return false }
+            } else {
+                let t = q[k] / p[k]
+                if p[k] < 0 {
+                    if t > t1 { return false }
+                    t0 = max(t0, t)
+                } else {
+                    if t < t0 { return false }
+                    t1 = min(t1, t)
+                }
+            }
+        }
+        return t0 <= t1 && t1 > 1e-6 && t0 < 1 - 1e-6
+    }
+
+    /// 店の座標で (u0, v0) から (u1, v1) を見たとき、skip 以外の什器に遮られるか。
+    private static func blocked(_ view: StoreView, _ u0: Double, _ v0: Double, _ u1: Double, _ v1: Double, skip: StoreFixture?) -> Bool {
+        view.fixtures.contains { $0 !== skip && crosses(u0, v0, u1, v1, rect($0, across: 0, along: -edgeM)) }
+    }
+
+    /// 今の位置から見える商品だけ。置かれている什器の裏の面にある商品と、ほかの什器の陰にある商品を外す
+    /// （正面の棚を見ているときに、記憶している 1 つ奥の棚の商品まで話さないように）。
+    static func visibleItems(_ view: StoreView, _ items: [MapItem], _ l: Listener) -> [MapItem] {
+        let cs = cos(view.yaw), sn = sin(view.yaw)
+        let lu = Double(l.position.x) * cs + Double(l.position.z) * sn
+        let lv = -Double(l.position.x) * sn + Double(l.position.z) * cs
+        return items.filter { item in
+            let iu = Double(item.position.x) * cs + Double(item.position.z) * sn
+            let iv = -Double(item.position.x) * sn + Double(item.position.z) * cs
+            let owner = view.fixtures.filter { f in
+                let r = rect(f, across: ownerMarginM, along: ownerMarginM)
+                return iu >= r[0] && iu <= r[2] && iv >= r[1] && iv <= r[3]
+            }.min { abs(($0.axis == 0 ? iu : iv) - $0.c) < abs(($1.axis == 0 ? iu : iv) - $1.c) }
+            if let owner {
+                // 商品が向いている面: 片面の什器ならその面、両面なら什器の中心のどちら側にあるか
+                let x = (owner.axis == 0 ? iu : iv) - owner.c
+                let side: Double = owner.faces.count == 1 ? (owner.faces["+"] != nil ? 1 : -1) : (x > 0 ? 1 : x < 0 ? -1 : 0)
+                if side != 0 && ((owner.axis == 0 ? lu : lv) - owner.c) * side <= 0 { return false }
+            }
+            return !blocked(view, lu, lv, iu, iv, skip: owner)
+        }
+    }
+
     /// 1 回たたいたときに話すことを決める。棚に向かっていればその棚の説明、近くに棚があれば方向ごとの棚。
-    static func tapAnswer(_ view: StoreView?, _ items: [MapItem], _ l: Listener, _ groups: ShelfDescriber.Groups, floorY: Float) -> TapAnswer {
+    static func tapAnswer(_ view: StoreView?, _ allItems: [MapItem], _ l: Listener, _ groups: ShelfDescriber.Groups, floorY: Float) -> TapAnswer {
         let shelves = view.map { nearShelves($0, l) } ?? []
+        let items = view.map { visibleItems($0, allItems, l) } ?? allItems
         let facing = shelves.first { $0.facing }
         // モデルができる前でも、正面の棚の商品が十分見えていれば答える
         let front: [MapItem]

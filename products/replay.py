@@ -25,6 +25,7 @@ ESTIMATE_S = 3.0      # AssistActivity.STORE_ESTIMATE_MS
 SNAP_EVERY = 3        # 再生用に店モデルを残す間隔（ステップ）
 RANGE_M, FACING_M, FACING_DEG, MAX_SHELVES = 3.5, 1.8, 40.0, 4
 FRONT_DEG, FRONT_M, ITEMS_ONLY_DEG, ITEMS_ONLY_M = 35.0, 2.2, 20.0, 1.5
+EDGE_M, OWNER_MARGIN_M = 0.1, 0.35  # StoreGuide: 見えるかを調べるとき什器の両端を縮める量、商品の置かれた什器を決める余裕
 KINDS_PER_BAND, UPPER_M, LOWER_M = 3, 1.25, 0.75
 MIN_PRODUCTS, OUTLIER_SHARE = 3, 0.25
 MAX_MAP_LINES, MAX_ITEM_LINES, MAX_LOOKED_LINES = 30, 60, 10
@@ -202,6 +203,62 @@ def azimuth(l, p):
     return degrees(atan2(dx * -l["fz"] + dz * l["fx"], dx * l["fx"] + dz * l["fz"]))
 
 
+def _rect(f, across, along):
+    """StoreGuide.rect: 店の座標での什器の四角形 (u0, v0, u1, v1)"""
+    c0, c1 = f["c"] - f["d"] / 2 - across, f["c"] + f["d"] / 2 + across
+    l0, l1 = min(f["a"], f["b"]) - along, max(f["a"], f["b"]) + along
+    return (c0, l0, c1, l1) if f["axis"] == 0 else (l0, c0, l1, c1)
+
+
+def _crosses(x0, y0, x1, y1, r):
+    """StoreGuide.crosses: 線分が四角形を通るか（端の点で触れるだけなら通らない）"""
+    if r[0] > r[2] or r[1] > r[3]:
+        return False
+    dx, dy = x1 - x0, y1 - y0
+    t0, t1 = 0.0, 1.0
+    for p, q in ((-dx, x0 - r[0]), (dx, r[2] - x0), (-dy, y0 - r[1]), (dy, r[3] - y0)):
+        if p == 0:
+            if q < 0:
+                return False
+        else:
+            t = q / p
+            if p < 0:
+                if t > t1:
+                    return False
+                t0 = max(t0, t)
+            else:
+                if t < t0:
+                    return False
+                t1 = min(t1, t)
+    return t0 <= t1 and t1 > 1e-6 and t0 < 1 - 1e-6
+
+
+def _blocked(view, u0, v0, u1, v1, skip):
+    return any(f is not skip and _crosses(u0, v0, u1, v1, _rect(f, 0.0, -EDGE_M)) for f in view["fixtures"])
+
+
+def visible_items(view, items, l):
+    """StoreGuide.visibleItems: 置かれた什器の裏の面と、ほかの什器の陰にある商品を外す"""
+    cs, sn = cos(view["yaw"]), sin(view["yaw"])
+    lu, lv = l["p"][0] * cs + l["p"][2] * sn, -l["p"][0] * sn + l["p"][2] * cs
+    out = []
+    for i in items:
+        iu, iv = i.pos[0] * cs + i.pos[2] * sn, -i.pos[0] * sn + i.pos[2] * cs
+        owners = [f for f in view["fixtures"] if (r := _rect(f, OWNER_MARGIN_M, OWNER_MARGIN_M)) and r[0] <= iu <= r[2] and r[1] <= iv <= r[3]]
+        owner = min(owners, key=lambda f: abs((iu if f["axis"] == 0 else iv) - f["c"])) if owners else None
+        if owner is not None:
+            if len(owner["faces"]) == 1:
+                side = 1.0 if "+" in owner["faces"] else -1.0
+            else:
+                x = (iu if owner["axis"] == 0 else iv) - owner["c"]
+                side = (x > 0) - (x < 0)
+            if side != 0 and ((lu if owner["axis"] == 0 else lv) - owner["c"]) * side <= 0:
+                continue
+        if not _blocked(view, lu, lv, iu, iv, owner):
+            out.append(i)
+    return out
+
+
 def near_shelves(view, l):
     cs, sn = cos(view["yaw"]), sin(view["yaw"])
     u, v = l["p"][0] * cs + l["p"][2] * sn, -l["p"][0] * sn + l["p"][2] * cs
@@ -222,6 +279,8 @@ def near_shelves(view, l):
             at = (pu * cs - pv * sn, l["p"][1], pu * sn + pv * cs)
             d = hypot(at[0] - l["p"][0], at[2] - l["p"][2])
             if d > RANGE_M:
+                continue
+            if _blocked(view, u, v, pu, pv, f):  # ほかの什器の陰で見えない
                 continue
             nu, nv = (s, 0) if f["axis"] == 0 else (0, s)
             nx, nz = nu * cs - nv * sn, nu * sn + nv * cs
@@ -281,6 +340,7 @@ def facing_sentence(main, items, floor_y):
 def tap_answer(view, items, l, floor_y):
     """StoreGuide.tapAnswer"""
     shelves = near_shelves(view, l) if view else []
+    items = visible_items(view, items, l) if view else items
     facing = next((s for s in shelves if s["facing"]), None)
     front = [i for i in items if aimed(i, l, FRONT_DEG, FRONT_M)] if facing else [i for i in items if aimed(i, l, ITEMS_ONLY_DEG, ITEMS_ONLY_M)] if not shelves else []
     if facing or len(front) >= MIN_PRODUCTS:
