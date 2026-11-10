@@ -98,7 +98,7 @@ final class ProductRecognizer {
         )
         let (out, _) = try embedder.run(input, shape: [1, 3, embSize, embSize])
         let p = head.probabilities(Self.normalize(out))
-        let order = Array(p.indices.stableSorted { p[$0] > p[$1] }.prefix(Self.topCategories))
+        let order = Array(Array(p.indices).stableSorted { p[$0] > p[$1] }.prefix(Self.topCategories))
         let c = categories[order[0]]
         return (RecognizedProduct(left: box[0], top: box[1], right: box[2], bottom: box[3], name: c.name, genre: c.genre, fine: c.name, sim: p[order[0]]),
                 order.map { (categories[$0].name, p[$0]) })
