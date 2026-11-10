@@ -223,7 +223,7 @@ enum StoreGuide {
         var top = main
         if top == nil {
             var best: (key: String, values: [MapItem])?
-            for g in items.orderedGroups({ $0.name }) where best == nil || seen(g.values) > seen(best!.values) { best = g }
+            for g in items.orderedGroups(by: { $0.name }) where best == nil || seen(g.values) > seen(best!.values) { best = g }
             top = best?.key
         }
         return top.map(ShelfDescriber.spoken)
