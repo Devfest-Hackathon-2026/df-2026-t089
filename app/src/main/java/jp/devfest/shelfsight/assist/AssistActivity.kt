@@ -11,6 +11,9 @@ import android.opengl.GLES20.GL_COLOR_BUFFER_BIT
 import android.opengl.GLES20.GL_DEPTH_BUFFER_BIT
 import android.opengl.GLES20.glClear
 import android.opengl.GLES20.glClearColor
+import android.opengl.GLES20.glDisable
+import android.opengl.GLES20.glEnable
+import android.opengl.GLES20.glScissor
 import android.opengl.GLES20.glViewport
 import android.opengl.GLSurfaceView
 import android.net.Uri
@@ -169,6 +172,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private lateinit var modelLabel: TextView
     private lateinit var debugOverlay: DebugOverlay
     private lateinit var tabs: List<Button>
+    @Volatile private var showModelLog = false
+    private lateinit var modelPanel: FrameLayout
     private lateinit var recordButton: Button
     private lateinit var replayButton: Button
     private val recordingLibrary by lazy { RecordingLibrary(java.io.File(getExternalFilesDir(null), "recordings")) }
@@ -248,6 +253,20 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         testView = SpatialTestView(this) { demoListener() to demoPosition() }.apply { visibility = View.GONE }
         topViewButton = Button(this).apply {
             text = "2D"
+        val logToggle = Button(this).apply {
+            text = "ログ"
+            setOnClickListener {
+                showModelLog = !showModelLog
+                text = if (showModelLog) "カメラ" else "ログ"
+                modelText.visibility = if (showModelLog) View.VISIBLE else View.GONE
+            }
+        }
+        modelPanel = FrameLayout(this).apply {
+            isClickable = true   // 下半分をなぞっても上の 3D が回らないように
+            visibility = View.GONE
+            addView(modelText, FrameLayout.LayoutParams(-1, -1))
+            addView(logToggle, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END))
+        }
             visibility = View.GONE
             setOnClickListener { topView = !topView; text = if (topView) "3D" else "2D"; legend.showTopViewRows(topView) }
         }
@@ -271,9 +290,12 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         setContentView(FrameLayout(this).apply {
             addView(gl)
             addView(debugOverlay, FrameLayout.LayoutParams(-1, -1))
-            addView(storeLabels, FrameLayout.LayoutParams(-1, -1))
             addView(touch, FrameLayout.LayoutParams(-1, -1))
-            addView(modelText, FrameLayout.LayoutParams(-1, resources.displayMetrics.heightPixels / 3, Gravity.BOTTOM))
+            addView(LinearLayout(this@AssistActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(storeLabels, LinearLayout.LayoutParams(-1, 0, 1f))
+                addView(modelPanel, LinearLayout.LayoutParams(-1, 0, 1f))
+            }, FrameLayout.LayoutParams(-1, -1))
             addView(testView, FrameLayout.LayoutParams(-1, -1))
             addView(tabBar, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
             addView(topViewButton, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END))
@@ -400,7 +422,14 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val camera = frame.camera
         // 3D モデルを見ている間も、下の認識と地図づくりは止めない
         if (showModel) {
-            storeLabels.labels = storeRenderer.draw(storeView, orbit, viewW, viewH, devicePose, (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, shelfMap.snapshot(), people, topView, storeLayers, savedView, shelfMap.pendingPoints())
+            val modelH = viewH / 2
+            glViewport(0, viewH - modelH, viewW, modelH)
+            try {
+                storeLabels.labels = storeRenderer.draw(storeView, orbit, viewW, modelH, devicePose, (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, shelfMap.snapshot(), people, topView, storeLayers, savedView, shelfMap.pendingPoints())
+            } finally {
+                glViewport(0, 0, viewW, viewH)
+            }
+            if (!showModelLog) drawCameraInBottomHalf(frame, viewH - modelH)
             storeLabels.postInvalidate()
         } else if (showTest) storeRenderer.drawDemo(testOrbit, viewW, viewH, demoListener(), demoPosition(), SpatialDemo.chimeSlot(demoSeconds()) != null)
         else background.draw(frame)
@@ -489,6 +518,19 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     // ---------------------------------------------------------------- ①② 写っているものの判定
 
     /**
+    /** 映像を画面いっぱいの大きさで描き、中央の帯だけを下半分に出す（縦横比を保つ）。 */
+    private fun drawCameraInBottomHalf(frame: com.google.ar.core.Frame, height: Int) {
+        glEnable(android.opengl.GLES20.GL_SCISSOR_TEST)
+        glScissor(0, 0, viewW, height)
+        glViewport(0, (height - viewH) / 2, viewW, viewH)
+        try {
+            background.draw(frame)
+        } finally {
+            glViewport(0, 0, viewW, viewH)
+            glDisable(android.opengl.GLES20.GL_SCISSOR_TEST)
+        }
+    }
+
      * 1 秒ごと: 商品の枠を出して写っているものを判定し、枠ごとの切り抜きを判定待ちに入れ、画像と姿勢を記録する。
      * 事前計算のトグルが ON のときは、保存済みの名前をすぐ地図に置く。
      */
@@ -925,10 +967,10 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         testView.visibility = if (showTest) View.VISIBLE else View.GONE
         demoHandler.removeCallbacks(demoTick)
         if (showTest) startDemo()
-        modelText.visibility = if (model) View.VISIBLE else View.GONE
-        storeLabels.visibility = modelText.visibility
-        topViewButton.visibility = modelText.visibility
-        legend.visibility = modelText.visibility
+        modelPanel.visibility = if (model) View.VISIBLE else View.GONE
+        storeLabels.visibility = modelPanel.visibility
+        topViewButton.visibility = modelPanel.visibility
+        legend.visibility = modelPanel.visibility
         if (model) storeView?.let { fitOrbit(it) }
     }
 
@@ -976,7 +1018,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val cs = kotlin.math.cos(v.yaw)
         val sn = kotlin.math.sin(v.yaw)
         // 縦長の画面は横が狭いので、棚のジャンルの文字が画面に入るまで引いて見る
-        orbit.fit(Vec3((cu * cs - cv * sn).toFloat(), (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, (cu * sn + cv * cs).toFloat()), maxOf(r[2] - r[0], r[3] - r[1]).toFloat() / 2 * viewH / viewW.coerceAtLeast(1))
+        orbit.fit(Vec3((cu * cs - cv * sn).toFloat(), (deviceAt?.y ?: 0f) - DEVICE_HEIGHT_M, (cu * sn + cv * cs).toFloat()), maxOf(r[2] - r[0], r[3] - r[1]).toFloat() / 2 * (viewH / 2) / viewW.coerceAtLeast(1))
     }
 
     private val orbitScale by lazy {

@@ -59,8 +59,7 @@ internal class StoreLabelsView(context: Context) : View(context) {
             val box = RectF(l.x - half, l.y - height, l.x + half, l.y)   // 点や棚のすぐ上に出す
             if (l.shelf) box.offset(
                 if (box.left < 0) -box.left else minOf(0f, width - box.right),
-                // 下の 3 分の 1 は店の説明の文章で隠れる
-                if (box.top < topInset) topInset - box.top else minOf(0f, this.height * 2f / 3 - box.bottom),
+                if (box.top < topInset) topInset - box.top else minOf(0f, this.height - box.bottom),
             )
             if (taken.any { RectF.intersects(it, box) }) continue   // 重なる文字は読めないので描かない
             taken += box
