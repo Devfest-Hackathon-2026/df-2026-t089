@@ -2,7 +2,7 @@
 
   .venv/Scripts/python tools/export_category_head.py
 
-書き出すもの（app/src/main/assets/products/、git には入れない）
+書き出すもの（app/src/main/assets/products/）
   category_head.bin   float32 のリトルエンディアン。1 層目の重み・バイアス、2 層目の重み・バイアスの順
   category_head.json  入力と中間層の次元、カテゴリの一覧（コード・名前・アプリの棚の種類）、信頼度調整の重み
 """

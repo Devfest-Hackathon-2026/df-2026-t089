@@ -49,7 +49,7 @@ VoiceOver が有効なときは、ダブルタップが 1 回たたく、ダブ�
 
 `.github/workflows/ios-build.yml` が、`ios/` などの変更を push したときと手動で、署名なしのビルドと推定のテスト（Android 版と同じデータで `StoreModel` が同じ結果になること）を動かします。シークレットはいりません。
 
-`mobileclip_s0.onnx` と `category_head.*` は git に入れていないので、Actions で作ったアプリには入りません（ビルドは通りますが、商品の分類は動きません）。商品の分類まで動かすには、これらを置いた手元の Mac でビルドします。
+商品の分類のモデル（`mobileclip_s0.onnx` と `category_head.*`）も git に入っているので、Actions で作ったアプリでも分類まで動きます。
 
 ## GitHub Actions から TestFlight へ
 
