@@ -40,6 +40,8 @@ VoiceOver が有効なときは、ダブルタップが 1 回たたく、ダブ�
 
 モデルと照合先は Android 版と同じファイル（`app/src/main/assets/products/` と `coarse/categories.json`）を、ビルドのときにそのままアプリに入れます。
 
+ただし MobileCLIP-S0 だけは、入力を 1 枚に固定した iOS 用のもの（`ios/Models/mobileclip_s0.onnx`）を入れます。Android 版のものは切り抜きをまとめて入れられるよう枚数が決まっておらず、Core ML（Neural Engine・GPU）に渡せないため CPU で動き、ONNX Runtime の作業用のメモリが返らずに増え続けて解析が止まっていました。Android 版の `mobileclip_s0.onnx` を入れ替えたときは、`tools/export_ios_mobileclip.py` で作り直してください（`pip install onnx onnxruntime`）。
+
 入れていないもの:
 
 - 録画と再生、再生の事前計算（ARCore の録画機能に合わせた開発用の機能で、ARKit には同じ機能がない）

@@ -21,10 +21,35 @@ targets:
     scheme: {}
     sources:
       - path: ShelfSight
-      # モデルと照合先は Android 版と同じもの（app/src/main/assets）を、そのまま入れる
-      - path: ../app/src/main/assets/products
-        type: folder
-        buildPhase: resources
+      # モデルは Android 版と同じもの（app/src/main/assets/products）を、アプリの products/ に入れる。
+      # MobileCLIP だけは、入力を 1 枚に固定した iOS 用のもの（tools/export_ios_mobileclip.py で作る）。
+      # Android 版のものは枚数が決まっておらず Core ML に渡せないので、CPU で動いて作業用のメモリが増え続けていた。
+      # gallery.bin は iOS 版では使わない
+      - path: ../app/src/main/assets/products/detector.onnx
+        buildPhase:
+          copyFiles:
+            destination: resources
+            subpath: products
+      - path: ../app/src/main/assets/products/gallery.json
+        buildPhase:
+          copyFiles:
+            destination: resources
+            subpath: products
+      - path: ../app/src/main/assets/products/category_head.json
+        buildPhase:
+          copyFiles:
+            destination: resources
+            subpath: products
+      - path: ../app/src/main/assets/products/category_head.bin
+        buildPhase:
+          copyFiles:
+            destination: resources
+            subpath: products
+      - path: Models/mobileclip_s0.onnx
+        buildPhase:
+          copyFiles:
+            destination: resources
+            subpath: products
       # 商品のジャンル → 7 つのまとまり（場違いな商品を外すのに使う）。歩行中の判別のモデルは入れない
       - path: ../app/src/main/assets/coarse/categories.json
         buildPhase: resources
