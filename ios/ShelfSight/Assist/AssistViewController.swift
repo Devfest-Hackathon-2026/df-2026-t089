@@ -399,7 +399,7 @@ final class Assist: NSObject, ARSessionDelegate, CLLocationManagerDelegate {
             shelfMap.add(p.name, p.genre, p.fine, e.position, e.widthM, e.heightM, e.time, e.camera)
             if let g = sceneGeometry { debug.products = shelfMap.visible(g) }   // 分かったものから順に出す
             sceneWorker.async { [self] in
-                storeModel.addProduct(Double(e.camera.x), Double(e.camera.z), Double(e.position.x), Double(e.position.z), p.name, p.genre)
+                storeModel.addProduct(Double(e.camera.x), Double(e.camera.z), Double(e.position.x), Double(e.position.z), p.name, p.genre ?? "")
             }
         } catch {
             logInfo("Assist", "crop identification failed: \(error)")
