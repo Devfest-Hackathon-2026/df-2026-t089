@@ -97,6 +97,8 @@ final class Assist: NSObject, ARSessionDelegate, CLLocationManagerDelegate {
     // ------------------------------------------------------------ 地図
     /// 点ごとの切り抜き。identifyLoop が優先度の高いものから MobileCLIP で判定する。
     private let cropQueue = CropQueue<RGBAImage>(capacity: Assist.maxPendingCrops)
+    /// 判定した確からしさを、地図で近くの判定との一致で付け直す。
+    private let confidence = NeighborConfidence.fromBundle()
     /// 認識の結果を、AR 空間に貯めたもの（アプリを閉じると消える）。
     private let shelfMap = ShelfMap()
     /// 認識した商品の位置から推定する店のモデル。sceneWorker からだけ触る。
@@ -377,7 +379,8 @@ final class Assist: NSObject, ARSessionDelegate, CLLocationManagerDelegate {
             return
         }
         do {
-            let p = try recognizer.judge(e.crop, e.box)
+            let (judged, top) = try recognizer.judge(e.crop, e.box)
+            let p = confidence.adjust(e.position, sizeM: max(e.widthM, e.heightM), top: top) >= ProductRecognizer.knownProb ? judged : nil
             if let p {
                 shelfMap.add(p.name, p.genre, p.fine, e.position, e.widthM, e.heightM, e.time, e.camera)
                 if let g = sceneGeometry { debug.products = shelfMap.visible(g) }   // 分かったものから順に出す

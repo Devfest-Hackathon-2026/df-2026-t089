@@ -97,6 +97,9 @@ targets:
       - path: ShelfSight/Assist/StoreModel.swift
       - path: ShelfSight/Assist/MirrorCorrection.swift
       - path: ShelfSight/Assist/MultiLineRansac.swift
+      - path: ShelfSight/Assist/NeighborConfidence.swift
+      - path: ShelfSight/Assist/ShelfMap.swift
+      - path: ShelfSight/Model/Detection.swift
       - path: ShelfSight/Util/Sync.swift
       - path: ../app/src/test/resources/store_model_trace.tsv
         buildPhase: resources

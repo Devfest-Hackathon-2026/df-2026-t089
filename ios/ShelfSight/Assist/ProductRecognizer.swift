@@ -6,8 +6,9 @@ import Foundation
  */
 final class ProductRecognizer {
     private static let directory = "products"
-    /// 検証では、確率 0.7 以上の箱の 87% が正解だった（Gemini の確定ラベルとの一致。products/sku26n）。
-    private static let knownProb: Float = 0.7
+    /// 地図に置く確からしさ（NeighborConfidence で調整したもの）。検証写真で、調整後 0.7 以上は枠の 53% を残して 91% が正解だった（調整前は 52% で 87%）。
+    static let knownProb: Float = 0.7
+    private static let topCategories = 5
 
     private struct Category {
         let name: String
@@ -87,8 +88,8 @@ final class ProductRecognizer {
         return ImageUtil.crop(image, l, t, r, btm)
     }
 
-    /// 切り抜き 1 枚を 122 カテゴリに分類する。確率が knownProb 未満なら、分からないとして nil。
-    func judge(_ crop: RGBAImage, _ box: [Float]) throws -> RecognizedProduct? {
+    /// 切り抜き 1 枚を 122 カテゴリに分類する。1 位の商品と、確率の高い順の上位 5 つ（NeighborConfidence に渡す）を返す。
+    func judge(_ crop: RGBAImage, _ box: [Float]) throws -> (RecognizedProduct, [(String, Float)]) {
         var input = [Float](repeating: 0, count: 3 * embSize * embSize)
         // 正方形に引き伸ばす（学習と同じ作り方）
         ImageUtil.chw(
@@ -96,10 +97,11 @@ final class ProductRecognizer {
             dest: (0, 0, Float(embSize), Float(embSize)), fill: (0, 0, 0), into: &input, at: 0
         )
         let (out, _) = try embedder.run(input, shape: [1, 3, embSize, embSize])
-        let (index, prob) = head.predict(Self.normalize(out))
-        if prob < Self.knownProb { return nil }
-        let c = categories[index]
-        return RecognizedProduct(left: box[0], top: box[1], right: box[2], bottom: box[3], name: c.name, genre: c.genre, fine: c.name, sim: prob)
+        let p = head.probabilities(Self.normalize(out))
+        let order = Array(p.indices.stableSorted { p[$0] > p[$1] }.prefix(Self.topCategories))
+        let c = categories[order[0]]
+        return (RecognizedProduct(left: box[0], top: box[1], right: box[2], bottom: box[3], name: c.name, genre: c.genre, fine: c.name, sim: p[order[0]]),
+                order.map { (categories[$0].name, p[$0]) })
     }
 
     private static func normalize(_ v: [Float]) -> [Float] {
@@ -134,14 +136,14 @@ final class CategoryHead {
         self.dim = dim; self.hidden = hidden; self.classes = classes; self.weights = weights
     }
 
-    /// いちばん確率の高いカテゴリの番号と、その確率。embedding は長さ 1 に正規化したもの。
-    func predict(_ embedding: [Float]) -> (Int, Float) {
+    /// カテゴリごとの確率（softmax）。embedding は長さ 1 に正規化したもの。
+    func probabilities(_ embedding: [Float]) -> [Float] {
         let middle = layer(embedding, dim, hidden, 0).map { max($0, 0) }
         let logits = layer(middle, hidden, classes, (dim + 1) * hidden)
-        var best = 0
-        for i in logits.indices where logits[i] > logits[best] { best = i }
-        let sum = logits.reduce(0) { $0 + exp($1 - logits[best]) }
-        return (best, 1 / sum)
+        let top = logits.max() ?? 0
+        let e = logits.map { exp($0 - top) }
+        let sum = e.reduce(0, +)
+        return e.map { $0 / sum }
     }
 
     private func layer(_ input: [Float], _ inputs: Int, _ outputs: Int, _ offset: Int) -> [Float] {
