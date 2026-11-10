@@ -28,6 +28,15 @@ targets:
       # 商品のジャンル → 7 つのまとまり（場違いな商品を外すのに使う）。歩行中の判別のモデルは入れない
       - path: ../app/src/main/assets/coarse/categories.json
         buildPhase: resources
+      # 店のテーマ、人の検出のモデル、頭部インパルス応答も Android 版と同じもの
+      - path: ../app/src/main/assets/store_themes.json
+        buildPhase: resources
+      - path: ../app/src/main/assets/person
+        type: folder
+        buildPhase: resources
+      - path: ../app/src/main/assets/hrtf
+        type: folder
+        buildPhase: resources
     dependencies:
       # onnxruntime.xcframework の中身は静的ライブラリなので、リンクするだけでアプリに入れない
       # （入れると App Store Connect が ITMS-90208・90035 で断る）
@@ -54,6 +63,7 @@ targets:
         NSCameraUsageDescription: 棚と商品、近づいてくる人を見分けるためにカメラを使います。
         NSMicrophoneUsageDescription: 2回たたいたあとの質問を聞き取るためにマイクを使います。
         NSSpeechRecognitionUsageDescription: 質問を文字にするために音声認識を使います。
+        NSLocationWhenInUseUsageDescription: いる店を調べて、その店の地図を読み込むために位置情報を使います。
         # 記録（records/）を「ファイル」アプリから取り出せるようにする
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
@@ -64,6 +74,8 @@ targets:
         GEMINI_MODELS: $(GEMINI_MODELS)
         CLOUD_VISION_API_KEY: $(CLOUD_VISION_API_KEY)
         GCP_API_KEY: $(GCP_API_KEY)
+        BACKEND_URL: $(BACKEND_URL)
+        BACKEND_API_KEY: $(BACKEND_API_KEY)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(SHELFSIGHT_BUNDLE_ID)
@@ -74,3 +86,23 @@ targets:
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
         ENABLE_BITCODE: false
+  # カメラのいらない推定の処理だけを、Android 版と同じデータで確かめる（アプリを起動しない）
+  ShelfSightTests:
+    type: bundle.unit-test
+    platform: iOS
+    scheme:
+      testTargets: [ShelfSightTests]
+    sources:
+      - path: ShelfSightTests
+      - path: ShelfSight/Assist/StoreModel.swift
+      - path: ShelfSight/Assist/MirrorCorrection.swift
+      - path: ShelfSight/Assist/MultiLineRansac.swift
+      - path: ShelfSight/Util/Sync.swift
+      - path: ../app/src/test/resources/store_model_trace.tsv
+        buildPhase: resources
+      - path: ../app/src/main/assets/store_themes.json
+        buildPhase: resources
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: jp.devfest.shelfsight.tests

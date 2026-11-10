@@ -10,6 +10,9 @@ on:
       - "ios/**"
       - "app/src/main/assets/products/**"
       - "app/src/main/assets/coarse/categories.json"
+      - "app/src/main/assets/person/**"
+      - "app/src/main/assets/hrtf/**"
+      - "app/src/main/assets/store_themes.json"
       - ".github/workflows/ios-testflight.yml"
 
 concurrency:
@@ -57,6 +60,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GCP_API_KEY: ${{ secrets.GCP_API_KEY }}
+          BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
           ASC_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
         run: |
           {
@@ -64,6 +68,7 @@ jobs:
             echo "SHELFSIGHT_BUNDLE_ID = $BUNDLE_ID"
             echo "GEMINI_API_KEY = $GEMINI_API_KEY"
             echo "GCP_API_KEY = $GCP_API_KEY"
+            echo "BACKEND_API_KEY = $BACKEND_API_KEY"
           } > ios/Secrets.xcconfig
           mkdir -p "$RUNNER_TEMP/keys"
           printf '%s\n' "$ASC_PRIVATE_KEY" > "$RUNNER_TEMP/keys/AuthKey.p8"

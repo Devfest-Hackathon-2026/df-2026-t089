@@ -1,47 +1,27 @@
-import CoreGraphics
 import Foundation
 
 /**
- * 商品認識ダッシュボード（products/）で作ったモデルで、写っている商品を見つけて名前を付ける（products/infer.py の移植）。
- *
- * 1. YOLO で「商品らしいもの」の枠を全部出す（detect。写っているものの判定にも使う）
- * 2. 各枠を切り抜いて埋め込み（MobileNetV3-small 128px）を出し、照合先（命名済みの切り抜き）と比べて名前の候補を出す
- * 3. 周りの商品のジャンル・細分類で選び直す（ContextAdjust）
- *
- * モデルと照合先は tools/export_products.py で app/src/main/assets/products/ に書き出したものを、そのまま使う。
+ * 商品らしいものの枠を YOLO（SKU-110K で学習）で出し、切り抜きを MobileCLIP-S0 の埋め込みと分類層で 122 カテゴリに分ける。
+ * モデルは tools/export_products.py などで app/src/main/assets/products/ に書き出したものを、そのまま使う。
  */
 final class ProductRecognizer {
     private static let directory = "products"
-    private static let topK = 10
-    private static let minCropPx = 14
-    /// 名前を付ける切り抜きの数の目安。照合が切り抜きの数に比例して遅くなるので抑える（区画が多く埋まっていればこれを超える）。
-    static let maxCrops = 10
-    /// 散らして選ぶための画像の区画（横 × 縦）。名前を付ける数は多くてもこの区画の数まで。
-    static let spreadCols = 4
-    static let spreadRows = 4
+    /// 検証では、確率 0.7 以上の箱の 87% が正解だった（Gemini の確定ラベルとの一致。products/sku26n）。
+    private static let knownProb: Float = 0.7
 
-    private struct Product {
-        let key: String
+    private struct Category {
         let name: String
-        let genre: String?
-        let fine: String?
-        let start: Int
+        let genre: String
     }
 
     private let detector: Onnx.Model
     private let embedder: Onnx.Model
     private let detSize: Int
     private let embSize: Int
-    private let dim: Int
     private let detThreshold: Float
     private let nmsIou: Float
-    private let matchSim: Float
-    /// (ジャンル, 細分類, カテゴリそのもの)。古い gallery.json は 2 つだけなので、足りない分は 0。
-    private let lambdas: (Double, Double, Double)
-    private let pad: (UInt8, UInt8, UInt8)
-    private let products: [Product]
-    private let gallery: [Float]
-    private let byKey: [String: Product]
+    private let categories: [Category]
+    private let head: CategoryHead
 
     init() throws {
         func url(_ name: String, _ ext: String) throws -> URL {
@@ -50,45 +30,25 @@ final class ProductRecognizer {
             }
             return u
         }
-        let metaData = try Data(contentsOf: url("gallery", "json"))
-        guard let meta = JSON.object(metaData) else {
-            throw Onnx.Failure(description: "gallery.json を読めません")
+        guard let meta = JSON.object(try Data(contentsOf: url("gallery", "json"))),
+              let headMeta = JSON.object(try Data(contentsOf: url("category_head", "json"))) else {
+            throw Onnx.Failure(description: "gallery.json か category_head.json を読めません")
         }
-        let detectorPath = try url("detector", "onnx").path
-        let embedPath = try url("embed", "onnx").path
-        let galleryURL = try url("gallery", "bin")
-        detector = try Onnx.Model(path: detectorPath, threads: 4)
-        embedder = try Onnx.Model(path: embedPath, threads: 4)
+        detector = try Onnx.Model(path: try url("detector", "onnx").path, threads: 4)
+        embedder = try Onnx.Model(path: try url("mobileclip_s0", "onnx").path, threads: 4)
         detSize = JSON.int(meta, "detector_size") ?? 640
-        embSize = JSON.int(meta, "embed_size") ?? 128
-        dim = JSON.int(meta, "dim") ?? 128
-        detThreshold = Float(JSON.double(meta, "det_threshold") ?? 0.25)
+        embSize = JSON.int(meta, "embed_size") ?? 256
+        detThreshold = Float(JSON.double(meta, "det_threshold") ?? 0.15)
         nmsIou = Float(JSON.double(meta, "nms_iou") ?? 0.5)
-        matchSim = Float(JSON.double(meta, "match_sim") ?? 0.5)
-        let l = (meta["context_lambda"] as? [NSNumber])?.map(\.doubleValue) ?? [0.05, 0.05]
-        lambdas = (l.count > 0 ? l[0] : 0.05, l.count > 1 ? l[1] : 0.05, l.count > 2 ? l[2] : 0)
-        let p = (meta["pad_color"] as? [NSNumber])?.map(\.uint8Value) ?? [124, 116, 104]
-        pad = (p[0], p[1], p[2])
-        let list = JSON.objects(meta, "products").map {
-            Product(key: JSON.string($0, "key"), name: JSON.string($0, "name"),
-                    genre: JSON.text($0, "genre"), fine: JSON.text($0, "fine"), start: JSON.int($0, "start") ?? 0)
+        categories = JSON.objects(headMeta, "categories").map { Category(name: JSON.string($0, "name"), genre: JSON.string($0, "genre")) }
+        let bytes = try Data(contentsOf: url("category_head", "bin"))
+        let weights = bytes.withUnsafeBytes { raw in
+            (0..<(raw.count / 4)).map { raw.loadUnaligned(fromByteOffset: $0 * 4, as: Float.self) }
         }
-        products = list
-        var keyed: [String: Product] = [:]
-        for p in list { keyed[p.key] = p }
-        byKey = keyed
-        // 照合先は float16（リトルエンディアン）
-        let count = JSON.int(meta, "count") ?? 0
-        let raw = try Data(contentsOf: galleryURL)
-        let n = min(count * dim, raw.count / 2)
-        var g = [Float](repeating: 0, count: n)
-        raw.withUnsafeBytes { (b: UnsafeRawBufferPointer) in
-            for i in 0..<n {
-                let bits = UInt16(b[2 * i]) | (UInt16(b[2 * i + 1]) << 8)
-                g[i] = ProductRecognizer.halfToFloat(bits)
-            }
+        guard let h = CategoryHead(dim: JSON.int(headMeta, "dim") ?? 0, hidden: JSON.int(headMeta, "hidden") ?? 0, classes: categories.count, weights: weights) else {
+            throw Onnx.Failure(description: "category_head.bin の大きさが合いません")
         }
-        gallery = g
+        head = h
     }
 
     /// 商品の枠（正立画像の 0..1、[left, top, right, bottom]）と確からしさ。
@@ -117,131 +77,34 @@ final class ProductRecognizer {
         }
     }
 
-    /**
-     * 写っている商品に名前を付ける。照合先にない商品（似ていない）は外す。
-     * boxes は確からしさの高い順（detect の順）で、画像の各所から散らして maxCrops 個ほどに名前を付ける（spread）。
-     */
-    func recognize(_ image: RGBAImage, _ boxes: [[Float]]) throws -> [RecognizedProduct] {
-        let minW = Float(ProductRecognizer.minCropPx) / Float(image.width)
-        let minH = Float(ProductRecognizer.minCropPx) / Float(image.height)
-        // 大きい順に選ぶと、棚の区画や商品の一部などの大きな誤検出ばかりになるので、確からしさの順に選ぶ。
-        // ただし確からしさの順だけだと一か所に固まるので、画像の区画ごとに散らして選ぶ（spread）
-        let big = ProductRecognizer.spread(boxes.filter { $0[2] - $0[0] >= minW && $0[3] - $0[1] >= minH })
-        if big.isEmpty { return [] }
-        // 切り抜きは 1 枚ずつ、いつも同じ形 [1, 3, 128, 128] でモデルにかける。
-        // まとめてかけると、切り抜きの数（写っている場所で変わる）ごとに ONNX Runtime が作業用のメモリを取り直し、
-        // しかも OS に返さないので、違う場所を撮るたびにメモリが一気に増え、iOS のアプリごとの上限を超えて止められた
-        let plane = embSize * embSize
-        var input = [Float](repeating: 0, count: 3 * plane)
-        let embs: [[Float]] = try big.map { b in
-            square(image, b, into: &input)
-            let (out, _) = try embedder.run(input, shape: [1, 3, embSize, embSize])
-            return ProductRecognizer.normalize(Array(out.prefix(dim)))
-        }
-
-        // 照合先と比べた、そのままの類似度。名前を付けるかどうかは補正前のこれで決める
-        let raw = embs.map { topProducts($0) }
-        let rawSim: [[String: Float]] = raw.map { c in
-            var m: [String: Float] = [:]
-            for x in c { m[x.key] = x.sim }
-            return m
-        }
-        let centers = big.map { (($0[0] + $0[2]) / 2, ($0[1] + $0[3]) / 2) }
-        let keyed = byKey
-        let picked = ContextAdjust.adjust(centers, raw, [
-            ContextAdjust.Level(categoryOf: { keyed[$0]?.genre }, lambda: lambdas.0),
-            ContextAdjust.Level(categoryOf: { keyed[$0]?.fine }, lambda: lambdas.1),
-            ContextAdjust.Level(categoryOf: { $0 }, lambda: lambdas.2),   // キーがカテゴリそのもの（Android 版と同じ）
-        ])
-        return big.indices.compactMap { i in
-            let p = picked[i]
-            guard let key = p.key, let prod = byKey[key] else { return nil }
-            let sim = rawSim[i][key] ?? 0
-            if sim < matchSim { return nil }
-            let b = big[i]
-            return RecognizedProduct(left: b[0], top: b[1], right: b[2], bottom: b[3], name: prod.name, genre: prod.genre, fine: prod.fine, sim: sim)
-        }
-    }
-
-    /// 商品ごとの最大類似度の上位 topK。
-    private func topProducts(_ e: [Float]) -> [ContextAdjust.Candidate] {
-        let rows = gallery.count / dim
-        var best = [Float](repeating: -1, count: products.count)
-        gallery.withUnsafeBufferPointer { g in
-            e.withUnsafeBufferPointer { v in
-                for pi in 0..<products.count {
-                    let end = pi + 1 < products.count ? products[pi + 1].start : rows
-                    var m: Float = -1
-                    var row = products[pi].start
-                    while row < min(end, rows) {
-                        var s: Float = 0
-                        let o = row * dim
-                        for k in 0..<dim { s += g[o + k] * v[k] }
-                        if s > m { m = s }
-                        row += 1
-                    }
-                    best[pi] = m
-                }
-            }
-        }
-        return Array(best.indices).stableSorted { best[$0] > best[$1] }.prefix(ProductRecognizer.topK)
-            .map { ContextAdjust.Candidate(key: products[$0].key, sim: best[$0]) }
-    }
-
-    /// 枠を切り抜き、灰色で正方形に埋めて縮める（縦長の商品の形を残す）。
-    private func square(_ image: RGBAImage, _ b: [Float], into input: inout [Float]) {
+    /// 枠の切り抜き（分類層の学習と同じく広げない）。
+    func cropOf(_ image: RGBAImage, _ b: [Float]) -> RGBAImage? {
         let W = image.width, H = image.height
         let l = Int(b[0] * Float(W)).clamped(0, W - 1)
         let t = Int(b[1] * Float(H)).clamped(0, H - 1)
         let r = Int(b[2] * Float(W)).clamped(l + 1, W)
         let btm = Int(b[3] * Float(H)).clamped(t + 1, H)
-        let w = r - l, h = btm - t
-        let s = Float(max(w, h))
-        let k = Float(embSize) / s
-        let dx = (s - Float(w)) / 2 * k
-        let dy = (s - Float(h)) / 2 * k
+        return ImageUtil.crop(image, l, t, r, btm)
+    }
+
+    /// 切り抜き 1 枚を 122 カテゴリに分類する。確率が knownProb 未満なら、分からないとして nil。
+    func judge(_ crop: RGBAImage, _ box: [Float]) throws -> RecognizedProduct? {
+        var input = [Float](repeating: 0, count: 3 * embSize * embSize)
+        // 正方形に引き伸ばす（学習と同じ作り方）
         ImageUtil.chw(
-            image, source: (l, t, w, h), size: embSize,
-            dest: (dx, dy, Float(w) * k, Float(h) * k), fill: pad, into: &input, at: 0
+            crop, source: (0, 0, crop.width, crop.height), size: embSize,
+            dest: (0, 0, Float(embSize), Float(embSize)), fill: (0, 0, 0), into: &input, at: 0
         )
+        let (out, _) = try embedder.run(input, shape: [1, 3, embSize, embSize])
+        let (index, prob) = head.predict(Self.normalize(out))
+        if prob < Self.knownProb { return nil }
+        let c = categories[index]
+        return RecognizedProduct(left: box[0], top: box[1], right: box[2], bottom: box[3], name: c.name, genre: c.genre, fine: c.name, sim: prob)
     }
 
     private static func normalize(_ v: [Float]) -> [Float] {
         let n = max(v.reduce(0) { $0 + $1 * $1 }.squareRoot(), 1e-6)
         return v.map { $0 / n }
-    }
-
-    /**
-     * 名前を付ける枠を、画像のいろいろな場所から選ぶ。boxes は確からしさの高い順。
-     * 画像を spreadCols×spreadRows の区画に分け（枠の中心で決める）、区画ごとに確からしさの高い順に 1 つずつ順番に取る。
-     * 1 巡目は枠のある区画を全部取る（limit を超えてもよい）。2 巡目からは limit 個になったら止める。
-     * 返す順は確からしさの高い順のまま。
-     */
-    static func spread(_ boxes: [[Float]], limit: Int = ProductRecognizer.maxCrops) -> [[Float]] {
-        // いちばん確からしい枠のある区画から
-        let cells = Array(boxes.indices).orderedGroups { i -> Int in
-            let b = boxes[i]
-            let cx = Int((b[0] + b[2]) / 2 * Float(spreadCols)).clamped(0, spreadCols - 1)
-            let cy = Int((b[1] + b[3]) / 2 * Float(spreadRows)).clamped(0, spreadRows - 1)
-            return cy * spreadCols + cx
-        }.map(\.values)
-        var picked: [Int] = []
-        var round = 0
-        while true {
-            let next = cells.compactMap { round < $0.count ? $0[round] : nil }
-            if next.isEmpty { break }
-            if round == 0 {
-                picked += next
-            } else {
-                for i in next {
-                    if picked.count >= limit { break }
-                    picked.append(i)
-                }
-            }
-            if picked.count >= limit { break }
-            round += 1
-        }
-        return picked.sorted().map { boxes[$0] }
     }
 
     static func iou(_ a: [Float], _ b: [Float]) -> Float {
@@ -259,22 +122,39 @@ final class ProductRecognizer {
         }
         return out
     }
+}
 
-    /// IEEE 754 の半精度を単精度にする（Float16 型はシミュレータの x86 で使えないので自前で）。
-    private static func halfToFloat(_ h: UInt16) -> Float {
-        let sign = UInt32(h & 0x8000) << 16
-        var exp = UInt32((h >> 10) & 0x1F)
-        var frac = UInt32(h & 0x3FF)
-        if exp == 0 {
-            if frac == 0 { return Float(bitPattern: sign) }
-            // 非正規化数: 仮数の先頭の 1 が出るまでずらし、その分だけ指数を下げる
-            var shift: UInt32 = 0
-            while frac & 0x400 == 0 { frac <<= 1; shift += 1 }
-            frac &= 0x3FF
-            exp = 113 - shift
-            return Float(bitPattern: sign | (exp << 23) | (frac << 13))
+/// MobileCLIP の埋め込みから 122 カテゴリの確率を出す分類層（全結合 → ReLU → 全結合）。weights は tools/export_category_head.py の順。
+final class CategoryHead {
+    private let dim: Int, hidden: Int, classes: Int
+    private let weights: [Float]
+
+    init?(dim: Int, hidden: Int, classes: Int, weights: [Float]) {
+        guard dim > 0, hidden > 0, classes > 0, weights.count == (dim + 1) * hidden + (hidden + 1) * classes else { return nil }
+        self.dim = dim; self.hidden = hidden; self.classes = classes; self.weights = weights
+    }
+
+    /// いちばん確率の高いカテゴリの番号と、その確率。embedding は長さ 1 に正規化したもの。
+    func predict(_ embedding: [Float]) -> (Int, Float) {
+        let middle = layer(embedding, dim, hidden, 0).map { max($0, 0) }
+        let logits = layer(middle, hidden, classes, (dim + 1) * hidden)
+        var best = 0
+        for i in logits.indices where logits[i] > logits[best] { best = i }
+        let sum = logits.reduce(0) { $0 + exp($1 - logits[best]) }
+        return (best, 1 / sum)
+    }
+
+    private func layer(_ input: [Float], _ inputs: Int, _ outputs: Int, _ offset: Int) -> [Float] {
+        let bias = offset + inputs * outputs
+        return weights.withUnsafeBufferPointer { w in
+            input.withUnsafeBufferPointer { x in
+                (0..<outputs).map { row in
+                    var value = w[bias + row]
+                    let start = offset + row * inputs
+                    for k in 0..<inputs { value += w[start + k] * x[k] }
+                    return value
+                }
+            }
         }
-        if exp == 0x1F { return Float(bitPattern: sign | 0x7F80_0000 | (frac << 13)) }
-        return Float(bitPattern: sign | ((exp + 112) << 23) | (frac << 13))
     }
 }

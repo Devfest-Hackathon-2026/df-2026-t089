@@ -32,7 +32,7 @@ final class Voice: NSObject, AVSpeechSynthesizerDelegate {
      * 話す。position があれば、その位置から聞こえる。
      * interrupt なら、話している途中の声と、まだ話していない声をやめる（長押しの「調べています」など、すぐ伝えたいとき）。
      */
-    func say(_ text: String, position: (() -> Vec3?)? = nil, interrupt: Bool = false, remember: Bool = true, onDone: (() -> Void)? = nil) {
+    func say(_ text: String, position: (() -> Vec3?)? = nil, interrupt: Bool = false, remember: Bool = true, before: SpatialMixer.Sound? = nil, onDone: (() -> Void)? = nil) {
         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
         let spoken = Reading.forSpeech(text)
         let gen: Int
@@ -46,9 +46,13 @@ final class Voice: NSObject, AVSpeechSynthesizerDelegate {
         if remember { lastSpoken = text }
         worker.async { [self] in
             guard gen == generation, let pcm = synth(spoken), gen == generation else { return }
+            if let before { mixer.speak(before) }   // 声と同じ順番の列に入れて、合成を待つ間にずれないようにする
             mixer.speak(SpatialMixer.Sound(pcm, position: position, onDone: onDone))
         }
     }
+
+    /// 分けて話した文を、「もう一度」で 1 つの文として言えるように覚える。
+    func remember(_ text: String) { lastSpoken = text }
 
     /// よく使う短い言葉を先に合成しておき、言うときにすぐ鳴るようにする。
     func prepare(_ texts: [String]) {

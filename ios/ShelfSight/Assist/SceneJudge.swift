@@ -70,6 +70,29 @@ final class SceneJudge {
         return (spread ? .shelf : .stepBack, nil)
     }
 
+    private static let centerRadius: Float = 0.15
+    private static let oneProductArea: Float = 0.12
+    private static let oneProductRatio: Float = 2.5
+
+    /// 画面の中央の商品の枠。中央の点を含む枠のうち中心がいちばん中央に近いもの。含む枠がなければ、中心が centerRadius 以内でいちばん近いもの。
+    static func centerProduct(_ boxes: [[Float]]) -> [Float]? {
+        func dist(_ b: [Float]) -> Float { hypot((b[0] + b[2]) / 2 - 0.5, (b[1] + b[3]) / 2 - 0.5) }
+        let containing = boxes.filter { $0[0] <= 0.5 && $0[2] >= 0.5 && $0[1] <= 0.5 && $0[3] >= 0.5 }
+        return (containing.isEmpty ? boxes.filter { dist($0) <= centerRadius } : containing).min { dist($0) < dist($1) }
+    }
+
+    /// 2 回たたいたときに LiDAR で近い商品を測れなければ、中央の商品を調べる。枠がなくても中央を文字読みに渡す。
+    static func productTapBox(_ boxes: [[Float]]) -> [Float] { centerProduct(boxes) ?? [0.2, 0.2, 0.8, 0.8] }
+
+    /// 画面いっぱいに大きく 1 つだけ写っている商品の枠。
+    static func mainProduct(_ boxes: [[Float]]) -> [Float]? {
+        let sorted = boxes.stableSorted { area($0) > area($1) }
+        guard let first = sorted.first else { return nil }
+        let second = sorted.count > 1 ? area(sorted[1]) : 0
+        let centered = first[0] < 0.75 && first[2] > 0.25 && first[1] < 0.75 && first[3] > 0.25
+        return area(first) >= oneProductArea && area(first) >= second * oneProductRatio && centered ? first : nil
+    }
+
     static func classify(_ e: SceneEvidence) -> Scene {
         if e.near { return .oneProduct }
         if e.shelves >= 2 { return .shelves }
