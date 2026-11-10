@@ -56,6 +56,8 @@ final class Assist: NSObject, ARSessionDelegate, CLLocationManagerDelegate {
 
     // ------------------------------------------------------------ 音
     @Locked private var listener: Listener? = nil
+    /// 棚や商品の説明を始めてから 90 度より大きく向きを変えたら、説明をやめる（向いている棚が変わったため）。
+    private let turnGuard = TurnGuard()
     /// 立体音響のテストのタブを開いている。
     @Locked private var showTest = false
     private lazy var mixer = SpatialMixer(hrtf: Hrtf.load()) { [weak self] in
@@ -223,7 +225,12 @@ final class Assist: NSObject, ARSessionDelegate, CLLocationManagerDelegate {
         let fz = -z.z
         let len = (fx * fx + fz * fz).squareRoot()
         if len > 0.3 {
-            listener = Listener(position: position, forwardX: fx / len, forwardZ: fz / len)
+            let l = Listener(position: position, forwardX: fx / len, forwardZ: fz / len)
+            listener = l
+            if turnGuard.turned(l, turn: voice.turn, speaking: voice.speaking, now: nowMs()) {
+                voice.stop()
+                debug.description = "（向きが 90 度より大きく変わったので、説明をやめました）"
+            }
             debug.headingDeg = atan2(fx, -fz) * 180 / .pi
         }
 
@@ -452,6 +459,7 @@ final class Assist: NSObject, ARSessionDelegate, CLLocationManagerDelegate {
         case .unknown:
             voice.say("まだ棚が分かりません。棚の方を向いて、少し歩いてください。", interrupt: true)
         }
+        turnGuard.start(l, turn: voice.turn, now: nowMs())
     }
 
     // ------------------------------------------------------------ 2 回たたく: 商品の名前
@@ -523,6 +531,7 @@ final class Assist: NSObject, ARSessionDelegate, CLLocationManagerDelegate {
         case .failure:
             voice.say("調べられませんでした。通信を確認してください。")
         }
+        if let l = listener { turnGuard.start(l, turn: voice.turn, now: nowMs()) }
     }
 
     // ------------------------------------------------------------ ④ 人の接近

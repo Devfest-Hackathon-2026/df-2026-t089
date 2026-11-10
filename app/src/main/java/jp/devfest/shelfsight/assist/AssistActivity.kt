@@ -89,6 +89,8 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
     private val background = CameraBackground()
 
     @Volatile private var listener: Listener? = null
+    /** 棚や商品の説明を始めてから 90 度より大きく向きを変えたら、説明をやめる（向いている棚が変わったため）。 */
+    private val turnGuard = TurnGuard()
     private val mixer by lazy { SpatialMixer(Hrtf.load(this)) { listener ?: if (showTest) DEMO_LISTENER else null } }
     private val voice by lazy { Voice(this, mixer) }
     private val listening by lazy { Listening(this) }
@@ -480,8 +482,13 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
         val fz = -z[2]
         val len = sqrt(fx * fx + fz * fz)
         if (len > 0.3f) {
-            listener = Listener(Vec3(pose.tx(), pose.ty(), pose.tz()), fx / len, fz / len)
+            val l = Listener(Vec3(pose.tx(), pose.ty(), pose.tz()), fx / len, fz / len)
+            listener = l
             debug.headingDeg = Math.toDegrees(kotlin.math.atan2(fx.toDouble(), -fz.toDouble())).toFloat()
+            if (turnGuard.turned(l, voice.turn, voice.speaking, SystemClock.elapsedRealtime())) {
+                voice.stop()
+                debug.description = "（向きが 90 度より大きく変わったので、説明をやめました）"
+            }
         }
 
         val now = SystemClock.elapsedRealtime()
@@ -600,6 +607,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             }
             TapAnswer.Unknown -> voice.say("まだ棚が分かりません。棚の方を向いて、少し歩いてください。", interrupt = true)
         }
+        turnGuard.start(l, voice.turn, SystemClock.elapsedRealtime())
     }
 
     // ---------------------------------------------------------------- 2 回たたく: 商品の名前
@@ -664,6 +672,7 @@ class AssistActivity : Activity(), GLSurfaceView.Renderer {
             onFailure = { "調べられませんでした。通信を確認してください。" },
         )
         voice.say(text)
+        listener?.let { turnGuard.start(it, voice.turn, SystemClock.elapsedRealtime()) }
     }
 
     // ---------------------------------------------------------------- ④ 人の接近

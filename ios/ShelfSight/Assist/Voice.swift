@@ -67,6 +67,9 @@ final class Voice: NSObject, AVSpeechSynthesizerDelegate {
 
     var speaking: Bool { mixer.speaking }
 
+    /// 声の世代。interrupt や stop で声をやめるたびに変わる（TurnGuard が、説明がほかの声で上書きされたかを見る）。
+    var turn: Int { generation }
+
     /// 合成した音（ミキサーの周波数のモノラル）。worker のキューで呼ぶ。
     private func synth(_ text: String) -> [Float]? {
         if let c = cache[text] { return c }

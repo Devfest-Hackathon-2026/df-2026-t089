@@ -88,6 +88,9 @@ class Voice(context: Context, private val mixer: SpatialMixer) : AutoCloseable {
 
     val speaking: Boolean get() = mixer.speaking
 
+    /** 声の世代。interrupt や [stop] で声をやめるたびに変わる（[TurnGuard] が、説明がほかの声で上書きされたかを見る）。 */
+    val turn: Int get() = generation.get()
+
     private fun synth(text: String): FloatArray? = try {
         synthNow(text)
     } catch (e: InterruptedException) {   // close() が合成の待ちを止めたとき
