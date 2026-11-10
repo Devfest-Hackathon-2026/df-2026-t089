@@ -6,8 +6,9 @@ import Foundation
  */
 final class ProductRecognizer {
     private static let directory = "products"
-    /// 地図に置く確からしさ（NeighborConfidence で調整したもの）。検証写真で、調整後 0.7 以上は枠の 53% を残して 91% が正解だった（調整前は 52% で 87%）。
-    static let knownProb: Float = 0.7
+    /// 地図に置く確からしさ（NeighborConfidence で調整したもの）。Android 版は 0.7（検証写真で、調整後 0.7 以上は枠の 53% を残して 91% が正解）。
+    /// iOS 版は、実機で地図に置ける商品が Android 版より少なかったので、0.5 まで下げて置く商品を増やす（正解の割合は少し下がる）。
+    static let knownProb: Float = 0.5
     private static let topCategories = 5
 
     private struct Category {
